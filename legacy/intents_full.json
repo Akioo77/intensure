@@ -1,0 +1,188 @@
+[
+  {
+    "intent_id": "intent-001-global-connectivity",
+    "timestamp": 1785914273.0,
+    "user_statement": "保证园区全网互通，所有主机两两可达",
+    "semantics": {
+      "type": "connectivity",
+      "endpoints": [
+        {"name": "研发", "ip_cidr": ["10.0.0.0/24"], "hosts": ["h1", "h3"]},
+        {"name": "市场", "ip_cidr": ["10.0.0.0/24"], "hosts": ["h2", "h4"]}
+      ]
+    },
+    "target_state": {
+      "connectivity": [{"src": "研发", "dst": "市场", "allow": true}],
+      "link_status": [{"link": "s1-s2", "state": "up"}],
+      "qos": [{"link": "s1-s2", "max_loss_pct": 1}]
+    },
+    "priority": 1,
+    "status": "active"
+  },
+  {
+    "intent_id": "intent-002-finance-isolation",
+    "timestamp": 1785914273.5,
+    "user_statement": "财务专用主机 h4 与研发主机 h1 必须隔离（不允许互通）",
+    "semantics": {
+      "type": "isolation",
+      "endpoints": [
+        {"name": "财务", "hosts": ["h4"]},
+        {"name": "研发", "hosts": ["h1"]}
+      ]
+    },
+    "target_state": {
+      "connectivity": [{"src": "财务", "dst": "研发", "allow": false}]
+    },
+    "priority": 2,
+    "status": "active"
+  },
+  {
+    "intent_id": "intent-003-backbone-qos",
+    "timestamp": 1785914274.0,
+    "user_statement": "骨干链路 s1-s2 时延不超过 50ms，丢包率不超过 1%",
+    "semantics": {"type": "qos", "endpoints": []},
+    "target_state": {
+      "link_status": [{"link": "s1-s2", "state": "up"}],
+      "qos": [{"link": "s1-s2", "max_latency_ms": 50, "max_loss_pct": 1}]
+    },
+    "priority": 3,
+    "status": "active"
+  },
+  {
+    "intent_id": "intent-004-video-bandwidth",
+    "timestamp": 1785914274.5,
+    "user_statement": "市场部视频会议需要 30Mbps 带宽保障",
+    "semantics": {
+      "type": "qos",
+      "endpoints": [{"name": "市场"}]
+    },
+    "target_state": {
+      "qos": [{"link": "s1-s2", "min_bandwidth_mbps": 30}]
+    },
+    "priority": 4,
+    "status": "active"
+  },
+  {
+    "intent_id": "intent-005-voice-lowlatency",
+    "timestamp": 1785914275.0,
+    "user_statement": "VoIP 通话要求 s1-s2 时延 ≤ 20ms",
+    "semantics": {
+      "type": "qos",
+      "endpoints": []
+    },
+    "target_state": {
+      "qos": [{"link": "s1-s2", "max_latency_ms": 20}]
+    },
+    "priority": 5,
+    "status": "active"
+  },
+  {
+    "intent_id": "intent-006-admin-isolation",
+    "timestamp": 1785914275.5,
+    "user_statement": "管理员主机 h3 与访客网络隔离（不在本拓扑演示）",
+    "semantics": {
+      "type": "isolation",
+      "endpoints": [
+        {"name": "管理员", "hosts": ["h3"]},
+        {"name": "访客"}
+      ]
+    },
+    "target_state": {
+      "connectivity": [{"src": "管理员", "dst": "访客", "allow": false}]
+    },
+    "priority": 6,
+    "status": "active"
+  },
+  {
+    "intent_id": "intent-007-backup-bandwidth",
+    "timestamp": 1785914276.0,
+    "user_statement": "财务部 h4 数据备份需 20Mbps 带宽",
+    "semantics": {
+      "type": "qos",
+      "endpoints": [{"name": "财务"}]
+    },
+    "target_state": {
+      "qos": [{"link": "s1-s2", "min_bandwidth_mbps": 20}]
+    },
+    "priority": 7,
+    "status": "active"
+  },
+  {
+    "intent_id": "intent-008-monitoring-qos",
+    "timestamp": 1785914276.5,
+    "user_statement": "网络监控流量优先级最高，确保不被其他流量挤压",
+    "semantics": {
+      "type": "qos",
+      "endpoints": []
+    },
+    "target_state": {
+      "qos": [{"link": "s1-s2", "min_bandwidth_mbps": 10}]
+    },
+    "priority": 8,
+    "status": "active"
+  },
+  {
+    "intent_id": "intent-009-iot-connectivity",
+    "timestamp": 1785914277.0,
+    "user_statement": "IoT 设备（h3）需连接云平台（不在本演示）",
+    "semantics": {
+      "type": "connectivity",
+      "endpoints": [
+        {"name": "IoT设备", "hosts": ["h3"]},
+        {"name": "云平台"}
+      ]
+    },
+    "target_state": {
+      "connectivity": [{"src": "IoT设备", "dst": "云平台", "allow": true}]
+    },
+    "priority": 9,
+    "status": "active"
+  },
+  {
+    "intent_id": "intent-010-cross-dept-link",
+    "timestamp": 1785914277.5,
+    "user_statement": "研发和市场之间的文件共享要求时延 ≤ 30ms",
+    "semantics": {
+      "type": "qos",
+      "endpoints": [
+        {"name": "研发"},
+        {"name": "市场"}
+      ]
+    },
+    "target_state": {
+      "qos": [{"link": "s1-s2", "max_latency_ms": 30}]
+    },
+    "priority": 10,
+    "status": "active"
+  },
+  {
+    "intent_id": "intent-011-emergency-priority",
+    "timestamp": 1785914278.0,
+    "user_statement": "应急通信通道优先级最高（QoS）",
+    "semantics": {
+      "type": "qos",
+      "endpoints": []
+    },
+    "target_state": {
+      "qos": [{"link": "s1-s2", "max_latency_ms": 10, "min_bandwidth_mbps": 5}]
+    },
+    "priority": 1,
+    "status": "active"
+  },
+  {
+    "intent_id": "intent-012-internal-only",
+    "timestamp": 1785914278.5,
+    "user_statement": "内部服务全部限制在骨干网，不允许外联（与全局连通冲突）",
+    "semantics": {
+      "type": "isolation",
+      "endpoints": [
+        {"name": "内部服务"},
+        {"name": "互联网"}
+      ]
+    },
+    "target_state": {
+      "connectivity": [{"src": "内部服务", "dst": "互联网", "allow": false}]
+    },
+    "priority": 11,
+    "status": "active"
+  }
+]

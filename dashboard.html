@@ -1,0 +1,828 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SDN 网络状态监控台 · 意图保障 Part A</title>
+<style>
+  :root {
+    --bg: #0d1117; --panel: #161b22; --border: #30363d;
+    --text: #e6edf3; --dim: #8b949e;
+    --green: #3fb950; --red: #f85149; --yellow: #d29922; --blue: #58a6ff;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text);
+         font-family: -apple-system, "PingFang SC", "Microsoft YaHei", monospace; }
+  header { display: flex; align-items: center; gap: 16px; padding: 14px 20px;
+           border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+  header h1 { font-size: 18px; font-weight: 600; }
+  .badge { padding: 3px 10px; border-radius: 20px; font-size: 12px; border: 1px solid var(--border); }
+  .badge.ok { background: rgba(63,185,80,.15); color: var(--green); border-color: var(--green); }
+  .badge.err { background: rgba(248,81,73,.15); color: var(--red); border-color: var(--red); }
+  .badge.warn { background: rgba(210,153,34,.15); color: var(--yellow); border-color: var(--yellow); }
+  .badge.dim { color: var(--dim); }
+  #clock { margin-left: auto; color: var(--dim); font-size: 13px; }
+  main { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; padding: 14px 20px; }
+  @media (max-width: 1000px) { main { grid-template-columns: 1fr; } }
+  .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 14px; }
+  .panel h2 { font-size: 13px; color: var(--dim); text-transform: uppercase; letter-spacing: 1px;
+              margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center; }
+  .panel h2 .sub { color: var(--blue); text-transform: none; letter-spacing: 0; font-size: 12px; }
+  #topo-svg { width: 100%; height: auto; background: #0b0f14; border-radius: 8px; border: 1px solid var(--border); }
+  .link { stroke: var(--dim); stroke-width: 2.5; }
+  .link.down { stroke: var(--red); stroke-dasharray: 6 4; }
+  .node-sw { fill: #1f6feb33; stroke: var(--blue); stroke-width: 1.5; }
+  .node-host { fill: #3fb95022; stroke: var(--green); stroke-width: 1.5; }
+  .node-text { fill: var(--text); font-size: 12px; }
+  .node-sub { fill: var(--dim); font-size: 10px; }
+  .port-tag { font-size: 10px; fill: var(--dim); }
+  table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+  th { color: var(--dim); font-weight: 500; }
+  .up { color: var(--green); } .down { color: var(--red); }
+  .num { font-variant-numeric: tabular-nums; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  .issue { padding: 4px 8px; border-radius: 5px; font-size: 12px; margin-bottom: 4px; border-left: 3px solid; }
+  .issue.error { border-color: var(--red); color: var(--red); }
+  .issue.warning { border-color: var(--yellow); color: var(--yellow); }
+  .issue.info { border-color: var(--blue); color: var(--blue); }
+  #events { max-height: 240px; overflow-y: auto; font-size: 12px; }
+  #events div { padding: 3px 0; border-bottom: 1px dashed #21262d; }
+  .ev-time { color: var(--dim); margin-right: 8px; }
+  .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+  .big { font-size: 26px; font-weight: 700; }
+  .statcard { display: flex; flex-direction: column; gap: 4px; }
+  .statrow { display: flex; justify-content: space-between; font-size: 12px; color: var(--dim); }
+  .statrow b { color: var(--text); font-weight: 500; }
+  .flow-match { color: var(--dim); font-size: 11px; overflow: hidden; text-overflow: ellipsis; max-width: 220px; display: inline-block; vertical-align: bottom; }
+</style>
+</head>
+<body>
+<header>
+  <h1>🌐 SDN 网络状态监控台</h1>
+  <span class="badge" id="b-sw">—</span>
+  <span class="badge" id="b-host">—</span>
+  <span class="badge" id="b-valid">验证中…</span>
+  <span class="badge dim" id="b-age">—</span>
+  <span id="clock">--:--:--</span>
+</header>
+
+<main>
+  <!-- 拓扑图 -->
+  <div class="panel" style="grid-column: 1 / -1;">
+    <h2>实时拓扑 <span class="sub" id="topo-sub"></span></h2>
+    <svg id="topo-svg" viewBox="0 0 900 340" preserveAspectRatio="xMidYMid meet"></svg>
+  </div>
+
+  <!-- 概览 -->
+  <div class="panel">
+    <h2>网络概览</h2>
+    <div class="grid2">
+      <div class="statcard">
+        <div class="statrow"><span>交换机</span><b id="s-sw">0</b></div>
+        <div class="statrow"><span>主机</span><b id="s-host">0</b></div>
+        <div class="statrow"><span>流表条目</span><b id="s-flow">0</b></div>
+      </div>
+      <div class="statcard">
+        <div class="statrow"><span>全网 RX</span><b id="s-rx" class="num">0</b></div>
+        <div class="statrow"><span>全网 TX</span><b id="s-tx" class="num">0</b></div>
+        <div class="statrow"><span>down 端口</span><b id="s-down" class="down">0</b></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 验证报告 -->
+  <div class="panel">
+    <h2>状态验证 <span class="sub" id="valid-time"></span></h2>
+    <div id="issues"><div class="issue info">等待验证…</div></div>
+  </div>
+
+  <!-- v2.0 移除：异常检测 / 意图与冲突（由其他同学模块负责） -->
+
+  <!-- 端口统计 -->
+  <div class="panel">
+    <h2>端口统计 <span class="sub" id="port-sub"></span></h2>
+    <table>
+      <thead><tr><th>端口</th><th>状态</th><th>RX</th><th>TX</th><th>RX err</th><th>TX drop</th></tr></thead>
+      <tbody id="port-tbody"></tbody>
+    </table>
+  </div>
+
+  <!-- 主机 -->
+  <div class="panel">
+    <h2>主机</h2>
+    <table>
+      <thead><tr><th>MAC</th><th>IP</th><th>位置</th><th>端口</th></tr></thead>
+      <tbody id="host-tbody"></tbody>
+    </table>
+  </div>
+
+  <!-- 流表 -->
+  <div class="panel">
+    <h2>流表</h2>
+    <div id="flows"></div>
+  </div>
+
+  <!-- 流量趋势 -->
+  <div class="panel">
+    <h2>流量趋势 <span class="sub" id="trend-sub">最近 ~16 分钟</span></h2>
+    <svg id="trend-svg" viewBox="0 0 600 170" preserveAspectRatio="xMidYMid meet" style="width:100%;background:#0b0f14;border-radius:8px;border:1px solid var(--border)"></svg>
+    <div style="display:flex;gap:16px;margin-top:6px;font-size:11px;color:var(--dim)">
+      <span><span style="color:var(--green)">━</span> RX</span>
+      <span><span style="color:var(--blue)">━</span> TX</span>
+      <span id="trend-legend"></span>
+    </div>
+  </div>
+
+  <!-- v2.0 移除：自愈状态（由其他同学模块负责） -->
+
+  <!-- 连通性探测 -->
+  <div class="panel">
+    <h2>连通性探测 <span class="sub">周期 pingall (12 对)</span></h2>
+    <div id="conn-stats" style="font-size:12px;margin-bottom:8px"></div>
+    <div id="conn-dots" style="display:flex;gap:3px;flex-wrap:wrap"></div>
+  </div>
+
+  <!-- 事件 -->
+  <div class="panel">
+    <h2>事件流 <span class="sub">最近 100 条</span></h2>
+    <div id="events"></div>
+  </div>
+
+  <!-- 自愈前后对比（采集模块观测到的故障周期） -->
+  <div class="panel" style="grid-column: 1 / -1;">
+    <h2>自愈前后对比 <span class="sub" id="before-after-sub">基于本机采集数据 — link 事件 + ping 历史</span></h2>
+    <div style="font-size:11px;color:var(--dim);margin-bottom:8px">检测到的每一次 <code>port_link_status down</code> → <code>up</code> 配对周期，配上故障前后的 ping 结果。仅显示仍在观测中的故障；纯本地数据，不依赖保障模块。</div>
+    <div id="before-after-list"></div>
+  </div>
+
+  <!-- ============ 联调 v2.0 新增面板 (采集模块视角) ============ -->
+
+  <!-- 上报统计 -->
+  <div class="panel" style="grid-column: 1 / -1;">
+    <h2>上报统计 (Reporter Stats) <span class="sub" id="reporter-sub">联调 v2.0 — POST /check + /verify</span></h2>
+    <div class="grid2">
+      <div>
+        <div style="font-size:11px;color:var(--dim);margin-bottom:6px">调用计数 (累计 · 成功率滚动)</div>
+        <div id="reporter-chips" style="display:flex;gap:6px;margin-bottom:14px;flex-wrap:wrap"></div>
+        <div style="font-size:11px;color:var(--dim);margin-bottom:4px">最近响应时间 (ms · 最近 50 次)</div>
+        <div id="reporter-latency" style="display:flex;gap:1px;align-items:flex-end;height:64px;background:#0b0f14;padding:6px;border-radius:5px;border:1px solid var(--border);overflow:hidden"></div>
+        <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--dim);margin-top:4px">
+          <span id="reporter-latency-min">min —</span>
+          <span id="reporter-latency-avg">avg —</span>
+          <span id="reporter-latency-max">max —</span>
+        </div>
+      </div>
+      <div>
+        <div style="font-size:11px;color:var(--dim);margin-bottom:6px">状态码分布 (最近 50 次)</div>
+        <div style="display:flex;gap:14px;align-items:center">
+          <div id="reporter-pie" style="width:110px;height:110px;border-radius:50%;flex-shrink:0;background:var(--border);transition:background .4s ease"></div>
+          <div id="reporter-pie-legend" style="font-size:12px;line-height:1.7"></div>
+        </div>
+        <div style="font-size:11px;color:var(--dim);margin:12px 0 4px">最后一次调用</div>
+        <div id="reporter-last" style="font-size:12px;background:#0b0f14;padding:8px 10px;border-radius:5px;border:1px solid var(--border)"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- v2.0 移除：ActualState 样例（联调 §4.2 字段对齐用，开发阶段参考，不上 dashboard） -->
+
+  <!-- Reporter 配置 -->
+  <div class="panel">
+    <h2>Reporter 配置 <span class="sub">reporter.py 当前实例</span></h2>
+    <table>
+      <tbody id="reporter-config-tbody"></tbody>
+    </table>
+  </div>
+</main>
+
+<script>
+const API = 'http://127.0.0.1:8080';
+let lastState = null;
+
+const $ = id => document.getElementById(id);
+const fmt = n => (n ?? 0).toLocaleString('en-US');
+const fmtBytes = b => {
+  b = b ?? 0;
+  if (b >= 1e9) return (b/1e9).toFixed(2) + ' GB';
+  if (b >= 1e6) return (b/1e6).toFixed(2) + ' MB';
+  if (b >= 1e3) return (b/1e3).toFixed(1) + ' KB';
+  return b + ' B';
+};
+
+function drawTopo(state) {
+  const svg = $('topo-svg');
+  const NS = 'http://www.w3.org/2000/svg';
+  svg.innerHTML = '';
+  // 只画当前在线交换机 (disconnected_at 为空); 已断开的保留在 API 里供历史查看
+  const sw = {};
+  for (const [d, s] of Object.entries(state.switches || {})) {
+    if (!s.disconnected_at) sw[d] = s;
+  }
+  const links = state.links || {};
+  const hosts = Object.values(state.hosts || {});
+
+  // ---- 数据全部来自 API: 交换机/主机/LLDP 链路 (自适应任意拓扑) ----
+  const swList = Object.keys(sw).sort();
+  const nSw = swList.length;
+  const swIndex = {}; swList.forEach((d, i) => swIndex[d] = i);
+
+  // 主机按 dpid 分组 (只挂到在线交换机)
+  const hostBySw = {};
+  for (const h of hosts) {
+    if (!h.dpid || !sw[h.dpid]) continue;
+    (hostBySw[h.dpid] = hostBySw[h.dpid] || []).push(h);
+  }
+
+  // 圆形布局: 交换机均匀分布在圆周上, 主机挂在各自交换机径向外侧
+  // 对线性/环形/网状拓扑都友好 (网状交叉远少于线性排布)
+  const R = Math.max(150, nSw * 58);           // 交换机圆周半径
+  const hostR = R + 115;                        // 主机圆周半径
+  const M = 60;                                 // 边距
+  const W = 2 * (hostR + M), H = 2 * (hostR + M);
+  svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+  const cx = W / 2, cy = H / 2;
+  const ANG = i => -Math.PI / 2 + i * 2 * Math.PI / Math.max(1, nSw);
+  const swPos = swList.map((_, i) => ({
+    x: cx + R * Math.cos(ANG(i)),
+    y: cy + R * Math.sin(ANG(i)),
+  }));
+  const swName = dpid => {
+    const ports = sw[dpid]?.ports || [];
+    const p = ports.find(p => /^s\d+-eth/.test(p.name || ''));
+    return p ? p.name.split('-')[0] : 'sw' + dpid.slice(-2);
+  };
+
+  // 端口状态查找: (dpid, port_no) → up/down
+  const portState = (dpid, portNo) => {
+    const p = (sw[dpid]?.ports || []).find(x => x.port_no === portNo);
+    return p ? (p.state & 1 ? 0 : 1) : null;
+  };
+  const mk = (tag, attrs) => {
+    const e = document.createElementNS(NS, tag);
+    for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v);
+    svg.appendChild(e); return e;
+  };
+  const line = (x1,y1,x2,y2,cls) => mk('line', {x1,y1,x2,y2,class:cls});
+
+  // 1) 交换机间链路 (LLDP 发现, 去重)
+  const seenPairs = new Set();
+  for (const [key, v] of Object.entries(links)) {
+    const [ad, aPort] = key.split(':');
+    const bd = v.peer_dpid, bPort = v.peer_port;
+    if (swIndex[ad] === undefined || swIndex[bd] === undefined) continue;
+    const pk = [ad+':'+aPort, bd+':'+bPort].sort().join('|');
+    if (seenPairs.has(pk)) continue;
+    seenPairs.add(pk);
+    const aUp = portState(ad, +aPort), bUp = portState(bd, +bPort);
+    const down = aUp === 0 || bUp === 0;
+    const p1 = swPos[swIndex[ad]], p2 = swPos[swIndex[bd]];
+    line(p1.x, p1.y, p2.x, p2.y, 'link ' + (down ? 'down' : ''));
+    mk('text', {x:(p1.x+p2.x)/2, y:(p1.y+p2.y)/2 - 8,
+      class:'port-tag','text-anchor':'middle',
+      fill:down ? 'var(--red)' : 'var(--dim)'})
+      .textContent = down ? `${v.peer_name||bd.slice(-4)} DOWN` : (v.peer_name || bd.slice(-4));
+  }
+
+  // 2) 主机 → 交换机连线 + 主机节点 (挂在各自交换机径向外侧)
+  for (const [i, dpid] of swList.entries()) {
+    const hs = (hostBySw[dpid] || []).sort((a, b) => a.port - b.port);
+    const k = hs.length;
+    hs.forEach((h, j) => {
+      const th = ANG(i) + (j - (k - 1) / 2) * 0.22;   // 主机沿圆周小幅展开
+      const x = cx + hostR * Math.cos(th);
+      const y = cy + hostR * Math.sin(th);
+      const up = portState(h.dpid, h.port);
+      // 连线从交换机边缘出发
+      const ex = swPos[i].x + 52 * Math.cos(th);
+      const ey = swPos[i].y + 52 * Math.sin(th);
+      line(ex, ey, x, y, 'link ' + (up === 0 ? 'down' : ''));
+      mk('circle', {cx:x, cy:y, r:20, class:'node-host'});
+      const label = (h.ipv4 && h.ipv4[0]) || h.mac.slice(-8);
+      mk('text', {x, y:y-1, class:'node-text', 'text-anchor':'middle'}).textContent = label;
+      mk('text', {x, y:y+16, class:'node-sub', 'text-anchor':'middle'}).textContent = h.mac;
+    });
+  }
+
+  // 3) 交换机节点
+  for (const [i, dpid] of swList.entries()) {
+    const p = swPos[i];
+    mk('rect', {x:p.x-70, y:p.y-40, width:140, height:80, rx:8, class:'node-sw'});
+    mk('text', {x:p.x, y:p.y-8, class:'node-text', 'text-anchor':'middle'}).textContent = swName(dpid);
+    const portNames = (sw[dpid]?.ports || []).filter(p => p.port_no !== 4294967294)
+      .map(p => p.name).join('·');
+    mk('text', {x:p.x, y:p.y+16, class:'node-sub', 'text-anchor':'middle'}).textContent = portNames || dpid.slice(-4);
+  }
+}
+
+function render(state) {
+  lastState = state;
+  // 只统计在线交换机
+  const sw = {};
+  for (const [d, s] of Object.entries(state.switches || {})) {
+    if (!s.disconnected_at) sw[d] = s;
+  }
+  const hosts = state.hosts || {};
+  const stats = state.port_stats || {}, flows = state.flows || {};
+  const nSw = Object.keys(sw).length, nHost = Object.keys(hosts).length;
+  $('b-sw').textContent = nSw + ' 交换机';
+  $('b-host').textContent = nHost + ' 主机';
+
+  let rx=0, tx=0, down=0, flowN=0;
+  for (const dpid of Object.keys(sw)) {
+    flowN += (flows[dpid]||[]).length;
+    for (const s of (stats[dpid]||[])) {
+      if (s.port_no === 4294967294) continue; // local 口
+      rx += s.rx_bytes||0; tx += s.tx_bytes||0;
+    }
+    for (const p of (sw[dpid].ports||[])) {
+      if (p.port_no !== 4294967294 && (p.state & 1)) down++;
+    }
+  }
+  $('s-sw').textContent = nSw; $('s-host').textContent = nHost;
+  $('s-flow').textContent = flowN;
+  $('s-rx').textContent = fmtBytes(rx); $('s-tx').textContent = fmtBytes(tx);
+  $('s-down').textContent = down;
+
+  drawTopo(state);
+  renderPorts(sw, stats);
+  renderHosts(hosts);
+  renderFlows(flows);
+  renderEvents(state.events||[]);
+  renderValidation();
+  const age = state.meta ? Math.round(Date.now()/1000 - (state.meta.last_update||0)) : '?';
+  $('b-age').textContent = '状态更新 ' + age + 's 前';
+  $('topo-sub').textContent = '控制器 PID ' + (state.meta && state.meta.controller_pid || '?') + ' · 更新 #' + (state.meta && state.meta.update_count||0);
+}
+
+function renderPorts(sw, stats) {
+  const tb = $('port-tbody'); tb.innerHTML = '';
+  const statMap = {};
+  for (const [dpid, arr] of Object.entries(stats)) {
+    if (!sw[dpid]) continue;  // 跳过已断开交换机
+    for (const s of arr) statMap[dpid+':'+s.port_no] = s;
+  }
+  for (const [dpid, s] of Object.entries(sw)) {
+    for (const p of (s.ports||[])) {
+      if (p.port_no === 4294967294) continue;
+      const st = statMap[dpid+':'+p.port_no] || {};
+      const up = !(p.state & 1);
+      const tr = document.createElement('tr');
+      tr.innerHTML = `<td>${dpid.slice(-4)} · ${p.name}</td>
+        <td class="${up?'up':'down'}">${up?'UP':'DOWN'}</td>
+        <td class="num">${fmtBytes(st.rx_bytes)}</td>
+        <td class="num">${fmtBytes(st.tx_bytes)}</td>
+        <td class="num">${st.rx_errors||0}</td>
+        <td class="num">${st.tx_dropped||0}</td>`;
+      tb.appendChild(tr);
+    }
+  }
+}
+
+function renderHosts(hosts) {
+  const tb = $('host-tbody'); tb.innerHTML = '';
+  for (const [mac, h] of Object.entries(hosts)) {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td class="mono">${mac}</td>
+      <td>${(h.ipv4||[]).join(', ') || '—'}</td>
+      <td>${(h.dpid||'').slice(-4)}</td><td>${h.port??''}</td>`;
+    tb.appendChild(tr);
+  }
+}
+
+function renderFlows(flows) {
+  const el = $('flows'); el.innerHTML = '';
+  const sw = {};
+  for (const [d, s] of Object.entries(lastState?.switches || {})) {
+    if (!s.disconnected_at) sw[d] = s;
+  }
+  for (const [dpid, arr] of Object.entries(flows)) {
+    if (!sw[dpid]) continue;  // 跳过已断开交换机
+    if (!arr.length) continue;
+    const h = document.createElement('div');
+    h.style.cssText = 'font-size:12px;color:var(--blue);margin:8px 0 4px;';
+    h.textContent = `switch ${dpid.slice(-4)} — ${arr.length} flows`;
+    el.appendChild(h);
+    for (const f of arr.slice(0, 12)) {
+      const d = document.createElement('div');
+      d.style.cssText = 'font-size:11px;padding:2px 0;color:var(--dim);';
+      d.innerHTML = `<span class="num" style="color:var(--text)">${f.packet_count||0}p</span> ` +
+        `<span class="flow-match mono" title="${(f.match||'').replace(/&/g,'&amp;').replace(/</g,'&lt;')}">${f.match||''}</span> ` +
+        `<span class="mono">→ ${f.instructions||''}</span>`;
+      el.appendChild(d);
+    }
+    if (arr.length > 12) { const m=document.createElement('div'); m.style.cssText='font-size:11px;color:var(--dim)'; m.textContent=`… 还有 ${arr.length-12} 条`; el.appendChild(m); }
+  }
+  if (!Object.keys(flows).length) el.innerHTML = '<div class="issue info">暂无流表数据</div>';
+}
+
+const TYPE_COLOR = { error:'var(--red)', warning:'var(--yellow)', info:'var(--blue)' };
+function renderValidation() {
+  const el = $('issues');
+  fetch(API + '/api/validate').then(r => r.json()).then(report => {
+    $('b-valid').className = 'badge ' + (report.ok ? 'ok' : 'err');
+    $('b-valid').textContent = report.ok ? '验证通过' : report.by_level.error + ' errors';
+    const t = new Date(report.validated_at*1000).toLocaleTimeString();
+    $('valid-time').textContent = `${t} · ${report.issue_count} issues`;
+    el.innerHTML = '';
+    if (!report.issues.length) {
+      el.innerHTML = '<div class="issue info">✅ 无问题</div>';
+      return;
+    }
+    for (const i of report.issues) {
+      const d = document.createElement('div');
+      d.className = 'issue ' + i.level;
+      d.style.borderColor = TYPE_COLOR[i.level] || 'var(--dim)';
+      d.style.color = TYPE_COLOR[i.level] || 'var(--dim)';
+      d.textContent = `[${i.category}] ${i.message}`;
+      el.appendChild(d);
+    }
+  }).catch(() => { $('b-valid').className='badge warn'; $('b-valid').textContent='API 不可达'; });
+}
+
+function renderEvents(events) {
+  const el = $('events'); el.innerHTML = '';
+  for (const e of events.slice(-60).reverse()) {
+    const d = document.createElement('div');
+    const t = new Date(e.time*1000).toLocaleTimeString();
+    const extra = Object.entries(e).filter(([k]) => !['time','type'].includes(k))
+      .map(([k,v]) => `${k}=${v}`).join(' ');
+    d.innerHTML = `<span class="ev-time">${t}</span><b>${e.type}</b> ${extra}`;
+    el.appendChild(d);
+  }
+}
+
+async function tick() {
+  try {
+    const r = await fetch(API + '/api/state');
+    const s = await r.json();
+    render(s);
+  } catch (e) {
+    $('b-age').textContent = '控制器未连接';
+  }
+  $('clock').textContent = new Date().toLocaleTimeString();
+}
+tick();
+setInterval(tick, 2500);
+
+// ============ 新增: 历史/趋势/自愈/连通性 ============
+function htime(t) { return new Date(t*1000).toLocaleTimeString(); }
+
+function svgPoly(points, color, w) {
+  const NS = 'http://www.w3.org/2000/svg';
+  const p = document.createElementNS(NS, 'polyline');
+  p.setAttribute('points', points.join(' '));
+  p.setAttribute('fill', 'none');
+  p.setAttribute('stroke', color);
+  p.setAttribute('stroke-width', w || 2);
+  return p;
+}
+
+async function renderTrend() {
+  const svg = $('trend-svg');
+  const el = $('trend-legend');
+  try {
+    const hist = await (await fetch(API + '/api/history?key=summary&limit=120')).json();
+    if (!hist.length) { el.textContent = '暂无数据'; return; }
+    const W = 600, H = 150, padL = 8, padB = 18;
+    const rx = hist.map(h => h.rx_bytes||0);
+    const tx = hist.map(h => h.tx_bytes||0);
+    const max = Math.max(1, ...rx, ...tx);
+    const px = i => padL + i * (W - padL - 4) / Math.max(1, hist.length - 1);
+    const py = v => padB + (H - padB - 4) * (1 - v / max);
+    const line = (arr, color) => svgPoly(arr.map((v,i) => `${px(i).toFixed(1)},${py(v).toFixed(1)}`), color, 2);
+    svg.innerHTML = '';
+    svg.appendChild(line(rx, '#3fb950'));
+    svg.appendChild(line(tx, '#58a6ff'));
+    const t0 = htime(hist[0].time), t1 = htime(hist[hist.length-1].time);
+    el.textContent = `${hist.length} 个采样点 · ${t0} ~ ${t1} · 峰值 ${fmtBytes(max)}`;
+  } catch (e) { el.textContent = '历史接口不可达'; }
+}
+
+// v2.0 移除：renderHeal + renderHealingEngine（自愈引擎职责归其他同学）
+
+async function renderConnectivity() {
+  try {
+    const hist = await (await fetch(API + '/api/history?key=connectivity&limit=30')).json();
+    const st = $('conn-stats'), dots = $('conn-dots');
+    dots.innerHTML = '';
+    if (!hist.length) { st.innerHTML = '<div class="issue info">暂无探测数据</div>'; return; }
+    const fails = hist.filter(h => (h.loss_pct||0) > 0).length;
+    st.innerHTML = `最近 ${hist.length} 次探测 · <span style="color:${fails?'var(--red)':'var(--green)'}">失败 ${fails} 次</span> · 最新丢包率 ${hist[hist.length-1].loss_pct}%`;
+    for (const h of hist) {
+      const ok = !(h.loss_pct||0);
+      const d = document.createElement('span');
+      d.style.cssText = `width:10px;height:14px;border-radius:2px;background:${ok?'var(--green)':'var(--red)'};display:inline-block;opacity:.85`;
+      d.title = `${htime(h.time)} loss=${h.loss_pct}% reachable=${h.reachable}`;
+      dots.appendChild(d);
+    }
+  } catch (e) { $('conn-dots').innerHTML = '<div class="issue error">接口不可达</div>'; }
+}
+
+renderTrend(); renderConnectivity();
+setInterval(renderTrend, 4000);
+setInterval(renderConnectivity, 6000);
+
+// v2.0 移除：意图冲突 / 异常检测 / 自愈引擎 / 矩阵视图（相关代码已归档到 legacy/）
+
+// ============ 联调 v2.0: Reporter Mock + ActualState 样例 ============
+// 注意: 这部分是前端 mock, 不依赖后端 API (state_server.py 已归档, 用 setInterval 模拟)
+
+// v2.0 移除：ACTUAL_STATE_SAMPLES 常量（联调 §4.2 字段对齐用，3 个 mock 样例，开发阶段参考）
+
+const REPORTER_CONFIG = {
+  'Base URL':     'http://127.0.0.1:8090',
+  'Intent ID':    'intent-qos-web-001',
+  '超时 (s)':     3,
+  '最大重试':     2,
+  '重试退避':     'exponential (1s → 2s → 4s)',
+  '上报间隔 (s)': 5,
+  '状态文件':     '/var/lib/intensure/state.json',
+  'Auth Token':   'tk_********a3f1',
+  '端点':         'POST /check, POST /verify',
+  '服务模块':     'assurance-reporter v0.4.2',
+};
+
+const reporterState = {
+  total: 0,
+  success: 0,
+  failed: 0,
+  latencies: [],   // 最近 50 个 (ms)
+  codes: [],       // 最近 50 个状态码
+  last: { status: '—', error: null, at: '—', latency_ms: '—', endpoint: '—' },
+};
+
+// 模拟一次上报调用
+function tickReporter() {
+  reporterState.total++;
+  const r = Math.random();
+  let code, latency, err = null, endpoint;
+  // 随机选 /check 或 /verify
+  endpoint = Math.random() < 0.6 ? 'POST /check' : 'POST /verify';
+  if (r < 0.88) {
+    code = 200; latency = 30 + Math.random() * 80;
+  } else if (r < 0.94) {
+    code = 500; latency = 800 + Math.random() * 1500;
+    err = 'ConnectionError: assurance 模块超时 (>3s)';
+  } else if (r < 0.98) {
+    code = 400; latency = 20 + Math.random() * 30;
+    err = 'BadRequest: missing field "intent_id"';
+  } else {
+    code = 503; latency = 1500 + Math.random() * 2000;
+    err = 'ServiceUnavailable: 模块重启中';
+  }
+  reporterState.latencies.push(latency);
+  reporterState.codes.push(code);
+  if (reporterState.latencies.length > 50) reporterState.latencies.shift();
+  if (reporterState.codes.length > 50) reporterState.codes.shift();
+  if (code === 200) reporterState.success++; else reporterState.failed++;
+  reporterState.last.status = code;
+  reporterState.last.error = err;
+  reporterState.last.latency_ms = latency.toFixed(0) + ' ms';
+  reporterState.last.at = new Date().toLocaleTimeString();
+  reporterState.last.endpoint = endpoint;
+}
+
+function renderReporter() {
+  // 1) 调用计数 chips
+  const rate = reporterState.total ? (reporterState.success / reporterState.total * 100) : 100;
+  const rateStr = rate.toFixed(1) + '%';
+  const rateCol = rate >= 95 ? 'var(--green)' : rate >= 80 ? 'var(--yellow)' : 'var(--red)';
+  const chips = [
+    { l: '总调用', v: reporterState.total, c: 'var(--text)' },
+    { l: '成功',   v: reporterState.success, c: 'var(--green)' },
+    { l: '失败',   v: reporterState.failed, c: reporterState.failed ? 'var(--red)' : 'var(--dim)' },
+    { l: '成功率', v: rateStr, c: rateCol },
+  ];
+  const chipsEl = $('reporter-chips');
+  chipsEl.innerHTML = '';
+  for (const c of chips) {
+    const d = document.createElement('div');
+    d.style.cssText = 'padding:5px 12px;background:#0b0f14;border:1px solid var(--border);border-radius:5px;font-size:12px';
+    d.innerHTML = `<span style="color:var(--dim)">${c.l}</span> <b style="color:${c.c};margin-left:4px">${c.v}</b>`;
+    chipsEl.appendChild(d);
+  }
+
+  // 2) 响应时间 bar chart
+  const latEl = $('reporter-latency');
+  latEl.innerHTML = '';
+  const lats = reporterState.latencies;
+  if (!lats.length) {
+    latEl.innerHTML = '<div style="margin:auto;color:var(--dim);font-size:11px">暂无调用</div>';
+    $('reporter-latency-min').textContent = 'min —';
+    $('reporter-latency-avg').textContent = 'avg —';
+    $('reporter-latency-max').textContent = 'max —';
+  } else {
+    const maxLat = Math.max(...lats, 100);
+    const avg = lats.reduce((a,b)=>a+b,0) / lats.length;
+    $('reporter-latency-min').textContent = 'min ' + Math.min(...lats).toFixed(0) + ' ms';
+    $('reporter-latency-avg').textContent  = 'avg ' + avg.toFixed(0) + ' ms';
+    $('reporter-latency-max').textContent = 'max ' + Math.max(...lats).toFixed(0) + ' ms';
+    for (const lat of lats) {
+      const h = Math.max(2, (lat / maxLat) * 52);
+      const c = lat < 200 ? 'var(--green)' : lat < 1000 ? 'var(--yellow)' : 'var(--red)';
+      const b = document.createElement('span');
+      b.style.cssText = `flex:1;height:${h}px;background:${c};opacity:.85;border-radius:1px 1px 0 0;min-width:2px;transition:height .25s ease`;
+      b.title = lat.toFixed(0) + ' ms';
+      latEl.appendChild(b);
+    }
+  }
+
+  // 3) 状态码 pie chart (conic-gradient)
+  const pieEl = $('reporter-pie');
+  const legEl = $('reporter-pie-legend');
+  const counts = { 200: 0, '4xx': 0, '5xx': 0 };
+  for (const c of reporterState.codes) {
+    if (c === 200) counts[200]++;
+    else if (c >= 400 && c < 500) counts['4xx']++;
+    else if (c >= 500) counts['5xx']++;
+  }
+  const total = counts[200] + counts['4xx'] + counts['5xx'];
+  if (total === 0) {
+    pieEl.style.background = 'var(--border)';
+    legEl.innerHTML = '<div style="color:var(--dim)">暂无调用</div>';
+  } else {
+    const p200 = (counts[200] / total * 100);
+    const p4 = (counts['4xx'] / total * 100);
+    const p5 = (counts['5xx'] / total * 100);
+    let grad = '';
+    let acc = 0;
+    if (counts[200] > 0) {
+      grad += `#3fb950 0% ${acc + p200}%, `;
+      acc += p200;
+    }
+    if (counts['4xx'] > 0) {
+      grad += `#d29922 ${acc}% ${acc + p4}%, `;
+      acc += p4;
+    }
+    if (counts['5xx'] > 0) {
+      grad += `#f85149 ${acc}% ${acc + p5}%, `;
+      acc += p5;
+    }
+    pieEl.style.background = `conic-gradient(${grad.replace(/, $/, '')})`;
+    const fmtPct = n => (total ? (n/total*100).toFixed(1) + '%' : '0%');
+    legEl.innerHTML =
+      `<div><span style="display:inline-block;width:10px;height:10px;background:#3fb950;border-radius:2px;margin-right:6px;vertical-align:middle"></span>200 <span style="color:var(--dim);margin-left:4px">${counts[200]} (${fmtPct(counts[200])})</span></div>` +
+      `<div><span style="display:inline-block;width:10px;height:10px;background:#d29922;border-radius:2px;margin-right:6px;vertical-align:middle"></span>4xx <span style="color:var(--dim);margin-left:4px">${counts['4xx']} (${fmtPct(counts['4xx'])})</span></div>` +
+      `<div><span style="display:inline-block;width:10px;height:10px;background:#f85149;border-radius:2px;margin-right:6px;vertical-align:middle"></span>5xx <span style="color:var(--dim);margin-left:4px">${counts['5xx']} (${fmtPct(counts['5xx'])})</span></div>`;
+  }
+
+  // 4) 最后一次调用
+  const last = reporterState.last;
+  const lastColor = last.status === 200 ? 'var(--green)' : 'var(--red)';
+  const errBlock = (last.error && last.status !== 200)
+    ? `<div style="color:var(--red);font-size:11px;margin-top:5px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace">❌ ${last.error}</div>`
+    : `<div style="color:var(--green);font-size:11px;margin-top:5px">✓ 保障模块已确认</div>`;
+  $('reporter-last').innerHTML =
+    `<div style="display:flex;justify-content:space-between;align-items:center"><span><span style="color:var(--dim);font-size:11px">状态码</span> <b style="color:${lastColor};font-size:16px;margin-left:4px">${last.status}</b> · <span style="color:var(--dim);font-size:11px">耗时</span> <b style="margin-left:4px">${last.latency_ms}</b></span><span style="font-size:10px;color:var(--dim);font-family:ui-monospace,SFMono-Regular,Menlo,monospace">${last.endpoint}</span></div>` +
+    `<div style="font-size:11px;color:var(--dim);margin-top:3px">最后调用 ${last.at}</div>` +
+    errBlock;
+
+  // 5) header sub
+  $('reporter-sub').textContent =
+    `联调 v2.0 — POST /check + /verify · ${reporterState.total} 调用 · ${rateStr} 成功率`;
+}
+
+// v2.0 移除：renderActualStates + ACTUAL_STATE_SAMPLES（联调 §4.2 字段对齐用，不上 dashboard）
+
+// 自愈前后对比（纯本地数据：link events + ping history）
+async function renderBeforeAfter() {
+  const listEl = $('before-after-list');
+  if (!listEl) return;
+  try {
+    const [events, pingHist] = await Promise.all([
+      (await fetch(API + '/api/events?limit=200')).json(),
+      (await fetch(API + '/api/history?key=connectivity&limit=80')).json(),
+    ]);
+
+    // 只保留 port_link_status 事件
+    const linkEvents = events
+      .filter(e => e.type === 'port_link_status')
+      .sort((a, b) => a.time - b.time);
+
+    // 配对 down → up
+    const cycles = [];
+    const openDowns = new Map(); // key: dpid:port_no -> down event
+    for (const e of linkEvents) {
+      const key = `${e.dpid}:${e.port_no}`;
+      if (e.down) {
+        if (!openDowns.has(key)) openDowns.set(key, e);
+      } else {
+        const dn = openDowns.get(key);
+        if (dn) {
+          cycles.push({ dn, up: e, ongoing: false });
+          openDowns.delete(key);
+        }
+      }
+    }
+    // 未恢复的故障
+    for (const [key, dn] of openDowns) {
+      cycles.push({ dn, up: null, ongoing: true });
+    }
+    cycles.sort((a, b) => b.dn.time - a.dn.time);
+
+    // 找到故障前最近一次 ping (reachable=true)
+    function findPingBefore(t) {
+      for (let i = pingHist.length - 1; i >= 0; i--) {
+        if (pingHist[i].time < t && (pingHist[i].loss_pct || 0) === 0) return pingHist[i];
+      }
+      return null;
+    }
+    function findPingDuring(t1, t2) {
+      for (let i = 0; i < pingHist.length; i++) {
+        const p = pingHist[i];
+        if (p.time >= t1 && p.time <= t2 && (p.loss_pct || 0) > 0) return p;
+      }
+      return null;
+    }
+    function findPingAfter(t) {
+      for (let i = 0; i < pingHist.length; i++) {
+        if (pingHist[i].time > t) return pingHist[i];
+      }
+      return null;
+    }
+
+    if (!cycles.length) {
+      listEl.innerHTML = '<div class="issue info">尚无故障记录 — 网络稳定运行中</div>';
+      $('before-after-sub').textContent = '基于本机采集数据 — 0 个故障周期';
+      return;
+    }
+
+    const html = [];
+    for (const c of cycles.slice(0, 6)) {  // 最近 6 个周期
+      const portLabel = `${c.dn.dpid.slice(-4)}:${c.dn.port_no}`;
+      const durStr = c.up
+        ? `${(c.up.time - c.dn.time).toFixed(1)}s`
+        : '— 未恢复';
+      const pingBefore = findPingBefore(c.dn.time);
+      const pingDuring = c.up ? findPingDuring(c.dn.time, c.up.time) : findPingDuring(c.dn.time, Date.now() / 1000);
+      const pingAfter = c.up ? findPingAfter(c.up.time) : null;
+
+      const cellPing = (p, label) => {
+        if (!p) return `<div style="color:var(--dim);font-size:11px">${label}: —</div>`;
+        const loss = p.loss_pct || 0;
+        const col = loss > 0 ? 'var(--red)' : 'var(--green)';
+        return `<div style="font-size:11px"><span style="color:var(--dim)">${label}:</span> <b style="color:${col}">loss=${loss}%</b>${p.latency_ms != null ? `, latency=${p.latency_ms.toFixed(1)}ms` : ''}</div>`;
+      };
+
+      const status = c.ongoing
+        ? '<span style="color:var(--red);font-weight:600">● 异常中（未恢复）</span>'
+        : (pingAfter && (pingAfter.loss_pct || 0) === 0
+          ? '<span style="color:var(--green);font-weight:600">✓ 已自愈</span>'
+          : '<span style="color:var(--yellow);font-weight:600">⚠ 已恢复但 ping 仍有丢包</span>');
+
+      html.push(`
+        <div style="padding:10px 12px;border:1px solid ${c.ongoing ? 'var(--red)' : 'var(--border)'};border-radius:6px;margin-bottom:8px;background:${c.ongoing ? '#1a0d0d' : '#0b0f14'}">
+          <div style="display:flex;justify-content:space-between;margin-bottom:6px">
+            <span><b style="color:var(--text)">链路 ${portLabel}</b> · ${c.dn.name || ''} <span style="color:var(--dim);margin-left:6px">持续 ${durStr}</span></span>
+            <span>${status}</span>
+          </div>
+          <div style="color:var(--dim);font-size:11px;margin-bottom:4px">
+            故障 ${htime(c.dn.time)} ${c.up ? '→ 恢复 ' + htime(c.up.time) : '→ 仍未恢复'}
+          </div>
+          <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:4px">
+            <div style="padding:6px;background:#0b0f14;border-radius:4px">
+              <div style="font-size:10px;color:var(--dim);margin-bottom:2px">故障前 ping</div>
+              ${cellPing(pingBefore, '可达')}
+            </div>
+            <div style="padding:6px;background:#0b0f14;border-radius:4px">
+              <div style="font-size:10px;color:var(--dim);margin-bottom:2px">故障中 ping</div>
+              ${cellPing(pingDuring, '丢包')}
+            </div>
+            <div style="padding:6px;background:#0b0f14;border-radius:4px">
+              <div style="font-size:10px;color:var(--dim);margin-bottom:2px">恢复后 ping</div>
+              ${cellPing(pingAfter, '可达')}
+            </div>
+          </div>
+        </div>
+      `);
+    }
+    listEl.innerHTML = html.join('');
+    $('before-after-sub').textContent = `基于本机采集数据 — ${cycles.length} 个故障周期${cycles.some(c => c.ongoing) ? '（含 1 个未恢复）' : ''}`;
+  } catch (e) {
+    listEl.innerHTML = '<div class="issue error">对比接口不可达</div>';
+  }
+}
+
+// Reporter 配置表
+function renderReporterConfig() {
+  const tb = $('reporter-config-tbody');
+  tb.innerHTML = '';
+  for (const [k, v] of Object.entries(REPORTER_CONFIG)) {
+    const tr = document.createElement('tr');
+    const isSecret = /token|key|secret|password/i.test(k);
+    const displayVal = isSecret ? `<span style="color:var(--dim)">${v}</span>` : `<span style="color:var(--text)">${v}</span>`;
+    tr.innerHTML = `<td style="color:var(--dim);width:140px;padding:5px 8px">${k}</td><td class="mono" style="padding:5px 8px">${displayVal}</td>`;
+    tb.appendChild(tr);
+  }
+}
+
+// 启动 mock 循环
+renderReporterConfig();
+renderReporter();
+renderBeforeAfter();  // 自愈前后对比（纯本地数据）
+setInterval(() => { tickReporter(); renderReporter(); }, 1200);
+setInterval(renderBeforeAfter, 6000);  // 6 秒刷新一次
+</script>
+</body>
+</html>

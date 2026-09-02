@@ -1,0 +1,61 @@
+[
+  {
+    "intent_id": "intent-001-global-connectivity",
+    "timestamp": 1785914273.0,
+    "user_statement": "保证园区全网互通，所有主机两两可达，骨干链路必须可用",
+    "semantics": {
+      "type": "connectivity",
+      "endpoints": [
+        { "name": "研发", "ip_cidr": ["10.0.0.0/24"], "hosts": ["h1", "h3"] },
+        { "name": "市场", "ip_cidr": ["10.0.0.0/24"], "hosts": ["h2", "h4"] }
+      ]
+    },
+    "target_state": {
+      "connectivity": [
+        { "src": "研发", "dst": "市场", "allow": true }
+      ],
+      "link_status": [
+        { "link": "s1-s2", "state": "up" }
+      ],
+      "qos": [
+        { "link": "s1-s2", "max_loss_pct": 1 }
+      ]
+    },
+    "priority": 1,
+    "status": "active",
+    "conflicts": []
+  },
+  {
+    "intent_id": "intent-002-isolation",
+    "timestamp": 1785914273.0,
+    "user_statement": "财务专用主机 h4 与研发主机 h1 必须隔离（不允许互通）",
+    "semantics": {
+      "type": "isolation",
+      "endpoints": [
+        { "name": "财务", "hosts": ["h4"] },
+        { "name": "研发", "hosts": ["h1"] }
+      ]
+    },
+    "target_state": {
+      "connectivity": [
+        { "src": "财务", "dst": "研发", "allow": false }
+      ]
+    },
+    "priority": 2,
+    "status": "active",
+    "conflicts": []
+  },
+  {
+    "intent_id": "intent-003-link-qos",
+    "timestamp": 1785914273.0,
+    "user_statement": "骨干链路 s1-s2 时延不超过 50ms，丢包率不超过 1%",
+    "semantics": { "type": "qos", "endpoints": [] },
+    "target_state": {
+      "link_status": [ { "link": "s1-s2", "state": "up" } ],
+      "qos": [ { "link": "s1-s2", "max_latency_ms": 50, "max_loss_pct": 1 } ]
+    },
+    "priority": 3,
+    "status": "active",
+    "conflicts": []
+  }
+]
