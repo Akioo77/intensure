@@ -3,7 +3,7 @@
 > **状态**：✅ **PASS**
 > **环境**：macOS 14.7.4 → Colima VM (Ubuntu 24.04) + Mininet 2.3.0 + OVS 3.3.4 + os-ken 2.8.1
 > **模式**：`integration_demo.py --mode mock`
-> **测试人**：庄英琪（代宝宝跑）
+> **测试人**：（自动化测试运行）
 
 ---
 

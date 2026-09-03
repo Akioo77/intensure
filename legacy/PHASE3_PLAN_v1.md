@@ -196,7 +196,7 @@ POST /api/conflicts/suggest     # 请求自动消解建议（自动）
 7. 测试覆盖与性能
 8. 总结与展望
 
-**工具**：用 `apple-design-skill` 做 Apple 风 PPT（响应主人偏好）
+**工具**：用 `apple-design-skill` 做 Apple 风 PPT（符合设计偏好）
 
 ---
 
