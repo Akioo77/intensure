@@ -59,3 +59,6 @@ coverage.xml
 /tmp/*.log
 /tmp/*.tmp
 /tmp/intensure_*.log
+
+# demo_scripts 运行时临时状态（每次跑联调生成，不入库）
+demo_scripts/.[!.]*

@@ -1,0 +1,197 @@
+<!doctype html>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>意图驱动网络管理 · 采集层（本项目）· 流程图</title>
+<style>
+  :root {
+    color-scheme: light;
+    --bg: #ffffff;
+    --fg: #172033;
+    --muted: #5b6475;
+    --line: #64748b;
+    --neutral: #e2e8f0;
+    --input: #bfdbfe;
+    --process: #c7d2fe;
+    --storage: #99f6e4;
+    --external: #fde68a;
+    --risk: #fecaca;
+    --ours: #0f766e;
+    --oursfill: #ccfbf1;
+  }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--fg);
+    font: 14px/1.45 ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+      "PingFang SC", "Microsoft YaHei", "Segoe UI", sans-serif;
+  }
+  main { max-width: 1020px; margin: 40px auto 60px; padding: 0 24px; }
+  h1 { font-size: 24px; margin: 0 0 4px; letter-spacing: .2px; }
+  h2 { font-size: 17px; margin: 36px 0 2px; }
+  .sub { color: var(--muted); font-size: 13px; margin: 0 0 6px; }
+  svg { width: 100%; height: auto; display: block; }
+  .node { stroke: var(--line); stroke-width: 1; }
+  .neutral { fill: var(--neutral); }
+  .input { fill: var(--input); }
+  .process { fill: var(--process); }
+  .storage { fill: var(--storage); }
+  .external { fill: var(--external); }
+  .risk { fill: var(--risk); }
+  .ours { fill: var(--oursfill); stroke: var(--ours); stroke-width: 2.6; }
+  .edge { stroke: var(--line); stroke-width: 1.6; fill: none; }
+  .edge-dash { stroke: var(--ours); stroke-width: 1.8; fill: none; stroke-dasharray: 7 5; }
+  .t { font-size: 15px; font-weight: 650; fill: var(--fg); text-anchor: middle; }
+  .t2 { font-size: 11.5px; fill: var(--muted); text-anchor: middle; }
+  .lb { font-size: 12.5px; fill: var(--muted); }
+  .ours-lb { font-size: 12.5px; fill: var(--ours); font-weight: 650; }
+  .st { font-size: 12px; font-weight: 650; fill: var(--fg); text-anchor: middle; }
+  .note { font-size: 12.5px; fill: var(--muted); }
+  .legend { font-size: 12.5px; fill: var(--muted); }
+</style>
+<main>
+  <h1>意图驱动网络管理系统 · 端到端流程图</h1>
+  <p class="sub">采集层（本项目）在整体闭环中的位置 —— 让网络的中间过程变成可被机器消费的数据</p>
+
+  <h2>① 系统数据流</h2>
+  <svg viewBox="0 0 900 730" role="img" aria-label="系统数据流总览">
+    <defs>
+      <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#64748b" />
+      </marker>
+      <marker id="ag" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#0f766e" />
+      </marker>
+    </defs>
+
+    <!-- ===== edges (draw first) ===== -->
+    <path class="edge" d="M450,94 L450,138" marker-end="url(#a)" />
+    <path class="edge" d="M450,204 L450,248" marker-end="url(#a)" />
+    <path class="edge" d="M450,314 L450,358" marker-end="url(#a)" />
+    <path class="edge" d="M450,424 L450,468" marker-end="url(#a)" />
+    <path class="edge" d="M450,534 L450,578" marker-end="url(#a)" />
+    <!-- feedback: 意图保障 → 意图实现 -->
+    <path class="edge-dash" d="M600,612 H706 V282 H604" marker-end="url(#ag)" />
+
+    <!-- ===== nodes ===== -->
+    <rect class="node input"     x="300" y="30"  width="300" height="64" rx="9" />
+    <text class="t"  x="450" y="57">用户意图</text>
+    <text class="t2" x="450" y="76">自然语言 · 业务诉求</text>
+
+    <rect class="node process"   x="300" y="140" width="300" height="64" rx="9" />
+    <text class="t"  x="450" y="167">意图翻译智能体</text>
+    <text class="t2" x="450" y="186">NL → 结构化 JSON · 冲突检测</text>
+
+    <rect class="node process"   x="300" y="250" width="300" height="64" rx="9" />
+    <text class="t"  x="450" y="277">意图实现智能体</text>
+    <text class="t2" x="450" y="296">JSON → 配置生成 · 仿真 · 下发/回滚</text>
+
+    <rect class="node neutral"   x="300" y="360" width="300" height="64" rx="9" />
+    <text class="t"  x="450" y="387">网络（Mininet + Open vSwitch）</text>
+    <text class="t2" x="450" y="406">园区拓扑 · OpenFlow 1.3 · 受控实验床</text>
+
+    <rect class="node ours"      x="300" y="470" width="300" height="64" rx="9" />
+    <text class="t"  x="450" y="497">★ 采集层（本项目）</text>
+    <text class="t2" x="450" y="516">状态采集 · 数字化 · 周期上报</text>
+
+    <rect class="node process"   x="300" y="580" width="300" height="64" rx="9" />
+    <text class="t"  x="450" y="607">意图保障智能体</text>
+    <text class="t2" x="450" y="626">一致性检查 · 根因诊断 · 自愈决策</text>
+
+    <!-- ===== edge labels ===== -->
+    <text class="lb" x="468" y="120">自然语言意图</text>
+    <text class="lb" x="468" y="230">期望意图 JSON（Schema v0.1）</text>
+    <text class="lb" x="468" y="340">OpenFlow 配置下发</text>
+    <text class="lb" x="468" y="450">链路 / 端口 / 流表 / 主机 真实状态</text>
+    <text class="ours-lb" x="468" y="560">ActualState · POST /check（每 15s）</text>
+    <text class="ours-lb" x="716" y="450" transform="rotate(90,716,450)">自愈意图 / 复测请求</text>
+
+    <!-- ===== legend ===== -->
+    <rect class="node input"   x="30" y="648" width="16" height="16" rx="3" />
+    <text class="legend" x="54" y="661">用户输入</text>
+    <rect class="node process" x="140" y="648" width="16" height="16" rx="3" />
+    <text class="legend" x="164" y="661">智能体</text>
+    <rect class="node neutral" x="238" y="648" width="16" height="16" rx="3" />
+    <text class="legend" x="262" y="661">实验网络</text>
+    <rect class="node ours"    x="348" y="648" width="16" height="16" rx="3" />
+    <text class="legend" x="372" y="661">本项目（采集层）</text>
+    <text class="legend" x="540" y="661">虚线 = 反馈回路（诊断依据 → 自愈动作）</text>
+  </svg>
+
+  <h2>② 采集层内部：探测与上报循环</h2>
+  <svg viewBox="0 0 900 250" role="img" aria-label="采集层内部循环">
+    <defs>
+      <marker id="b" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#64748b" />
+      </marker>
+    </defs>
+
+    <!-- edges -->
+    <path class="edge" d="M162,96 L198,96" marker-end="url(#b)" />
+    <path class="edge" d="M338,96 L374,96" marker-end="url(#b)" />
+    <path class="edge" d="M514,96 L550,96" marker-end="url(#b)" />
+    <path class="edge" d="M690,96 L726,96" marker-end="url(#b)" />
+    <!-- loop back -->
+    <path class="edge-dash" d="M790,130 V178 H86 V130" marker-end="url(#b)" />
+
+    <rect class="node neutral" x="30"  y="64" width="132" height="64" rx="9" />
+    <text class="st" x="96"  y="92">可达性探测</text>
+    <text class="t2" x="96"  y="111">pingall · 时延 · 丢包</text>
+
+    <rect class="node neutral" x="206" y="64" width="132" height="64" rx="9" />
+    <text class="st" x="272" y="92">读取控制器状态</text>
+    <text class="t2" x="272" y="111">链路 / 端口 / 流表</text>
+
+    <rect class="node storage" x="382" y="64" width="132" height="64" rx="9" />
+    <text class="st" x="448" y="92">组装 ActualState</text>
+    <text class="t2" x="448" y="111">统一 JSON 契约</text>
+
+    <rect class="node storage" x="558" y="64" width="132" height="64" rx="9" />
+    <text class="st" x="624" y="92">POST /check</text>
+    <text class="t2" x="624" y="111">上报保障智能体</text>
+
+    <rect class="node external" x="734" y="64" width="132" height="64" rx="9" />
+    <text class="st" x="800" y="92">一致性判定</text>
+    <text class="t2" x="800" y="111">ACTIVE / VIOLATED</text>
+
+    <text class="note" x="450" y="205" text-anchor="middle">循环周期 15 秒（PROBE_INTERVAL 可调）· 故障期自动携带 down_links / down_ports 证据</text>
+    <text class="note" x="450" y="228" text-anchor="middle">上报可靠性：绕过系统代理直连 + 携带 User-Agent（实测 6/6 = HTTP 200）</text>
+  </svg>
+
+  <h2>③ 意图生命周期状态机（2026-09-19 实测跑通）</h2>
+  <svg viewBox="0 0 960 210" role="img" aria-label="意图生命周期状态机">
+    <defs>
+      <marker id="c" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#64748b" />
+      </marker>
+    </defs>
+
+    <path class="edge" d="M153,80 L181,80" marker-end="url(#c)" />
+    <path class="edge" d="M309,80 L337,80" marker-end="url(#c)" />
+    <path class="edge" d="M465,80 L493,80" marker-end="url(#c)" />
+    <path class="edge" d="M621,80 L649,80" marker-end="url(#c)" />
+    <path class="edge" d="M777,80 L805,80" marker-end="url(#c)" />
+
+    <rect class="node neutral" x="27"  y="52" width="126" height="56" rx="9" />
+    <text class="st" x="90"  y="85" style="font-size:11px">REGISTERED</text>
+    <rect class="node input"   x="183" y="52" width="126" height="56" rx="9" />
+    <text class="st" x="246" y="85" style="font-size:11px">ACTIVE</text>
+    <rect class="node risk"    x="339" y="52" width="126" height="56" rx="9" />
+    <text class="st" x="402" y="85" style="font-size:11px">VIOLATED</text>
+    <rect class="node process" x="495" y="52" width="126" height="56" rx="9" />
+    <text class="st" x="558" y="85" style="font-size:11px">DIAGNOSING</text>
+    <rect class="node process" x="651" y="52" width="126" height="56" rx="9" />
+    <text class="st" x="714" y="85" style="font-size:11px">HEALING</text>
+    <rect class="node storage" x="807" y="52" width="126" height="56" rx="9" />
+    <text class="st" x="870" y="85" style="font-size:11px">RECOVERED</text>
+
+    <text class="t2" x="90"  y="130">注册保障任务</text>
+    <text class="t2" x="246" y="130">进入监控</text>
+    <text class="t2" x="402" y="130">违例确认</text>
+    <text class="t2" x="558" y="130">根因诊断</text>
+    <text class="t2" x="714" y="130">自愈决策（Guard）</text>
+    <text class="t2" x="870" y="130">验证恢复</text>
+
+    <text class="note" x="27" y="166">实测：断骨干链路 → 诊断 port_failure（置信度 0.75）→ 自愈 verdict = APPROVED（四道 Guard 全过）→ 恢复链路 → RECOVERED</text>
+    <text class="note" x="27" y="188">关键：真实故障证据（down_ports）是自愈被放行的决定性因素；证据不足时 Guard 会正确拒绝（BLOCKED）</text>
+  </svg>
+</main>
