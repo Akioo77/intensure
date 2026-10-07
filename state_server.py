@@ -1,27 +1,14 @@
-"""Flask REST 服务：暴露采集模块的网络状态 + 验证结果（v2.0 精简版）。
-
-> v2.0 重构（2026-09-03）：删除意图管理/冲突检测/自愈/异常检测等 endpoints。
-> 这些功能由其他同学的模块负责，本系统只做"采集 + 上报"。
+"""Flask REST 服务：暴露网络状态 + 验证结果。
 
 端点:
-  GET  /                    可视化监控台 (dashboard.html)
-  GET  /api/health          健康检查
-  GET  /api/state           完整网络状态
-  GET  /api/switches        交换机列表
-  GET  /api/hosts           主机列表
-  GET  /api/port_stats      端口统计
-  GET  /api/flows           流表
-  GET  /api/links           LLDP 链路（去重成对）
-  GET  /api/events          事件流
-  GET  /api/validate        状态验证报告
-  GET  /api/history         历史数据（summary/port_stats/validation/connectivity）
-  POST /api/probe           连通性探测结果上报
-
-已删除（v2.0 不再负责，归档到 legacy/）：
-  /api/intents*             意图注册表（6 个）
-  /api/conflicts*           冲突检测/消解（3 个）
-  /api/healing/*            自愈引擎（6 个）
-  /api/anomalies            异常检测（1 个）
+  GET /api/state            完整状态
+  GET /api/switches         交换机列表
+  GET /api/hosts            主机列表
+  GET /api/port_stats       端口统计
+  GET /api/flows            流表
+  GET /api/events           事件流
+  GET /api/validate         跑状态验证（返回问题列表）
+  GET /api/health           健康检查
 """
 import json
 import os
@@ -181,8 +168,111 @@ def api_probe():
 
 
 # ============================================================
-# v2.0 精简：意图管理 / 冲突检测 / 自愈引擎 / 异常检测 已归档到 legacy/
+# OVS 详细日志（独立模块接入，不影响现有采集/上报链路）
 # ============================================================
+
+@app.route('/api/ovs/log')
+def api_ovs_log():
+    """OVS 详细日志查询（链路状态归因用）.
+
+    Query:
+      since: 起始时间戳（秒，float），默认 0
+      until: 结束时间戳（秒），默认 now
+      module: 模块过滤（ofproto/netdev/dpi/bridge 等）
+      level: 级别过滤（DBG/INFO/WARN/ERR）
+      keyword: 关键词过滤（msg 含）
+      limit: 最多条数，默认 500
+
+    返回:
+      {
+        "stats": {...OVSLogger 状态...},
+        "logs": [{ts, ts_str, seq, module, level, msg}, ...]
+      }
+    """
+    try:
+        from ovs_logger import get_instance
+        logger = get_instance()
+    except ImportError as e:
+        return jsonify({
+            'error': 'ovs_logger 模块未找到',
+            'detail': str(e),
+        }), 500
+
+    since = request.args.get('since', default=0, type=float)
+    until = request.args.get('until', default=None, type=float)
+    module = request.args.get('module', default=None, type=str)
+    level = request.args.get('level', default=None, type=str)
+    keyword = request.args.get('keyword', default=None, type=str)
+    limit = request.args.get('limit', default=500, type=int)
+
+    logs = logger.get_logs(
+        since=since, until=until,
+        module=module, level=level,
+        keyword=keyword, limit=limit,
+    )
+    stats = logger.get_stats()
+
+    return jsonify({
+        'stats': stats,
+        'count': len(logs),
+        'logs': logs,
+    })
+
+
+@app.route('/api/ovs/log/correlate', methods=['POST'])
+def api_ovs_log_correlate():
+    """把 link events 跟 OVS 日志做关联（归因用）.
+
+    Body:
+      {
+        "link_events": [{type, dpid, port_no, time, ...}, ...],
+        "time_window": 5.0  // 默认 ±5 秒
+      }
+
+    返回:
+      {
+        "results": [
+          {"link_event": {...}, "ovs_logs": [...], "time_window_s": 5.0},
+          ...
+        ]
+      }
+    """
+    try:
+        from ovs_logger import get_instance
+        logger = get_instance()
+    except ImportError as e:
+        return jsonify({
+            'error': 'ovs_logger 模块未找到',
+            'detail': str(e),
+        }), 500
+
+    data = request.get_json(force=True, silent=True) or {}
+    link_events = data.get('link_events', [])
+    time_window = float(data.get('time_window', 5.0))
+
+    if not isinstance(link_events, list):
+        return jsonify({'error': 'link_events 必须是 list'}), 400
+
+    results = logger.correlate_with_link_events(
+        link_events=link_events,
+        time_window=time_window,
+    )
+    return jsonify({'results': results})
+
+
+@app.route('/api/ovs/log/stats')
+def api_ovs_log_stats():
+    """OVSLogger 采集器状态（给 dashboard 显示用）."""
+    try:
+        from ovs_logger import get_instance
+        logger = get_instance()
+    except ImportError as e:
+        return jsonify({
+            'error': 'ovs_logger 模块未找到',
+            'detail': str(e),
+        }), 500
+
+    return jsonify(logger.get_stats())
 
 
 def main():

@@ -1,20 +1,26 @@
 """ActualState 组装器：内部 state → 联调说明 §4.2 约定的 ActualState 格式。
 
-设计原则（v2.0）:
+设计原则（v3.1，2026-09-12）:
   1. 严格按采集模块联调说明 §4.2 输出字段
-  2. down_links / down_ports 用 "swN:pN" 字符串格式（不是 dpid 数字）
+  2. down_links / down_ports 用 "设备名:端口名" 字符串格式（如 "s1:eth2"），不是 dpid/port_no 数字
+     - 设备名默认从 dpid 末位推断（Mininet 约定 "s1" "s2"），可显式映射覆盖
+     - 端口名优先从 port.name 提取（"s1-eth2" → "eth2"），fallback 到 "p{port_no}"
   3. 内部数据 vs 联调契约的映射封装在本类内部
   4. 字段缺失时按"无 SLA 传 null / 链路未断不传"的规则处理
   5. 无副作用（不读网络、不发请求、纯函数）
 
 主入口:
-  builder = ActualStateBuilder(dpid_to_switch={'0000000000000001': 'sw1', ...})
+  builder = ActualStateBuilder(dpid_to_switch={'0000000000000001': 's1', ...})
   actual = builder.build(intent_id='REQ-001-CI-001', source_host='10.0.0.1',
                          destination_host='10.0.0.2',
                          state=NETWORK_STATE,
                          reachability_result={'reachable': True, 'latency_ms': 12.3,
                                               'packet_loss': 0.0},
                          expected_flow_present=True)
+
+输出示例（down_links / down_ports）:
+  "down_links": ["s1:eth2-s2:eth3", ...]
+  "down_ports": ["s1:eth2", ...]
 """
 from datetime import datetime, timezone, timedelta
 from typing import Dict, List, Optional, Any
@@ -35,8 +41,8 @@ class ActualStateBuilder:
 
         参数:
             dpid_to_switch: dpid_hex → 逻辑交换机名映射表，例如：
-                {'0000000000000001': 'sw1', '0000000000000002': 'sw2'}
-                如果不传，则使用默认映射（前 16 个字符截断 + '0x'）
+                {'0000000000000001': 's1', '0000000000000002': 's2'}
+                如果不传，则使用默认推断（dpid 末位 → "sN"，Mininet 约定）
         """
         self.dpid_to_switch = dpid_to_switch or {}
 
@@ -107,22 +113,22 @@ class ActualStateBuilder:
     def _extract_down_links(self, state: dict) -> List[str]:
         """从 NETWORK_STATE.links 中找出 down 的链路。
 
-        联调契约格式："sw1:p1-sw2:p2"，本端端口 down 时**双向计入**。
-        输出按字典序排序，便于测试断言。
+        联调契约格式："<sw>:<ethN>-<sw>:<ethN>"（如 "s1:eth2-s2:eth3"）。
+        本端端口 down 时**双向计入**。输出按字典序排序，便于测试断言。
         """
-        # 方法 1：从 switches.ports 里直接找 state & LINK_DOWN 的端口
-        # 然后和 links 表交叉
-        down_ports_by_dpid: Dict[str, set] = {}
+        # 第 1 步：扫描所有端口，建立全量 (dpid, port_no) → port_label 表 + down 端口集合
+        all_port_labels: Dict[tuple, str] = {}
+        down_ports_set: set = set()
         for dpid, sw in state.get('switches', {}).items():
-            ports_down = set()
             for p in sw.get('ports', []):
                 if p.get('port_no') == OFPP_LOCAL:
                     continue
+                port_no = p.get('port_no')
+                all_port_labels[(dpid, port_no)] = self._extract_port_label(p)
                 if p.get('state', 0) & OFPPS_LINK_DOWN:
-                    ports_down.add(p.get('port_no'))
-            if ports_down:
-                down_ports_by_dpid[dpid] = ports_down
+                    down_ports_set.add((dpid, port_no))
 
+        # 第 2 步：和 links 表交叉
         down_pairs: List[tuple] = []
         seen_pairs: set = set()
         for key, link in state.get('links', {}).items():
@@ -137,16 +143,19 @@ class ActualStateBuilder:
                 continue
 
             # 任一端 down → 整条链路记为 down
-            a_down = port_a in down_ports_by_dpid.get(dpid_a, set())
-            b_down = peer_port in down_ports_by_dpid.get(peer_dpid, set())
+            a_down = (dpid_a, port_a) in down_ports_set
+            b_down = (peer_dpid, peer_port) in down_ports_set
             if not (a_down or b_down):
                 continue
 
-            # 端点规范化为 (sw_a, p_a) 和 (sw_b, p_b)
+            # 端点规范化为 (sw_a, label_a) 和 (sw_b, label_b)
             sw_a = self._dpid_to_switch_name(dpid_a)
             sw_b = self._dpid_to_switch_name(peer_dpid)
-            ep_a = (sw_a, port_a)
-            ep_b = (sw_b, peer_port)
+            # 任何一端都可能没在端口表里（peer port 不在 switches.ports 里），fallback 到 p{port_no}
+            label_a = all_port_labels.get((dpid_a, port_a), f'p{port_a}')
+            label_b = all_port_labels.get((peer_dpid, peer_port), f'p{peer_port}')
+            ep_a = (sw_a, label_a)
+            ep_b = (sw_b, label_b)
             # 用 frozenset 去重（A-B 和 B-A 是同一条）
             pair = frozenset([ep_a, ep_b])
             if pair in seen_pairs:
@@ -160,12 +169,12 @@ class ActualStateBuilder:
 
         # 全链路字典序
         down_pairs.sort(key=lambda pair: (pair[0][0], pair[0][1], pair[1][0], pair[1][1]))
-        return [f'{a[0]}:p{a[1]}-{b[0]}:p{b[1]}' for a, b in down_pairs]
+        return [f'{a[0]}:{a[1]}-{b[0]}:{b[1]}' for a, b in down_pairs]
 
     def _extract_down_ports(self, state: dict) -> List[str]:
         """提取所有 down 的端口（不限于交换机间链路）。
 
-        联调契约格式："sw1:p1"，按 (switch, port) 字典序排序。
+        联调契约格式："<sw>:<ethN>"（如 "s1:eth2"），按 (switch, port) 字典序排序。
         """
         down_list: List[tuple] = []
         for dpid, sw in state.get('switches', {}).items():
@@ -174,23 +183,49 @@ class ActualStateBuilder:
                     continue
                 if p.get('state', 0) & OFPPS_LINK_DOWN:
                     sw_name = self._dpid_to_switch_name(dpid)
-                    down_list.append((sw_name, p.get('port_no')))
+                    port_label = self._extract_port_label(p)
+                    down_list.append((sw_name, port_label))
         down_list.sort()
-        return [f'{sw}:p{port}' for sw, port in down_list]
+        return [f'{sw}:{label}' for sw, label in down_list]
+
+    def _extract_port_label(self, port: dict) -> str:
+        """从 port 字典提取端口标签（用于联调契约的"ethN"部分）。
+
+        优先级:
+          1. 从 port['name'] 分割得到 ('s1-eth2' → 'eth2')
+          2. port['name'] 已经是短格式 ('eth2')
+          3. fallback 到 'p{port_no}'
+
+        参数:
+            port: {'port_no': int, 'name': str, 'state': int, ...}
+
+        返回:
+            端口标签字符串（不含设备名前缀）
+        """
+        name = port.get('name', '')
+        if name and '-' in name:
+            # Mininet 格式: 's1-eth2' → 取最后一段 'eth2'
+            return name.split('-')[-1]
+        if name:
+            # 已经是 'eth2' 或其他简短形式
+            return name
+        # fallback：没有 name 字段，用 port_no
+        return f'p{port.get("port_no", "?")}'
 
     def _dpid_to_switch_name(self, dpid_hex: str) -> str:
-        """dpid_hex → 联调约定的 swN 字符串。
+        """dpid_hex → 联调约定的设备名（默认 Mininet 命名 "s1" "s2"）。
 
-        默认行为：如果没传映射表，从 dpid 末尾数字推断（'0000000000000001' → 'sw1'）。
+        默认行为：从 dpid 末尾数字推断（'0000000000000001' → 's1'）。
+        也支持显式传入 dpid_to_switch 映射表。
         """
         if dpid_hex in self.dpid_to_switch:
             return self.dpid_to_switch[dpid_hex]
-        # fallback：取 dpid 数字部分的末尾
+        # fallback：取 dpid 数字部分的末尾（Mininet 约定）
         try:
             n = int(dpid_hex, 16)
-            return f'sw{n}'
+            return f's{n}'
         except (ValueError, TypeError):
-            return f'sw_{dpid_hex[-4:]}'
+            return f's_{dpid_hex[-4:]}'
 
     @staticmethod
     def _iso_now() -> str:

@@ -46,6 +46,41 @@ LOCAL_API = 'http://127.0.0.1:8080'
 
 # ============ 探测 ============
 
+def safe_ping(host, dst_ip, count=3, timeout_s=6):
+    """带超时保护的 ping（绕开 Mininet pingAll 的 pty 卡死问题）。
+
+    当链路断开时，Mininet 的 net.pingAll() / node.cmd() 会卡在 pty 等待上
+    （ping 子进程不退出 → 主循环死锁）。这里改用 subprocess + mnexec，
+    强制 timeout 保护，保证探测循环永不死锁。
+
+    参数:
+        host: Mininet host 对象（用 host.pid 拿到命名空间 PID）
+        dst_ip: 目标 IP
+        count: ping 次数
+        timeout_s: subprocess 硬超时（秒）
+
+    返回:
+        (loss_pct: float, latency_ms: float | None)
+    """
+    import subprocess
+    try:
+        r = subprocess.run(
+            ['mnexec', '-a', str(host.pid), 'ping', '-c', str(count), '-W', '1', dst_ip],
+            capture_output=True, text=True, timeout=timeout_s
+        )
+        out = r.stdout or ''
+    except subprocess.TimeoutExpired:
+        return (100.0, None)
+    except Exception:
+        return (100.0, None)
+
+    m = re.search(r'(\d+(?:\.\d+)?)% packet loss', out)
+    loss = float(m.group(1)) if m else 100.0
+    m2 = re.search(r'avg[^=]*= ([\d.]+)', out)
+    latency = float(m2.group(1)) if m2 else None
+    return (loss, latency)
+
+
 def measure_latency(net):
     """h1 → h4 平均 RTT（跨 s1-s2 骨干链路）。"""
     try:
@@ -108,9 +143,9 @@ def main():
 
     print('\n'.join(info_lines), flush=True)
 
-    # 初次 pingall（让 L2 学习 + 流表安装）
+    # 初次探测（让 L2 学习 + 流表安装）；带超时保护，避免卡死
     time.sleep(3)
-    loss = net.pingAll()
+    loss, _ = safe_ping(net.get('h1'), '10.0.0.4', count=3, timeout_s=8)
     print(f'INITIAL_PINGALL: {loss}% loss', flush=True)
 
     cycle = 0
@@ -119,9 +154,8 @@ def main():
         try:
             t0 = time.time()
 
-            # 探测
-            loss_pct = net.pingAll()
-            latency_ms = measure_latency(net)
+            # 探测（只测 h1→h4，带 subprocess 超时保护，故障时不会卡死）
+            loss_pct, latency_ms = safe_ping(net.get('h1'), '10.0.0.4', count=3, timeout_s=6)
             reachable = (loss_pct == 0.0)
 
             # 读 state

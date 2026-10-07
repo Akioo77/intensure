@@ -106,7 +106,7 @@ def test_down_link_extraction():
     check('down_links 已提取', 'down_links' in actual,
           f'actual keys: {list(actual.keys())}')
     check('down_links 格式正确',
-          actual.get('down_links') == ['sw1:p2-sw2:p3'],
+          actual.get('down_links') == ['s1:eth2-s2:eth3'],
           f"got: {actual.get('down_links')}")
 
 
@@ -129,7 +129,7 @@ def test_down_ports_skip_local():
         reachability_result={'reachable': False},
         expected_flow_present=False,
     )
-    check('down_ports 只含数据口', actual.get('down_ports') == ['sw1:p1'],
+    check('down_ports 只含数据口', actual.get('down_ports') == ['s1:eth1'],
           f"got: {actual.get('down_ports')}")
 
 
@@ -184,6 +184,7 @@ def test_dpid_to_switch_mapping():
     )
     check('自定义映射生效', 'sw1:p1' in actual.get('down_ports', []),
           f"got: {actual.get('down_ports')}")
+    # 注：自定义 sw1 + 端口无 name → fallback 'p{port_no}'，所以是 'sw1:p1'
 
     # 默认映射
     builder2 = ActualStateBuilder()
@@ -196,8 +197,9 @@ def test_dpid_to_switch_mapping():
         reachability_result={'reachable': False},
         expected_flow_present=False,
     )
-    check('默认映射 swN 推断', 'sw3:p5' in actual2.get('down_ports', []),
+    check('默认映射 sN 推断（Mininet 约定）', 's3:p5' in actual2.get('down_ports', []),
           f"got: {actual2.get('down_ports')}")
+    # 注：默认 + 端口无 name → fallback 'p{port_no}'
 
 
 def test_dedup_bidirectional_link():

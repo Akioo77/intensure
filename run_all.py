@@ -61,6 +61,20 @@ def main():
     except Exception as e:
         print(f"   ⚠ 健康检查失败: {e}")
 
+    # 3.5 启动 OVS 详细日志采集（独立模块，不影响主流程）
+    #     - 启动失败也不阻塞控制器
+    #     - 用于归因链路状态变化（"是谁让端口 up/down 的"）
+    try:
+        from ovs_logger import start_global
+        if start_global():
+            print(f"   OVS 详细日志: ✅ 已启动 (查询: GET /api/ovs/log)")
+        else:
+            print(f"   OVS 详细日志: ⚠ 启动失败（不影响主流程）")
+    except ImportError:
+        print(f"   OVS 详细日志: ⚠ ovs_logger 模块未找到（跳过）")
+    except Exception as e:
+        print(f"   OVS 详细日志: ⚠ 启动异常: {e}（不影响主流程）")
+
     # 4. 跑控制器 (主线程, 阻塞)
     print(f"\n🎮 启动 os-ken 控制器 (controller_app)...")
     print(f"   OpenFlow: 6633 / 6653")
@@ -72,6 +86,13 @@ def main():
         print("\n\n⚠ 收到 Ctrl+C, 退出...")
     except SystemExit:
         pass
+    finally:
+        # 关闭时优雅停止 OVSLogger（独立于控制器启停，不影响主流程）
+        try:
+            from ovs_logger import stop_global
+            stop_global()
+        except Exception as e:
+            print(f"⚠ OVSLogger 关闭异常: {e}", file=sys.stderr)
 
 
 if __name__ == '__main__':
