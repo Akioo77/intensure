@@ -40,8 +40,10 @@ sudo pkill -9 -f "live_env.py" 2>/dev/null || true
 tmux kill-session -t intensure 2>/dev/null || true
 sudo pkill -9 mn 2>/dev/null || true
 sudo mn -c 2>/dev/null || true
+# 清空 module_heart（心跳 Phase 1 不启用，保留以前的数据会误导）
+sudo -u postgres psql -d intensure_dev -c "DELETE FROM shared.module_health;" > /dev/null 2>&1 || true
 sleep 2
-ok "所有 intensure 相关进程已清理"
+ok "所有 intensure 相关进程已清理 + module_heart 已清"
 
 # ============ 1. 启动 os-ken 控制器 ============
 step "1/8 启动 os-ken 控制器 (监听 6653/8080)"

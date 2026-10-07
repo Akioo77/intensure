@@ -469,8 +469,9 @@ class StateCollectorController(app_manager.OSKenApp):
                 db_writer.write_network_state(snapshot)
                 # state_history: 选择性写（30s 节流 + 变化触发）
                 db_writer.write_state_history_if_needed(snapshot, summary)
-                # 心跳
-                db_writer.write_heartbeat(status='healthy', version='3.5-db')
+                # 心跳：Phase 1 不启用（环境变量 INTENSURE_HEARTBEAT=1 启用）
+                if os.environ.get('INTENSURE_HEARTBEAT') == '1':
+                    db_writer.write_heartbeat(status='healthy', version='3.8-db')
             except Exception as e:
                 self.logger.warning(f'db write failed: {e}')
 

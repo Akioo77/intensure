@@ -449,25 +449,26 @@ def main():
         except Exception as e:
             print(f'CYCLE_{cycle:04d} ERROR: {e}', flush=True)
 
-        # 心跳（按时间间隔，不是每次循环）
-        now = time.time()
-        if (now - last_heartbeat) > HEARTBEAT_INTERVAL:
-            try:
-                # 用 db_writer 的 write_heartbeat 但模块名='assurance'
-                # 直接 SQL 写（避免修改 db_writer 共享函数）
-                conn = w._get_conn()
-                with conn.cursor() as cur:
-                    cur.execute("""
-                        INSERT INTO shared.module_health (module_name, status, version, metadata)
-                        VALUES ('assurance', 'healthy', %s, '{}'::jsonb)
-                        ON CONFLICT (module_name) DO UPDATE SET
-                            last_heartbeat = now(),
-                            status = EXCLUDED.status,
-                            version = EXCLUDED.version
-                    """, (VERSION,))
-                last_heartbeat = now
-            except Exception as e:
-                print(f'  WARN: heartbeat failed: {e}', flush=True)
+        # 心跳（Phase 1 不启用，环境变量 INTENSURE_HEARTBEAT=1 启用）
+        if os.environ.get('INTENSURE_HEARTBEAT') == '1':
+            now = time.time()
+            if (now - last_heartbeat) > HEARTBEAT_INTERVAL:
+                try:
+                    # 用 db_writer 的 write_heartbeat 但模块名='assurance'
+                    # 直接 SQL 写（避免修改 db_writer 共享函数）
+                    conn = w._get_conn()
+                    with conn.cursor() as cur:
+                        cur.execute("""
+                            INSERT INTO shared.module_health (module_name, status, version, metadata)
+                            VALUES ('assurance', 'healthy', %s, '{}'::jsonb)
+                            ON CONFLICT (module_name) DO UPDATE SET
+                                last_heartbeat = now(),
+                                status = EXCLUDED.status,
+                                version = EXCLUDED.version
+                        """, (VERSION,))
+                    last_heartbeat = now
+                except Exception as e:
+                    print(f'  WARN: heartbeat failed: {e}', flush=True)
 
         time.sleep(CHECK_INTERVAL)
 
