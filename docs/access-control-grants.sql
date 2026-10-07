@@ -29,9 +29,9 @@ GRANT CONNECT ON DATABASE intensure_dev TO intensure_user, translation_user, imp
 
 -- 3. SCHEMA USAGE
 GRANT USAGE ON SCHEMA intensure, shared, translation, implementation, assurance_mv TO intensure_user;
-GRANT USAGE ON SCHEMA shared, intensure, implementation, assurance_mv TO translation_user;
-GRANT USAGE ON SCHEMA shared, translation, intensure, assurance, assurance_mv TO implementation_user;
-GRANT USAGE ON SCHEMA shared, intensure, implementation, translation, assurance_mv TO assurance_user;
+GRANT USAGE ON SCHEMA shared, translation, intensure, implementation, assurance_mv TO translation_user;
+GRANT USAGE ON SCHEMA shared, translation, intensure, implementation, assurance, assurance_mv TO implementation_user;
+GRANT USAGE ON SCHEMA shared, translation, implementation, intensure, assurance, assurance_mv TO assurance_user;
 
 -- 4. SHARED
 GRANT SELECT ON shared.schema_version TO intensure_user, translation_user, implementation_user, assurance_user;

@@ -33,6 +33,12 @@ DEFAULT_DSN = (
 )
 DSN = os.environ.get('INTENSURE_DB_DSN', DEFAULT_DSN)
 
+# 保障模块 DSN
+DEFAULT_DSN_ASSURANCE = (
+    'postgresql://assurance_user:assurance_dev_pwd@127.0.0.1:5432/intensure_dev'
+)
+DSN_ASSURANCE = os.environ.get('ASSURANCE_DB_DSN', DEFAULT_DSN_ASSURANCE)
+
 # 选择性写库阈值
 STATE_HISTORY_MIN_INTERVAL = 30    # 秒；state_history 写库最小间隔
 PROBE_LOSS_THRESHOLD = 0.01        # 丢包>1% 视为异常
@@ -46,17 +52,28 @@ DEBUG = os.environ.get('INTENSURE_DB_DEBUG', '0') == '1'
 # ============ 单例 ============
 
 _instance = None
+_assurance_instance = None
 _lock = threading.Lock()
 
 
 def get_writer():
-    """获取全局单例。"""
+    """获取全局单例（intensure_user）。"""
     global _instance
     if _instance is None:
         with _lock:
             if _instance is None:
                 _instance = DBWriter()
     return _instance
+
+
+def get_assurance_writer():
+    """获取全局单例（assurance_user）。"""
+    global _assurance_instance
+    if _assurance_instance is None:
+        with _lock:
+            if _assurance_instance is None:
+                _assurance_instance = DBWriter(dsn=DSN_ASSURANCE)
+    return _assurance_instance
 
 
 class DBWriter:
@@ -123,6 +140,27 @@ class DBWriter:
                 except Exception:
                     pass
                 self._conn = None
+
+    # ---------- 读（查询） ----------
+
+    def query(self, sql, params=None):
+        """只读查询，返回 list of dict。"""
+        conn = self._get_conn()
+        try:
+            with conn.cursor() as cur:
+                cur.execute(sql, params or ())
+                cols = [d[0] for d in cur.description]
+                return [dict(zip(cols, row)) for row in cur.fetchall()]
+        except Exception as e:
+            self.stats['errors'] += 1
+            if DEBUG:
+                print(f'[DBWriter] query error: {e}', flush=True)
+            return []
+
+    def query_one(self, sql, params=None):
+        """只读查询，返回单行 dict 或 None。"""
+        rows = self.query(sql, params or ())
+        return rows[0] if rows else None
 
     # ---------- network_state (单行 upsert, 每次都写) ----------
 
@@ -513,3 +551,12 @@ if __name__ == '__main__':
     ok = w.write_heartbeat(status='healthy', version='3.5')
     print(f'write_heartbeat: {ok}')
     print('stats:', w.get_stats())
+
+    # 保障模块读测试
+    print()
+    print('--- Assurance writer read test ---')
+    aw = get_assurance_writer()
+    ns = aw.query_one('SELECT version, captured_at FROM intensure.network_state LIMIT 1')
+    print(f'network_state read: {ns}')
+    policies = aw.query('SELECT intent_id, intent_type FROM implementation.policies WHERE status=%s LIMIT 3', ('active',))
+    print(f'active policies: {len(policies)}')

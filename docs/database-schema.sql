@@ -369,7 +369,7 @@ CREATE INDEX idx_rollback_history_policy ON implementation.rollback_history (pol
 -- 意图状态机轨迹（保障模块每 5s 更新一次）
 CREATE TABLE assurance.intent_states (
     id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    intent_id       TEXT NOT NULL,             -- 业务意图 ID（与 policies.intent_id 对齐）
+    intent_id       TEXT NOT NULL UNIQUE,      -- 业务意图 ID（与 policies.intent_id 对齐）— 保证一个 intent 表达上定 1 行
     current_status  TEXT NOT NULL,             -- REGISTERED/ACTIVE/VIOLATED/DIAGNOSING/HEALING/RECOVERED/FAILED
     last_checked_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     last_status_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
