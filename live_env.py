@@ -176,6 +176,17 @@ def main():
                 expected_flow_present=flow_present,
             )
 
+            # **选择性写 DB**：探针异常才写 probe_results
+            try:
+                import db_writer
+                db_writer.write_probe_with_decision(
+                    src_host=SRC_HOST, dst_host=DST_HOST,
+                    reachable=reachable, loss_pct=loss_pct / 100.0,
+                    latency_ms=latency_ms,
+                )
+            except Exception as e:
+                print(f'  WARN: db probe write failed: {e}', flush=True)
+
             # 上报 connectivity 历史到本地 controller（供 dashboard 「自愈前后对比」面板使用）
             try:
                 probe_payload = json.dumps({

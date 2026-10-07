@@ -21,6 +21,8 @@ import time
 
 import state_history
 
+import db_writer
+
 from os_ken.base import app_manager
 from os_ken.controller import ofp_event
 from os_ken.controller.handler import (
@@ -212,6 +214,19 @@ class StateCollectorController(app_manager.OSKenApp):
                         down=bool(new_state & OFPPS_LINK_DOWN),
                         reason=msg.reason,
                     )
+                    # 端口状态变化 → 写 DB
+                    try:
+                        event_type = 'link_down' if (new_state & OFPPS_LINK_DOWN) else 'link_up'
+                        db_writer.write_port_event(
+                            dpid=dpid_hex,
+                            port_no=desc.port_no,
+                            port_name=port_name,
+                            event_type=event_type,
+                            speed_mbps=desc.curr_speed,
+                            metadata={'reason': msg.reason},
+                        )
+                    except Exception as e:
+                        self.logger.warning(f'db port_event write failed: {e}')
                     # 端口 down → 立即移除相关 LLDP 链路 (不等超时)
                     if new_state & OFPPS_LINK_DOWN:
                         self._remove_links_on_port(dpid_hex, desc.port_no)
@@ -299,6 +314,15 @@ class StateCollectorController(app_manager.OSKenApp):
             if is_new:
                 self._log_event('link_discovered', dpid=dpid_hex, port=in_port,
                                 peer_dpid=peer_dpid, peer_port=peer_port)
+                # 写 DB link_event
+                try:
+                    db_writer.write_link_event(
+                        src_dpid=dpid_hex, src_port=in_port,
+                        dst_dpid=peer_dpid, dst_port=peer_port,
+                        event_type='link_up',
+                    )
+                except Exception as e:
+                    self.logger.warning(f'db link_event write failed: {e}')
             self._mark_updated()
         except Exception:
             pass
@@ -311,6 +335,19 @@ class StateCollectorController(app_manager.OSKenApp):
         for k in stale:
             dpid, port = k.split(':')
             self._log_event('link_lost', dpid=dpid, port=int(port))
+            # 写 DB link_event（需要 peer 信息，取现有记录）
+            try:
+                old = NETWORK_STATE['links'].get(k, {})
+                peer = old.get('peer_dpid', '')
+                peer_port = old.get('peer_port', 0)
+                if peer and peer_port:
+                    db_writer.write_link_event(
+                        src_dpid=dpid, src_port=int(port),
+                        dst_dpid=peer, dst_port=peer_port,
+                        event_type='link_down',
+                    )
+            except Exception as e:
+                self.logger.warning(f'db link_event (lost) write failed: {e}')
             del NETWORK_STATE['links'][k]
         if stale:
             self._mark_updated()
@@ -424,6 +461,41 @@ class StateCollectorController(app_manager.OSKenApp):
                 self._request_stats(dp)
             dump_state_to_file()
             self._record_history()
+            # 写入数据库（网络状态 + 选择性 state_history）
+            try:
+                snapshot = _to_json_safe(NETWORK_STATE)
+                summary = self._make_state_summary()
+                # network_state: 每次都写（单行 upsert）
+                db_writer.write_network_state(snapshot)
+                # state_history: 选择性写（30s 节流 + 变化触发）
+                db_writer.write_state_history_if_needed(snapshot, summary)
+                # 心跳
+                db_writer.write_heartbeat(status='healthy', version='3.5-db')
+            except Exception as e:
+                self.logger.warning(f'db write failed: {e}')
+
+    def _make_state_summary(self):
+        """生成 state_summary（用于 detect changes in state_history 选择性写）。"""
+        rx = tx = 0
+        down = 0
+        for stats in NETWORK_STATE.get('port_stats', {}).values():
+            for s in stats:
+                if s.get('port_no') == 4294967294:  # OFPP_LOCAL
+                    continue
+                rx += s.get('rx_bytes', 0)
+                tx += s.get('tx_bytes', 0)
+        for sw in NETWORK_STATE.get('switches', {}).values():
+            for p in sw.get('ports', []):
+                if p.get('port_no') != 4294967294 and (p.get('state', 0) & 1):
+                    down += 1
+        return {
+            'switches': len(NETWORK_STATE.get('switches', {})),
+            'hosts': len(NETWORK_STATE.get('hosts', {})),
+            'flows': sum(len(f) for f in NETWORK_STATE.get('flows', {}).values()),
+            'rx_bytes': rx,
+            'tx_bytes': tx,
+            'ports_down': down,
+        }
 
     def _request_stats(self, datapath):
         parser = datapath.ofproto_parser
