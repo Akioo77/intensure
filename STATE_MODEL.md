@@ -305,3 +305,29 @@ python3 state_collector.py http://127.0.0.1:8080 validate
 2. **allow=false（隔离）断言**是近似判定（基于拓扑位置），精确隔离需流表级核对。
 3. **qos 断言**需要主动测量（iperf3），当前 demo 未自动化，仅保留接口。
 4. 历史缓冲 200 条 ≈ 16 分钟；更长周期需改 `state_history.MAX_ENTRIES`。
+
+---
+
+## 11. 持久化层（2026-10-08 v3.5+ 新增）
+
+> **本文档聚焦"对外 JSON 契约"。v3.5 起,intensure 把这些字段持久化到本地 PostgreSQL（`intensure` schema + `shared` schema 共 8 张表）,供跨模块读取。**
+
+**详细架构**:见 [`docs/database-architecture.md`](./database-architecture.md)（架构总览 + 决策记录）
+
+**Schema 落库对应**（intensure 这边只写不读）：
+
+| ActualState 字段 | 持久化到 | 写频率 |
+|---|---|---|
+| `meta` / `switches` / `hosts` / `flows` / `port_stats` | `intensure.network_state` | 每 5s upsert |
+| summary（聚合摘要）| `intensure.state_history` | 30s 节流 + 变化触发 |
+| `events`（port_link_status / link 发现 / 丢失）| `intensure.port_events` / `intensure.link_events` | 翻转时 |
+| `port_stats` 探针异常 | `intensure.probe_results` | 仅异常 |
+| - | `shared.audit_log` | 跨模块调用时 |
+| - | `shared.module_health` | 心跳（**生产才启用**，Phase 1 默认关） |
+
+**持久化层关键设计**:
+- 选择性写：状态变化 / 探针异常才写（不写噪声）
+- 心跳默认关：`INTENSURE_HEARTBEAT=1` 才启用
+- 100 意图 1 年 ≈ 13 GB 存储（比全量节省 95%）
+
+**我们不读的表**：`implementation.policies` / `translation.*` / `assurance.*`——读取是上层模块的职责（职责分离）。

@@ -18,36 +18,46 @@
 
 ## ✅ 完成状态
 
-### ✅ 已完成（2026-08-04 ~ 09-03）
+### ✅ 已完成（v1.0 ~ v3.9,2026-08-04 ~ 2026-10-08）
 
 | 任务 | 状态 |
 |---|---|
-| Phase 1 环境搭建（Colima + Mininet + os-ken + OVS） | ✅ |
-| 自定义拓扑（4 主机 2 交换机 / 多分支 / K4 网状） | ✅ `topo_simple.py` / `topo_multi.py` / `topo_mesh.py` |
-| 状态采集（交换机/主机/端口/流表/事件） | ✅ `controller_app.py` |
-| 链路事件监听（LLDP 自动发现 / PortStatus） | ✅ 控制器内置 |
-| 故障注入（断链 / 时延 / 丢包 / 限速） | ✅ `fault_injector.py` |
-| 周期可达性探测（pingall / 流表 dump） | ✅ `live_env.py` |
-| 端到端 demo（拓扑 + 流量 + 故障 + 恢复） | ✅ `demo_full.py` |
-| 采集视角 dashboard（拓扑 / 链路 / 事件 / 自检） | ✅ `dashboard.html` |
-| **`actual_state_builder.py`** —— 内部 state → ActualState 格式（联调 §4.2） | ✅ **2026-09-03 完成** |
-| **`reporter.py`** —— POST `/check` + `/verify` HTTP 客户端 | ✅ **2026-09-03 完成** |
-| **`integration_demo.py`** —— 端到端联调脚本（real/mock/skip 三模式） | ✅ **2026-09-03 完成** |
-| **`mock_assurance_server.py`** —— 本地 mock 保障模块（离线调试） | ✅ **2026-09-03 完成** |
-| **`live_env.py` v2.0** —— 周期探测 + ActualState 上报（用 builder + reporter） | ✅ **2026-09-03 完成** |
-| 单元测试：`test_actual_state_builder.py`（21/21 通过） | ✅ |
-| 单元测试：`test_reporter.py`（24/24 通过） | ✅ |
-| 归档旧版 Phase 3 探索（冲突 / 自愈 / 异常检测 / state_server） | ✅ `legacy/` |
+| Phase 1 环境搭建（Colima + Mininet + os-ken + OVS） | ✅ v1.0 |
+| 自定义拓扑（4 主机 2 交换机 / 多分支 / K4 网状） | ✅ v1.0 `topo_simple.py` / `topo_multi.py` / `topo_mesh.py` |
+| 状态采集（交换机/主机/端口/流表/事件） | ✅ v1.0 `controller_app.py` |
+| 链路事件监听（LLDP 自动发现 / PortStatus） | ✅ v1.0 控制器内置 |
+| 故障注入（断链 / 时延 / 丢包 / 限速） | ✅ v1.0 `fault_injector.py` |
+| 周期可达性探测（pingall / 流表 dump） | ✅ v1.0 `live_env.py` |
+| 端到端 demo（拓扑 + 流量 + 故障 + 恢复） | ✅ v1.0 `demo_full.py` |
+| 采集视角 dashboard（拓扑 / 链路 / 事件 / 自检） | ✅ v1.0 `dashboard.html` |
+| **`actual_state_builder.py`** —— 内部 state → ActualState 格式（联调 §4.2） | ✅ v2.0 (2026-09-03) |
+| **`reporter.py`** —— POST `/check` + `/verify` HTTP 客户端 | ✅ v2.0 (2026-09-03) |
+| **`integration_demo.py`** —— 端到端联调脚本（real/mock/skip 三模式） | ✅ v2.0 (2026-09-03) |
+| **`mock_assurance_server.py`** —— 本地 mock 保障模块（离线调试） | ✅ v2.0 (2026-09-03) |
+| **`live_env.py` v2.0** —— 周期探测 + ActualState 上报（用 builder + reporter） | ✅ v2.0 (2026-09-03) |
+| Dashboard 「自愈前后对比」面板（基于真实 link events + ping history） | ✅ v3.0 (2026-09-03) |
+| REQUIREMENTS.md §1 同学标签全面纠正（11 处）| ✅ v3.0 |
+| 单元测试：`test_actual_state_builder.py`（21/21 通过） | ✅ v2.0 |
+| 单元测试：`test_reporter.py`（24/24 通过） | ✅ v2.0 |
+| 归档旧版 Phase 3 探索（冲突 / 自愈 / 异常检测 / state_server） | ✅ v2.0 `legacy/` |
+| **数据库架构 Phase 0**（5 schema + 43 表 + 4 模块 GRANT + 保留策略）| ✅ v3.5 (2026-10-08) |
+| **intensure 选择性写库**（db_writer.py 12 方法 + 30s 节流 + 异常才写）| ✅ v3.6 (2026-10-08) |
+| **保障模块 MVP**（assurance_mvp.py 8 状态机 + 14 guard_checks + E2E 演示）| ✅ v3.7 (2026-10-08) |
+| **一键 E2E 演示**（demo_db_pipeline.sh 8 步全绿）+ 汇报材料 | ✅ v3.8 (2026-10-08) |
+| **心跳默认关**（生产 INTENSURE_HEARTBEAT=1 启用）+ 演示速查文档 | ✅ v3.9 (2026-10-08) |
 
-### ❌ 待做（联调实战）
+### 🎯 下一步（我们主动要做）
 
-| 任务 | 状态 |
-|---|---|
-| Dashboard 加联调面板（上报统计 / ActualState 样例 / Reporter 配置） | ⏳ 子 agent 处理中 |
-| 首次真实联调（需要同学 A 提供保障模块 IP） | ❌ 等同学 A |
-| 跨平台联调适配（Windows 防火墙 / 网络互通） | ❌ 联调时排查 |
+| 任务 | 优先级 | 备注 |
+|---|---|---|
+| 三方联调真实数据完整闭环（intensure → A 同学 service）| 🟡 P1 | assurance_bridge 已接，需跑真实数据 |
+| 修复 `reporter.py` 频率 + DNS 老 bug（10-19 联调发现）| 🟡 P1 | 老 bug 100% 失败 |
+| 性能压测（100 意图场景的负载 + 存储）| 🟢 P2 | VM 17G 可用 |
+| 复杂故障类型扩展（burst / reorder / VLAN mismatch）| 🟢 P2 | 让 assurance-agent 诊断器有更多样本 |
+| Dashboard 增强（历史回放 / 跳数对比）| 🟢 P2 | 演示后看反馈再加 |
+| IPv6 / BGP 支持（如项目要求）| 🔵 P3 | 长期 |
 
-详细计划见 [`INTEGRATION_PLAN.md`](./INTEGRATION_PLAN.md)
+> **我们不做的**（边界）：翻译组 / 冲突消解组 / A 同学 assurance-agent 内部 / 协调三组（那是组长的活）
 
 ---
 
@@ -102,7 +112,7 @@ python3 integration_demo.py --mode mock --intent-id REQ-001-CI-001
 - 每次 POST 打印 `HTTP 200 (XXms)` 或错误码
 - 末尾输出 Reporter 统计 + ActualState 样例
 
-#### 模式 B：真实联调（需要同学 A 提供 IP）
+#### 模式 B：真实联调（已有 A 同学服务地址）
 
 ```bash
 # 终端 1: 同学 A 在他 Windows 机器上跑保障模块

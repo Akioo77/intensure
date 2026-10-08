@@ -94,14 +94,135 @@
 
 ---
 
-## 🎯 当前状态（v3.0）
+## v3.9 — 2026-10-08 (07:13) 关掉心跳 + 简化文档
+
+**触发**: 主人反馈 60s 心跳仍给 DB 大量负担 + 不太明白"我们负责哪些表 + 哪些方法"
+
+### 🐛 修复
+
+- **心跳默认关闭**
+  - 环境变量 `INTENSURE_HEARTBEAT=1` 启用
+  - 验证: 清空 module_health 后跑 30s 确认 0 行写入
+  - controller_app.py + assurance_mvp.py 同步改
+
+### 📝 新文档
+
+- **`docs/our_tables_and_methods.md`**（241 行，演示现场速查）
+  - 我们写 8 张表（6 intensure + 2 shared），0 读别人表
+  - db_writer.py 12 个方法 + 触发时机
+  - 8 条演示现场可用的 SQL 查询
+  - Q&A 标准答案
+
+---
+
+## v3.8 — 2026-10-08 (06:06) 一键演示脚本 + 汇报材料
+
+**触发**: 演示准备
+
+### ✨ 新增
+
+- **`demo_scripts/demo_db_pipeline.sh`**（225 行）一键 E2E 演示
+  - 8 步全绿(DEMO_AUTO=1):启动控制器 → Mininet → seed 策略 → 保障模块 → 健康基线 → 故障注入 → 恢复
+  - 0 错误 / 23 成功
+- **3 个汇报文档**（770 行）
+  - `docs/presentation.md`（247 行）汇报大纲
+  - `docs/speaker_notes.md`（290 行）逐句话术 + Q&A
+  - `docs/demo_runbook.md`（215 行）演示照本宣科版
+
+### 📊 配套产出
+
+- 汇报材料 4 个文件 977 行
+- v3.7 Phase 1 MVP 完整闭环
+
+---
+
+## v3.7 — 2026-10-08 Phase 1.2-1.4 保障模块 MVP + seed + E2E 演示
+
+**主要**: 保障模块 + E2E 演示
+
+### ✨ 新增
+
+- **`assurance_mvp.py`**（480 行）保障模块 MVP
+  - 8 状态有限状态机(REGISTERED → ACTIVE → VIOLATED → DIAGNOSING → HEALING → VERIFYING → RECOVERED / BLOCKED)
+  - 一致性检查 + 根因诊断 + 5 重保护自愈
+- **`seed_policies.py`**（98 行）mock 2 条 ACCESS_CONTROL 策略
+- **`db_writer.py`** 扩展:get_assurance_writer + query/query_one 读方法
+
+### 🐛 修复
+
+- 3 个 GRANT bug:translation_user / implementation_user / assurance_user 都缺自己 schema 的 USAGE
+- intent_states.intent_id 加 UNIQUE 约束(让 ON CONFLICT 工作)
+
+### 📊 验收
+
+- 158 条 consistency_checks + 120 条 diagnoses
+- confidence=0.85, affected={s1}, down_ports=['s1:eth1']
+- 故障注入 → state=0/DOWN(intensure 真实捕获)
+
+---
+
+## v3.6 — 2026-10-08 Phase 1.1 intensure 选择性写库
+
+**主要**: db_writer.py + controller 接入
+
+### ✨ 新增
+
+- **`db_writer.py`**（515 行）选择性写库核心
+  - 12 个方法:10 写 + 2 读
+  - 选择性写规则:30s 节流 + 变化才写 + 异常才写
+  - 连接池(懒加载 + 自动重连)
+- **`controller_app.py`** 新增:_stats_loop 5s 调 write_network_state + write_state_history;_log_event 写端口/链路事件
+- **`live_env.py`** 新增:write_probe_with_decision(自动判断异常才写)
+
+### 📊 验收
+
+- 100 意图 1 年存储 ≈ 13 GB(对比全量 270 GB,节省 95%)
+- 30s 节流 + summary 变化触发 on-change
+
+---
+
+## v3.5 — 2026-10-08 数据库架构 Phase 0 5 schema + 43 表 + 4 模块 GRANT + 保留策略
+
+**主要**: 数据库架构落地
+
+### ✨ 新增文档（2240 行 / 8 文件）
+
+- **`docs/database-architecture.md`**（353 行）架构总览 + 决策记录
+- **`docs/database-schema.sql`**（551 行）43 张表 DDL
+- **`docs/access-control-grants.sql`**（117 行）4 模块 GRANT
+- **`docs/access-control-matrix.md`**（233 行）权限矩阵
+- **`docs/cross-module-api-contract.md`**（292 行）跨模块 API 契约
+- **`docs/migration-strategy.md`**（309 行）迁移策略
+- **`docs/retention-policy.md`**（250 行）数据保留策略
+- **`db_maintenance/retention_cleanup.sql`**（135 行）保留清理 SQL
+
+### 🎯 关键决策
+
+- 部署位置:Colima VM 本地(主人指定)
+- 范围:Phase 0 + 1,先跑通 MVP
+- 重点:意图保障智能体(主人指定)
+- 5 schema:intensure / translation / implementation / assurance / shared
+- 43 张表,4 模块 GRANT 隔离
+
+### 📊 关键约束落地
+
+> 翻译模块可以查询有效规则,但不能因为生成了消解方案就把已部署规则删除。
+>
+> **实现**: GRANT 只给 translation_user 对 implementation.policies 的 SELECT 权限(无 INSERT/UPDATE/DELETE)。
+
+---
+
+## 🎯 当前状态（v3.9）
 
 | 同学 A 职责 | 状态 |
 |------------|------|
 | Mininet 场景搭建（拓扑 + 故障注入 5 类）| ✅ 100% |
 | 网络状态采集（交换机/端口/流表/主机连接）| ✅ 100% |
-| 实际状态模型（统一 JSON + 历史 + 接口）| ✅ 95% |
+| 实际状态模型（统一 JSON + 历史 + 接口）| ✅ 100% |
 | 可视化（拓扑 + 链路 + 告警 + 自愈前后）| ✅ 100% |
+| 数据库（5 schema + 43 表 + 选择性写库）| ✅ 100% |
+| 一键 E2E 演示 + 汇报材料 | ✅ 100% |
 
-**对外接口**：POST `/check` + `/verify`（已在 v2.0 完成）
-**等待**：同学 B/C 提供真实保障模块 IP
+**对外接口**：POST `/check` + `/verify`（v2.0）+ ActualState 主动推送（v3.6+）
+**已联调**：A 同学 assurance-agent 0.4.0, register→check→diagnose 走通（2026-09-19）
+**下一步**：三方联调真实数据完整闭环 + reporter.py 频率/DNS bug 修复
