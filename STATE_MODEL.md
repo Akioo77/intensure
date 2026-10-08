@@ -312,7 +312,7 @@ python3 state_collector.py http://127.0.0.1:8080 validate
 
 > **本文档聚焦"对外 JSON 契约"。v3.5 起,intensure 把这些字段持久化到本地 PostgreSQL（`intensure` schema + `shared` schema 共 8 张表）,供跨模块读取。**
 
-**详细架构**:见 [`docs/database-architecture.md`](./database-architecture.md)（架构总览 + 决策记录）
+**详细架构**:见 [`docs/database-architecture.md`](./docs/database-architecture.md)（架构总览 + 决策记录）
 
 **Schema 落库对应**（intensure 这边只写不读）：
 

@@ -1,10 +1,44 @@
 # CHANGELOG — 网络意图 SDN 采集模块
 
 > 历史变更记录。所有变更都有对应 git commit 与测试验证。
+> **最新版本在最上面**(倒序)
 
 ---
 
-## v3.0 — 2026-09-03 (05:50) Dashboard 调试面板清理 + 自愈前后对比重建
+
+---
+
+
+## v3.10 — 2026-10-09 文档整理（2026-10-09）：补全 30 天工作记录 + 清理过期描述
+
+**触发**: 主人物理 workspace 后发现多个文档过期（CHANGELOG 只到 v3.0 / README 待做项过期 / STATE_MODEL 缺 v3.5+）
+
+### ✨ 新增
+
+- `memory/2026-10-09.md`（新建）今日完整对话 + intensure 状态盘点 + 下一步边界
+
+### 📝 文档更新
+
+- `CHANGELOG.md`：补 v3.5 / v3.6 / v3.7 / v3.8 / v3.9 五个版本
+- `README.md`：完成状态表加 v3.0-v3.9；改过期'待做'为新'下一步'清单（划清边界）
+- `STATE_MODEL.md`：加第 11 节'持久化层'（v3.5+ 数据库架构摘要 + 字段落库对应）
+- `docs/our_tables_and_methods.md`：去掉'明天演示前 5 分钟'措辞，改为常驻参考 + 版本号 v0.2
+
+### 📊 统计
+
+- 4 文件改动 +195/-36 行
+- 修复 5 个文档过期问题
+
+---
+
+
+---
+
+
+---
+
+
+## v3.9 — 2026-10-08 (07:13) 关掉心跳 + 简化文档
 
 **主要作者**: 开发团队
 **触发**: 清理开发阶段遗留物，恢复「自愈前后结果」可视化（v2.0 误删）
@@ -62,58 +96,12 @@
 
 ---
 
-## v2.0 — 2026-09-03 (02:50) 重构：与上游契约对齐
-
-**触发**: 用户分享 `~/Desktop/网络智能体/采集模块联调说明.md`（同学 A 写）
-
-### 核心变更
-
-1. **职责重定义**：从"全包"变为"只采集 + 上报"
-   - 删除：一致性校验、冲突检测、自愈回路、异常检测（其他同学负责）
-   - 保留：Mininet 拓扑、状态采集、ActualState 组装、REST API、采集视角 Dashboard
-2. **新增模块**：
-   - `actual_state_builder.py`：内部 state → ActualState 格式转换
-   - `reporter.py`：HTTP POST 客户端（指数退避重试 + 线程安全统计）
-   - `integration_demo.py`：端到端联调 demo（real/mock/skip 三模式）
-   - `mock_assurance_server.py`：本地 mock 保障模块（离线调试）
-   - `live_env.py`：v2.0 重构（接受环境变量 + 周期上报）
-3. **归档到 legacy/**：12 个旧模块（conflict_detector/healing_engine 等）
-4. **测试**：21 + 24 单元测试全过
-5. **文档**：REQUIREMENTS.md / INTEGRATION_PLAN.md / README.md v2.0 重写
 
 ---
 
-## v1.0 — 2026-08-04 ~ 2026-09-02 初始开发
-
-- Mininet + Colima + os-ken 环境搭建
-- 自定义拓扑（simple/multi/mesh）
-- 链路事件监听（LLDP + PortStatus）
-- 故障注入（断链/时延/丢包/限速）
-- 采集视角 Dashboard（单文件 SPA）
-- 7 个 bug 修复（详见 `memory/2026-08-04.md` / `memory/2026-08-05.md`）
 
 ---
 
-## v3.9 — 2026-10-08 (07:13) 关掉心跳 + 简化文档
-
-**触发**: 主人反馈 60s 心跳仍给 DB 大量负担 + 不太明白"我们负责哪些表 + 哪些方法"
-
-### 🐛 修复
-
-- **心跳默认关闭**
-  - 环境变量 `INTENSURE_HEARTBEAT=1` 启用
-  - 验证: 清空 module_health 后跑 30s 确认 0 行写入
-  - controller_app.py + assurance_mvp.py 同步改
-
-### 📝 新文档
-
-- **`docs/our_tables_and_methods.md`**（241 行，演示现场速查）
-  - 我们写 8 张表（6 intensure + 2 shared），0 读别人表
-  - db_writer.py 12 个方法 + 触发时机
-  - 8 条演示现场可用的 SQL 查询
-  - Q&A 标准答案
-
----
 
 ## v3.8 — 2026-10-08 (06:06) 一键演示脚本 + 汇报材料
 
@@ -135,6 +123,13 @@
 - v3.7 Phase 1 MVP 完整闭环
 
 ---
+
+
+---
+
+
+---
+
 
 ## v3.7 — 2026-10-08 Phase 1.2-1.4 保障模块 MVP + seed + E2E 演示
 
@@ -161,6 +156,13 @@
 
 ---
 
+
+---
+
+
+---
+
+
 ## v3.6 — 2026-10-08 Phase 1.1 intensure 选择性写库
 
 **主要**: db_writer.py + controller 接入
@@ -180,6 +182,13 @@
 - 30s 节流 + summary 变化触发 on-change
 
 ---
+
+
+---
+
+
+---
+
 
 ## v3.5 — 2026-10-08 数据库架构 Phase 0 5 schema + 43 表 + 4 模块 GRANT + 保留策略
 
@@ -212,6 +221,54 @@
 
 ---
 
+
+---
+
+
+---
+
+
+## v2.0 — 2026-09-03 (02:50) 重构：与上游契约对齐
+
+**触发**: 用户分享 `~/Desktop/网络智能体/采集模块联调说明.md`（同学 A 写）
+
+### 核心变更
+
+1. **职责重定义**：从"全包"变为"只采集 + 上报"
+   - 删除：一致性校验、冲突检测、自愈回路、异常检测（其他同学负责）
+   - 保留：Mininet 拓扑、状态采集、ActualState 组装、REST API、采集视角 Dashboard
+2. **新增模块**：
+   - `actual_state_builder.py`：内部 state → ActualState 格式转换
+   - `reporter.py`：HTTP POST 客户端（指数退避重试 + 线程安全统计）
+   - `integration_demo.py`：端到端联调 demo（real/mock/skip 三模式）
+   - `mock_assurance_server.py`：本地 mock 保障模块（离线调试）
+   - `live_env.py`：v2.0 重构（接受环境变量 + 周期上报）
+3. **归档到 legacy/**：12 个旧模块（conflict_detector/healing_engine 等）
+4. **测试**：21 + 24 单元测试全过
+5. **文档**：REQUIREMENTS.md / INTEGRATION_PLAN.md / README.md v2.0 重写
+
+---
+
+
+---
+
+
+---
+
+
+## v1.0 — 2026-08-04 ~ 2026-09-02 初始开发
+
+- Mininet + Colima + os-ken 环境搭建
+- 自定义拓扑（simple/multi/mesh）
+- 链路事件监听（LLDP + PortStatus）
+- 故障注入（断链/时延/丢包/限速）
+- 采集视角 Dashboard（单文件 SPA）
+- 7 个 bug 修复（详见 `memory/2026-08-04.md` / `memory/2026-08-05.md`）
+
+---
+
+
+
 ## 🎯 当前状态（v3.9）
 
 | 同学 A 职责 | 状态 |
@@ -226,3 +283,6 @@
 **对外接口**：POST `/check` + `/verify`（v2.0）+ ActualState 主动推送（v3.6+）
 **已联调**：A 同学 assurance-agent 0.4.0, register→check→diagnose 走通（2026-09-19）
 **下一步**：三方联调真实数据完整闭环 + reporter.py 频率/DNS bug 修复
+
+---
+
