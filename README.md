@@ -63,6 +63,28 @@
 
 ## 🚀 日常使用
 
+### 0️⃣ 环境搭建（一次性，新机器）
+
+**VM 内 apt 装系统依赖**（推荐）：
+
+```bash
+sudo apt install -y python3-mininet openvswitch-switch python3-os-ken python3-psycopg2 python3-flask python3-flask-cors python3-requests
+```
+
+**或 venv 装 Python 依赖**（跨平台）：
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+```
+
+测试 / lint 用：
+
+```bash
+pip install -r requirements-dev.txt
+```
+
 ### 1️⃣ 启动 VM（每次开电脑后）
 
 ```bash

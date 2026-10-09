@@ -1,0 +1,18 @@
+# 开发 / 测试依赖（CI 和本地用）
+# 安装: pip install -r requirements-dev.txt
+
+# 包含核心依赖
+-r requirements.txt
+
+# 测试
+pytest==8.3.5
+pytest-cov==6.0.0
+
+# Lint / Format
+ruff==0.6.9
+
+# 类型检查
+mypy==1.13.0
+
+# 调试
+ipython==8.30.0
