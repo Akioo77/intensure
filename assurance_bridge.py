@@ -24,11 +24,12 @@ from datetime import datetime, timezone, timedelta
 logger = logging.getLogger(__name__)
 
 
-# 默认目标（A 同学 cloudflared，2026-09-12 起的新地址）
-DEFAULT_BASE = "https://westminster-accounts-permitted-pursuant.trycloudflare.com"
-
 # 请求超时（秒）— cloudflared 较慢，给 8s
 DEFAULT_TIMEOUT = 8
+
+# 注意：不再硬编码 assurance-agent URL——演示前必须通过环境变量配置：
+#   export ASSURANCE_BASE=https://xxx.trycloudflare.com
+# 原因：A 同学 cloudflared 重启会换域名，硬编码会演示现场掉连。
 
 # Proxy 探测超时（秒）
 PROXY_PROBE_TIMEOUT = 3
@@ -60,6 +61,12 @@ class AssuranceBridge:
         if enabled is None:
             enabled = bool(self.base_url)
         self.enabled = enabled
+
+        if not self.base_url:
+            logger.warning(
+                "AssuranceBridge 未配置 ASSURANCE_BASE 环境变量，将作为 no-op 运行。"
+                "演示/联调前必须 export ASSURANCE_BASE=https://xxx.trycloudflare.com"
+            )
 
         # 创建带 proxy bypass 的 requests session
         self.session = self._setup_session()
