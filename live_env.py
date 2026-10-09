@@ -198,7 +198,8 @@ def main():
                 req = urllib.request.Request(
                     f'{LOCAL_API}/api/probe',
                     data=probe_payload,
-                    headers={'Content-Type': 'application/json'},
+                    headers={'Content-Type': 'application/json',
+                             'User-Agent': 'IntensureLiveEnv/3.10 (connectivity-probe)'},
                     method='POST',
                 )
                 urllib.request.urlopen(req, timeout=2).read()

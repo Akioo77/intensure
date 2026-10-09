@@ -30,6 +30,27 @@ from typing import Dict, Optional, Any
 from collections import deque
 
 
+# === P0-2 修复（2026-10-09）：User-Agent + 绕代理 ===
+# 9-19 联调发现 Cloudflare 静默丢无 UA 的 POST；VM 内 http_proxy 走 Clash 代理也会丢
+DEFAULT_USER_AGENT = 'IntensureReporter/3.10 (assurance-bridge; intensure)'
+
+
+def _build_opener():
+    """构建绕代理 + 默认 User-Agent 的全局 opener。
+
+    修复 2 个老 bug（9-19 联调发现）:
+    1. User-Agent: Cloudflare 静默丢无 UA 的 POST
+    2. ProxyHandler({}): VM 内 http_proxy 走 Clash 代理会丢请求，强制直连
+    """
+    proxy_handler = urllib.request.ProxyHandler({})  # 禁用所有代理
+    opener = urllib.request.build_opener(proxy_handler)
+    opener.addheaders = [('User-Agent', DEFAULT_USER_AGENT)]
+    return opener
+
+
+_GLOBAL_OPENER = _build_opener()
+
+
 class ReporterError(Exception):
     """上报失败的封装异常。"""
     pass
@@ -150,7 +171,7 @@ class AssuranceReporter:
             try:
                 req = urllib.request.Request(
                     url, data=body_bytes, headers=headers, method='POST')
-                with urllib.request.urlopen(req, timeout=self.timeout_s) as resp:
+                with _GLOBAL_OPENER.open(req, timeout=self.timeout_s) as resp:
                     raw = resp.read()
                     latency_ms = (time.time() - t0) * 1000
                     try:
@@ -233,7 +254,7 @@ class AssuranceReporter:
         t0 = time.time()
         try:
             req = urllib.request.Request(url, method='GET')
-            with urllib.request.urlopen(req, timeout=self.timeout_s) as resp:
+            with _GLOBAL_OPENER.open(req, timeout=self.timeout_s) as resp:
                 raw = resp.read()
                 latency_ms = (time.time() - t0) * 1000
                 body = json.loads(raw.decode('utf-8')) if raw else {}

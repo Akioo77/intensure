@@ -1,0 +1,67 @@
+name: CI
+
+# 触发条件: 任何 push / pull_request
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+    branches: [master, main]
+
+jobs:
+  test:
+    name: 单元测试 + 语法检查
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 设置 Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: 安装 Python 依赖（核心）
+        run: |
+          python -m pip install --upgrade pip
+          # --break-system-packages 是 Ubuntu 24.04 必需
+          pip install --break-system-packages -r requirements.txt
+
+      - name: 安装 Python 依赖（dev，含 pytest）
+        run: |
+          pip install --break-system-packages -r requirements-dev.txt
+
+      - name: 安装系统依赖（mininet / openvswitch，可选）
+        # 这是可选的——CI 跑核心测试不依赖 mininet
+        # 如果装失败（包名变化），不影响后续步骤
+        continue-on-error: true
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y mininet openvswitch-switch
+          echo "系统依赖装好（可选）"
+
+      - name: Python 语法检查
+        run: |
+          for f in *.py; do
+            python -m py_compile "$f" || { echo "syntax error: $f"; exit 1; }
+          done
+          echo "All Python files OK"
+
+      - name: Shell 脚本语法检查
+        run: |
+          fail=0
+          for sh in start_env.sh test_osken.sh demo_scripts/*.sh; do
+            if [ -f "$sh" ]; then
+              if bash -n "$sh"; then
+                echo "OK: $sh"
+              else
+                echo "FAIL: $sh"
+                fail=1
+              fi
+            fi
+          done
+          exit $fail
+
+      - name: 跑单元测试
+        run: |
+          python -m pytest test_actual_state_builder.py test_reporter.py -v
