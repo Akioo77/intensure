@@ -9,7 +9,7 @@
 
 ## 一句话总结
 
-> 我们（intensure 采集层）**只写 8 张表**：6 张在自己的 `intensure` schema，2 张在 `shared`。**读 1 张别人的表**：`implementation.policies`。
+> 我们（intensure 采集层）**只写 8 张表**：6 张在自己的 `intensure` schema，2 张在 `shared`。**读 0 张别人的表**——读别人表的事情交给上层（保障模块）。这是有意的职责分离。
 
 ---
 
