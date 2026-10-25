@@ -162,7 +162,7 @@ echo -e "  ${DIM}等待 10s 收集故障数据...${R}"
 sleep 10
 echo
 echo -e "  ${BOLD}─── 网络状态变化（h1-eth0 已 down）───${R}"
-pg "SELECT jsonb_extract_path(payload, 'switches', '0000000000000001', 'ports') IS NOT NULL AS ok;" 2>&1 | head -2
+pg "SELECT jsonb_extract_path(payload, 'switches', '0000000000000001', 'ports') IS NOT NULL AS ok FROM intensure.network_state LIMIT 1;" 2>&1 | head -2
 echo
 echo -e "  ${BOLD}─── 一致性检查：出现 VIOLATIONS ───${R}"
 VIOLATED_COUNT=$(pg "SELECT count(*) FROM assurance.consistency_checks WHERE result='violated' AND checked_at > now() - interval '30 seconds';")
