@@ -55,7 +55,14 @@ class AssuranceBridge:
             enabled: 是否启用（None 时默认：base_url 非空则启用）
             timeout: HTTP 请求超时（秒）
         """
-        self.base_url = (base_url or os.environ.get("ASSURANCE_BASE") or "").rstrip("/")
+        # 优先级: 显式参数 > ASSURANCE_BASE > ASSURANCE_BASE_FALLBACK > 空(no-op)
+        # ASSURANCE_BASE_FALLBACK 用于 A 同学 cloudflared 重启换域名时的备用地址
+        self.base_url = (
+            base_url
+            or os.environ.get("ASSURANCE_BASE")
+            or os.environ.get("ASSURANCE_BASE_FALLBACK")
+            or ""
+        ).rstrip("/")
         self.timeout = timeout
 
         if enabled is None:

@@ -159,13 +159,25 @@ class StateCollectorController(app_manager.OSKenApp):
                 [MAIN_DISPATCHER, DEAD_DISPATCHER])
     def state_change_handler(self, ev):
         datapath = ev.datapath
-        dpid_hex = format(datapath.id, '016x')
         if ev.state == DEAD_DISPATCHER:
-            self.datapaths.pop(datapath.id, None)
+            # DEAD 事件里 datapath.id 可能是 None(连接建立前就断开),
+            # format(None, '016x') 会抛 TypeError 导致整个 handler 挂掉
+            dpid = getattr(datapath, 'id', None)
+            if dpid is None:
+                self._log_event('switch_disconnected', dpid=None)
+                self._mark_updated()
+                return
+            dpid_hex = format(dpid, '016x')
+            self.datapaths.pop(dpid, None)
             if dpid_hex in NETWORK_STATE['switches']:
                 NETWORK_STATE['switches'][dpid_hex]['disconnected_at'] = time.time()
             self._log_event('switch_disconnected', dpid=dpid_hex)
             self._mark_updated()
+        else:
+            dpid = getattr(datapath, 'id', None)
+            if dpid is None:
+                return
+            dpid_hex = format(dpid, '016x')
 
     # ---------- 端口描述 ----------
     @set_ev_cls(ofp_event.EventOFPPortDescStatsReply, MAIN_DISPATCHER)

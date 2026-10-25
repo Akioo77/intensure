@@ -182,6 +182,19 @@ python3 live_env.py
 - 读 controller state → 组装 ActualState → POST `/check`
 - 所有上报异步（不阻塞探测循环）
 
+#### 联调环境变量（intensure → 保障模块）
+
+| 变量 | 谁读 | 说明 |
+|---|---|---|
+| `ASSURANCE_URL` | `live_env.py` / `reporter.py` | 保障模块的**上报地址**（含 `/api/v1/assurance` 路径），周期探测用它 POST `/check` |
+| `ASSURANCE_BASE` | `assurance_bridge.py` | 保障模块的**基础地址**（不带路径），bridge 用它拼 `/check` / `/verify` |
+| `ASSURANCE_BASE_FALLBACK` | `assurance_bridge.py` | 备用地址。A 同学 cloudflared 重启会换域名，演示前先 `export ASSURANCE_BASE=新域名`，旧域名存进 fallback |
+
+> ⚠️ **演示前必做**：找 A 同学拿最新 URL（他重启 cloudflared 域名就变），
+> `export ASSURANCE_BASE=https://xxx.trycloudflare.com`。
+> 两个变量都没配时：`assurance_bridge` 走 no-op（不推送也不报错），
+> `live_env.py` 的上报会失败并打 warning —— **不会静默丢数据**。
+
 ### 5️⃣ 关掉一切
 
 ```bash
