@@ -23,6 +23,8 @@ import state_history
 
 import db_writer
 
+from graceful import install_graceful_shutdown
+
 from os_ken.base import app_manager
 from os_ken.controller import ofp_event
 from os_ken.controller.handler import (
@@ -112,6 +114,14 @@ class StateCollectorController(app_manager.OSKenApp):
     # ---------- 启动钩子 ----------
     def start(self):
         super().start()
+        # P0-3 优雅退出: 收到 SIGTERM/SIGINT 先落盘 + 关 DB 连接再退, 避免写一半
+        install_graceful_shutdown(
+            [
+                dump_state_to_file,
+                db_writer.get_writer().close,
+            ],
+            name='controller_app',
+        )
         eventlet.spawn(self._stats_loop)
         eventlet.spawn(self._lldp_loop)
         dump_state_to_file()

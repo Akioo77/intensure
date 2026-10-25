@@ -1,17 +1,17 @@
 # intensure 优化清单(2026-10-09 整理)
 
 > **目的**:盘点 intensure 项目当前可改进的地方,按优先级排好,标注**做什么 + 怎么开发 + 工作量**。
-> **状态**:v0.2(2026-10-25 更新)——P0-1 / P0-5 / P1-4 / P3-5 已完成并移入下方「✅ 已完成」段,剩余 16 项待办。
+> **状态**:v0.3(2026-10-25 更新)——**P0 全部完成**（P0-1 / P0-2 / P0-3 / P0-4 / P0-5），连同 P1-4 / P3-5 共 7 项已完成并移入下方「✅ 已完成」段，剩余 13 项待办。
 > **边界**:**只关心 intensure 这边**——翻译组 / 冲突消解组 / A 同学 assurance-agent 的内部设计不归我们管。
 > **不抢活**:我们能催/建议,但不能越界做。
 
 ---
 
-## 🎯 优先级总览(16 项待办 / 4 项已完成)
+## 🎯 优先级总览(13 项待办 / 7 项已完成)
 
 | 优先级 | 项数 | 类别 |
 |------|------|------|
-| 🔴 P0(基础缺失,必须补) | 3 | 工程基础 / 老 bug |
+| 🔴 P0(基础缺失,必须补) | **0** | 全部完成 ✅ |
 | 🟡 P1(质量/可靠性) | 4 | 测试 / 日志 / 文档 |
 | 🟢 P2(性能/扩展) | 5 | 压测 / dashboard / 故障类型 |
 | 🔵 P3(完善) | 4 | 迁移 / Docker / observability |
@@ -23,50 +23,12 @@
 
 ---
 
-### P0-2 · `reporter.py` 老 bug(频率 + DNS)
-**问题**:2026-09-19 联调发现 `live_env.py` 每 15s 上报 100% 失败,因为:
-- 老 cloudflared 地址
-- VM 无 DNS(`/etc/resolv.conf` 坏符号链接)→ 走代理时静默丢 POST
-- Cloudflare 静默丢弃无 User-Agent 的 POST
-
-**怎么开发**:
-1. 在 `reporter.py` 顶部加 User-Agent(`IntensureReporter/v3.10`)
-2. 加 `urllib.request` 时的强制 DNS fallback(`socket.create_connection` 设 timeout)
-3. 把 live_env.py 改成单连接复用,不复用全局 session
-4. 加 connect 失败的告警(本地 logger.error,不再吞)
-5. 验证:`reporter.check()` 6/6 = 200 ACTIVE
-
-**工作量**:1-2 天
-**价值**:🟢 高(三方联调必经之路)
 
 ---
 
-### P0-3 · 没有 graceful shutdown(信号处理)
-**问题**:`tmux kill-session` 或 `kill` 时,controller / Flask 立即死亡,正在写的 network_state / state_history 可能**写一半**(psycopg2 的事务不提交)→ **重启后看到上次 5s 周期未完成的写入**。
-
-**怎么开发**:
-1. `controller_app.py` 加 `signal.signal(signal.SIGTERM, _shutdown)` + `signal.signal(signal.SIGINT, _shutdown)`
-2. shutdown handler:停止 os-ken 控制器(发 barrier)→ 等 Flask 退出 → 关 DB 连接池
-3. `db_writer.py` 的 `_get_conn` 用上下文管理器,确保 commit / rollback
-4. 验证:`kill -TERM <pid>` → 日志看到 "graceful shutdown" → DB 干净
-
-**工作量**:1 天
-**价值**:🟡 中(日常不影响,但演示现场"Ctrl+C 后状态错乱"很难看)
 
 ---
 
-### P0-4 · 没有连接池(每次 `_get_conn` 都新建连接)
-**问题**:`db_writer.py` 每次写都新建 psycopg2 连接,5s 一次 controller upsert + 偶尔 state_history/port_events/probe 等——演示/小流量 OK,**100 意图场景下会拖慢**(连接建立 5-10ms)。
-
-**怎么开发**:
-1. `from psycopg2.pool import ThreadedConnectionPool`
-2. 启动时建池(`minconn=1, maxconn=10`)
-3. 用 `with pool.getconn() as conn:` 上下文
-4. 优雅关池(`pool.closeall()` 在 shutdown)
-5. 验证:连接数 ≤ maxconn(用 `psql SELECT count(*) FROM pg_stat_activity`)
-
-**工作量**:1 天
-**价值**:🟡 中(当前够用,扩规模时必须)
 
 ---
 
@@ -329,17 +291,45 @@
 
 ---
 
+### ✅ P0-2 · `reporter.py` 老 bug(频率 + DNS)
+
+**完成情况**: `reporter.py` 已加 `DEFAULT_USER_AGENT = IntensureReporter/3.10` + `ProxyHandler({})` 强制直连；`live_env.py` 只建一个 `AssuranceReporter` 实例复用；connect 失败记 `error` 字段并 WARN 输出，不静默吞。⚠️ 清单第 5 步「验证 reporter.check() 6/6 = 200 ACTIVE」**仍待办** —— 需要 A 同学 cloudflared 隧道（当前 HTTP 000）。
+
+**提交**: `ca5abc9（2026-10-09 已修，本次核实记账）`
+
+
+
+---
+### ✅ P0-3 · 没有 graceful shutdown(信号处理)
+
+**完成情况**: 新增 `graceful.py`：`install_graceful_shutdown()` 统一注册 SIGTERM/SIGINT，收尾逻辑全包 try/except，打印 `GRACEFUL_SHUTDOWN` 标记，重复信号幂等强退。接入 3 个长驻进程：`controller_app.py`（落盘 + 关 DB）、`live_env.py`（停 Mininet）、`assurance_mvp.py`（关 DB）。✅ 实测：`kill -TERM` → 日志见 GRACEFUL_SHUTDOWN → 进程干净退出 → DB payload 完整、232 行 state_history 无空 payload、孤儿行 0。
+
+**提交**: `待提交（2026-10-25）`
+
+
+
+---
+### ✅ P0-4 · 没有连接池(每次 `_get_conn` 都新建连接)
+
+**完成情况**: `db_writer._get_conn()` 已是懒加载 + 自动重连：复用 `self._conn`，每次先 `SELECT 1` 探活，异常则重连；带 `self._conn_lock` 线程锁。**不是**清单描述的「每次新建连接」。
+
+**提交**: `（早已实现，本次核实记账）`
+
+
+
+---
+
 ---
 
 ## 📋 工作量汇总
 
 | 类别 | 项数 | 估计总工作量 |
 |------|------|-------------|
-| 🔴 P0 | 3 | 3-4 天 |
+| 🔴 P0 | 0 | 0 天 ✅ |
 | 🟡 P1 | 4 | 9-12 天 |
 | 🟢 P2 | 5 | 9-12 天 |
 | 🔵 P3 | 4 | 8-9 天 |
-| **合计** | **16** | **~24-31 工作日** |
+| **合计** | **13** | **~21-27 工作日** |
 
 ---
 

@@ -26,6 +26,7 @@ PROJECT_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, PROJECT_DIR)
 
 from db_writer import get_assurance_writer, DSN_ASSURANCE  # noqa: E402
+from graceful import install_graceful_shutdown  # noqa: E402
 
 # === 配置 ===
 CHECK_INTERVAL = float(os.environ.get('ASSURANCE_INTERVAL', '5'))
@@ -423,6 +424,14 @@ def main():
     print(f'   check_interval: {CHECK_INTERVAL}s')
     print(f'   DSN: {DSN_ASSURANCE}')
     print()
+
+    # P0-3 优雅退出: 收到 SIGTERM/SIGINT 先关 DB 连接再退, 避免写一半
+    install_graceful_shutdown(
+        [
+            w.close,
+        ],
+        name='assurance_mvp',
+    )
 
     cycle = 0
     last_heartbeat = 0.0

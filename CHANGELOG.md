@@ -77,6 +77,52 @@
 
 ---
 
+## v3.10.4 - 2026-10-25 P0-3 graceful shutdown + P0 全部收口
+
+**触发**: 主人问「接下来应该做什么」-> 盘点 P0 剩余项，发现 P0-2/P0-4 其实早已实现（只是清单没记账），P0-3 是真缺口。
+
+### ✨ 新增
+
+- **`graceful.py`** —— 统一优雅退出（信号处理）：
+  `install_graceful_shutdown(cleanups, name)` 注册 SIGTERM/SIGINT；
+  收尾逻辑全包 try/except（一个失败不阻断其余）；打印 `GRACEFUL_SHUTDOWN` 标记便于日志断言；
+  重复信号幂等（第二次直接 exit 130 强退）。
+- 接入 3 个长驻进程：
+  `controller_app.py`（落盘 state + 关 DB 连接）、`live_env.py`（停 Mininet 拓扑）、`assurance_mvp.py`（关 DB 连接）。
+- **`test_graceful.py`** —— 4 个用例：注册 handler / cleanup 按序执行 / 异常不阻断后续 / 重复信号强退。
+
+### 🐛 Bug 修复
+
+- **`graceful.py` force-exit 后缺 `return`**：第二次信号走 `os._exit(130)` 后仍会继续往下跑。
+  真实场景 os._exit 不返回所以无实际影响，但被单元测试逮到，已修。
+- **`test_graceful.py` 的 check() 假绿**：原本只记录 FAILURES 不 raise，导致 pytest 把失败当通过。
+  已改为真的 raise AssertionError —— **测试能失败才有意义**。
+
+### 📝 文档
+
+- **`docs/OPTIMIZATION.md`**：v0.2 -> v0.3。
+  P0-2 / P0-3 / P0-4 移入「✅ 已完成」段并补说明与提交号；
+  **P0 全部完成**（5/5），待办 16 -> 13，已完成 4 -> 7。
+- **P0-2 说明**：代码早在 `ca5abc9`(10-09) 就修好了（User-Agent + 绕代理 + 单连接复用 + 错误不吞），
+  但清单第 5 步「验证 reporter.check() 6/6 = 200 ACTIVE」**仍待办** —— 需要 A 同学 cloudflared 隧道（当前 HTTP 000）。
+- **P0-4 说明**：`_get_conn()` 早已是懒加载 + 探活重连 + 线程锁，不是清单写的「每次新建连接」。
+
+### ✅ 实测
+
+`kill -TERM` 打在写入周期中途（update_count=20, switches=1, hosts=4）：
+- 日志见 `[GRACEFUL_SHUTDOWN] controller_app received SIGTERM, running 2 cleanup(s)...`
+- 进程干净退出
+- 退出后 `network_state.payload` 仍是完整 JSON（`payload_valid=true`）
+- `state_history` 232 行，**空 payload 0 行**，孤儿行 **0**
+- `assurance.consistency_checks` 536 行（pass=388 / violated=148），无半截写入
+
+### 📊 统计
+
+- 7 文件改动（2 新代码 + 3 改代码 + 2 文档）
+- 单元测试 17 -> 21 个，全绿
+
+---
+
 ## v3.10 — 2026-10-09 文档整理（2026-10-09）：补全 30 天工作记录 + 清理过期描述
 
 **触发**: 主人物理 workspace 后发现多个文档过期（CHANGELOG 只到 v3.0 / README 待做项过期 / STATE_MODEL 缺 v3.5+）

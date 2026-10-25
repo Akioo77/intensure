@@ -30,6 +30,7 @@ from topo_simple import SimpleTopo
 
 from actual_state_builder import ActualStateBuilder
 from reporter import AssuranceReporter
+from graceful import install_graceful_shutdown
 
 
 # ============ 环境变量 / 配置 ============
@@ -132,6 +133,14 @@ def main():
         switch=OVSSwitch, autoSetMacs=True, autoStaticArp=True)
     net.start()
     info_lines.append('MININET_STARTED')
+
+    # P0-3 优雅退出: 收到 SIGTERM/SIGINT 先停 Mininet 再退, 避免残留拓扑/半截写入
+    install_graceful_shutdown(
+        [
+            net.stop,
+        ],
+        name='live_env',
+    )
 
     # 基础时延
     try:
