@@ -31,6 +31,12 @@ from graceful import install_graceful_shutdown  # noqa: E402
 CHECK_INTERVAL = float(os.environ.get('ASSURANCE_INTERVAL', '5'))
 CHECK_TYPE = os.environ.get('ASSURANCE_CHECK_TYPE', 'reachability')
 HEARTBEAT_INTERVAL = float(os.environ.get('ASSURANCE_HEARTBEAT', '30'))
+
+# 是否写我方 assurance.diagnoses 表。
+#   1 = 本地 mock 模式（默认）—— 离线 demo 自己跑通闭环
+#   0 = 联调/生产模式 —— 诊断由伙伴的 diagnosis_results 负责，我方只写 consistency_checks
+# 契约依据: docs/partner_合并文档.md 第二节「冲突2：职责分离」
+WRITE_DIAGNOSES = os.environ.get('ASSURANCE_WRITE_DIAGNOSES', '1') == '1'
 VERSION = '3.6-mvp'
 
 w = get_assurance_writer()
@@ -394,13 +400,19 @@ def run_one_cycle():
             if result == 'violated':
                 # 违例 → 写诊断
                 diag = diagnose_violation(intent_id, check)
-                diag_id = w.write_diagnosis(
-                    intent_id=intent_id,
-                    root_causes=diag['root_causes'],
-                    confidence=diag['confidence'],
-                    affected_devices=diag['affected_devices'],
-                    evidence=diag['evidence'],
-                )
+                if WRITE_DIAGNOSES:
+                    # 本地 mock 模式：写我方 diagnoses 表，让离线 demo 能自己跑通闭环
+                    diag_id = w.write_diagnosis(
+                        intent_id=intent_id,
+                        root_causes=diag['root_causes'],
+                        confidence=diag['confidence'],
+                        affected_devices=diag['affected_devices'],
+                        evidence=diag['evidence'],
+                    )
+                else:
+                    # 联调/生产模式：诊断归伙伴的 diagnosis_results，
+                    # 我方只写 consistency_checks（契约见 docs/partner_合并文档.md 第二节）
+                    diag_id = None
                 update_intent_state(intent_id, 'DIAGNOSING')
                 violations.append({
                     'intent_id': intent_id,
@@ -424,6 +436,7 @@ def main():
     print('=' * 60)
     print(f'   check_interval: {CHECK_INTERVAL}s')
     print(f'   DSN: {DSN_ASSURANCE}')
+    print(f'   诊断表: {"写 assurance.diagnoses（本地 mock 模式）" if WRITE_DIAGNOSES else "不写（联调模式，诊断由伙伴 diagnosis_results 负责）"}')
     print()
 
     # P0-3 优雅退出: 收到 SIGTERM/SIGINT 先关 DB 连接再退, 避免写一半

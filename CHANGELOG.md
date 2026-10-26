@@ -77,6 +77,36 @@
 
 ---
 
+## v3.12.1 - 2026-10-26 让代码兑现契约：诊断表写入开关 + 脚本进文档
+
+**触发**: 复查「跟伙伴承诺了但代码没做」的事。
+
+### 🐛 修「文档与代码不一致」
+
+跟伙伴的契约里写了「**生产路径我方不写 `assurance.diagnoses`**」，
+但 `assurance_mvp.py` 当时是**无条件写**的 —— 文档一套、代码另一套
+（跟我之前批评 README「虚报职责」是同一类问题，这次是我自己）。
+
+**新增开关** `ASSURANCE_WRITE_DIAGNOSES`：
+- `1`（默认）= 本地 mock 模式，写 `assurance.diagnoses`，离线 demo 自己跑通闭环
+- `0` = 联调/生产模式，**不写** diagnoses，诊断归伙伴的 `diagnosis_results`，
+  我方只写 `consistency_checks`
+
+启动时会打印当前模式，避免「不知道自己在哪个模式」。
+
+**实测**（monkeypatch 强制违例 + 记录写入调用）：
+| 模式 | 违例数 | write_diagnosis 调用 |
+|---|---|---|
+| `1`（mock） | 2 | **2 次** ✅ |
+| `0`（联调） | 2 | **0 次** ✅ |
+
+### 📝 文档
+
+- `README.md` 新增「1️⃣.5 一键启停 + 状态体检」小节；联调模式示例加 `ASSURANCE_WRITE_DIAGNOSES=0`
+- `~/Desktop/intensure_操作手册.md` 新增「2.5 一键启停」小节（演示现场看的这份）
+
+---
+
 ## v3.12.0 - 2026-10-26 落地伙伴 9 张无冲突保障表
 
 **触发**: 伙伴发来 assurance_schema.sql（Downloads），实测冲突后决定先落无冲突的部分。

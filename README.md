@@ -91,6 +91,30 @@ pip install -r requirements-dev.txt
 colima start
 ```
 
+### 1️⃣.5 一键启停 + 状态体检（推荐，演示现场用）
+
+```bash
+colima ssh
+cd /home/sunxiaoxuan.guest/intensure
+
+bash start_all.sh      # 一键起 4 组件（控制器/REST/Mininet/保障模块）
+bash status.sh        # 5 段体检：进程 / tmux / 端口+健康 / DB 行数 / 汇总
+bash stop_all.sh      # 一键优雅停止
+```
+
+| 脚本 | 说明 |
+|---|---|
+| `start_all.sh` | tmux 窗口 `controller`(OpenFlow 6653) / `api`(REST 8080) / `mininet`(4主机1交换机) / `assurance`(保障模块)。起完自动校验端口与 `/api/health` |
+| `stop_all.sh` | 先发 SIGTERM 走 `graceful.py` 优雅收尾（落盘 → 关 DB → 停拓扑），8s 未退才强杀。**DB 数据保留**，可直接重启 |
+| `status.sh` | 体检 5 段，最后给「运行中 N / 未运行 M」汇总 |
+
+常用参数：`start_all.sh --with-live`（额外起 `live_env.py` 周期探测+上报）、`start_all.sh --no-mininet`（只起控制器+API）。
+
+实时界面：`tmux attach -t intensure`（`Ctrl+b` 后按数字键切窗口）。
+
+> 完整演示闭环（造数据→注入故障→验证→恢复）仍用 `demo_scripts/demo_db_pipeline.sh`，
+> 那条路径会自己清理环境、不留残留。
+
 ### 2️⃣ 一键跑端到端 demo（采集模块内部）
 
 ```bash
@@ -169,6 +193,10 @@ cd /home/sunxiaoxuan.guest/intensure
 
 # 配置上报参数
 export ASSURANCE_URL=http://<同学A的IP>:8000/api/v1/assurance
+
+# ⚠️ 联调/生产模式：诊断由 A 同学的 diagnosis_results 负责，我方**不写** diagnoses
+#    （职责分离，契约见 docs/partner_合并文档.md 第二节）
+export ASSURANCE_WRITE_DIAGNOSES=0
 export INTENT_ID=REQ-001-CI-001
 export PROBE_INTERVAL=15
 export SRC_HOST=10.0.0.1
