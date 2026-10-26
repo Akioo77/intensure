@@ -159,7 +159,9 @@ class AssuranceBridge:
                 logger.info(f"[AssuranceBridge] register+activate 成功: {intent_id}")
                 return r2.json()
             else:
-                logger.warning(f"[AssuranceBridge] activate 失败 ({r2.status_code}): {r2.text[:200]}")
+                logger.warning(
+                    f"[AssuranceBridge] activate 失败 ({r2.status_code}): {r2.text[:200]}"
+                )
                 return None
 
         except Exception as e:
@@ -196,10 +198,15 @@ class AssuranceBridge:
                 data = r.json()
                 status = data.get("status", "?")
                 violations = len(data.get("violations", []))
-                logger.info(f"[AssuranceBridge] push_check: {intent_id} -> {status}, violations={violations}")
+                logger.info(
+                    f"[AssuranceBridge] push_check: {intent_id} -> {status}, "
+                    f"violations={violations}"
+                )
                 return data
             else:
-                logger.warning(f"[AssuranceBridge] push_check 失败 ({r.status_code}): {r.text[:200]}")
+                logger.warning(
+                    f"[AssuranceBridge] push_check 失败 ({r.status_code}): {r.text[:200]}"
+                )
                 return None
         except Exception as e:
             logger.warning(f"[AssuranceBridge] push_check 异常: {e}")
@@ -337,7 +344,7 @@ if __name__ == "__main__":
 
     bridge = AssuranceBridge()
 
-    print(f"=== AssuranceBridge ===")
+    print("=== AssuranceBridge ===")
     print(f"  base_url: {bridge.base_url}")
     print(f"  enabled:  {bridge.enabled}")
     print()
@@ -356,11 +363,17 @@ if __name__ == "__main__":
         if cmd == "register" and len(sys.argv) >= 5:
             intent_id, src, dst = sys.argv[2], sys.argv[3], sys.argv[4]
             result = bridge.register_intent(intent_id, src, dst)
-            print(f"register+activate: {json.dumps(result, indent=2, ensure_ascii=False)[:300] if result else '失败'}")
+            print(
+                "register+activate: "
+                f"{json.dumps(result, indent=2, ensure_ascii=False)[:300] if result else '失败'}"
+            )
         elif cmd == "status" and len(sys.argv) >= 3:
             intent_id = sys.argv[2]
             result = bridge.get_status(intent_id)
-            print(f"status: {json.dumps(result, indent=2, ensure_ascii=False)[:500] if result else '失败'}")
+            print(
+                "status: "
+                f"{json.dumps(result, indent=2, ensure_ascii=False)[:500] if result else '失败'}"
+            )
         else:
             print("用法:")
             print("  python3 assurance_bridge.py                              # 健康检查")
@@ -383,7 +396,7 @@ if __name__ == "__main__":
         print(f"   结果: {'✓' if r else '✗'}")
 
         # 2. push_check 健康
-        print(f"2) push_check (healthy)...")
+        print("2) push_check (healthy)...")
         healthy_actual = {
             "intent_id": TEST_INTENT,
             "checked_at": now,
@@ -396,35 +409,44 @@ if __name__ == "__main__":
             "conflicting_flows": []
         }
         r = bridge.push_check(TEST_INTENT, healthy_actual)
-        print(f"   结果: status={r.get('status') if r else 'N/A'}, violations={len(r.get('violations', [])) if r else 0}")
+        print(
+            f"   结果: status={r.get('status') if r else 'N/A'}, "
+            f"violations={len(r.get('violations', [])) if r else 0}"
+        )
 
         # 3. push_check 故障
-        print(f"3) push_check (fault)...")
+        print("3) push_check (fault)...")
         fault_actual = dict(healthy_actual)
         fault_actual["reachable"] = False
         fault_actual["expected_flow_present"] = False
         fault_actual["down_links"] = ["s1-eth2"]
         fault_actual["packet_loss"] = 1.0
         r = bridge.push_check(TEST_INTENT, fault_actual)
-        print(f"   结果: status={r.get('status') if r else 'N/A'}, violations={len(r.get('violations', [])) if r else 0}")
+        print(
+            f"   结果: status={r.get('status') if r else 'N/A'}, "
+            f"violations={len(r.get('violations', [])) if r else 0}"
+        )
 
         # 4. diagnose
-        print(f"4) diagnose...")
+        print("4) diagnose...")
         r = bridge.trigger_diagnose(TEST_INTENT)
         if r and r.get("diagnosis"):
-            print(f"   根因: {[rc.get('cause_type') for rc in r['diagnosis'].get('root_causes', [])]}")
+            print(
+                "   根因: "
+                f"{[rc.get('cause_type') for rc in r['diagnosis'].get('root_causes', [])]}"
+            )
             print(f"   置信度: {r['diagnosis'].get('confidence')}")
         else:
             print(f"   结果: {'失败' if not r else '无 diagnosis'}")
 
         # 5. heal
-        print(f"5) heal...")
+        print("5) heal...")
         r = bridge.trigger_heal(TEST_INTENT)
         if r:
             print(f"   verdict: {r.get('verdict')}")
             print(f"   blocked_by: {r.get('blocked_by')}")
         else:
-            print(f"   结果: 失败")
+            print("   结果: 失败")
 
         print()
         print("✅ 冒烟测试完成")

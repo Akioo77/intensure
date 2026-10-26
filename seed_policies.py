@@ -51,7 +51,9 @@ def seed(clear_first=False):
     w = DBWriter(dsn=DSN_IMPL)
     if clear_first:
         print('🧹 清空 active policies...')
-        deleted = w.query("DELETE FROM implementation.policies WHERE status='active' RETURNING intent_id")
+        deleted = w.query(
+            "DELETE FROM implementation.policies WHERE status='active' RETURNING intent_id"
+        )
         print(f'   删除 {len(deleted)} 条: {[d["intent_id"] for d in deleted]}')
 
     print('🌱 Seed policies...')
@@ -86,7 +88,10 @@ def seed(clear_first=False):
     # 验证
     print()
     print('📋 当前 active policies:')
-    rows = w.query("SELECT intent_id, intent_type, policy_spec->>\'destination\' AS dst FROM implementation.policies WHERE status='active'")
+    rows = w.query(
+        "SELECT intent_id, intent_type, policy_spec->>'destination' AS dst "
+        "FROM implementation.policies WHERE status='active'"
+    )
     for r in rows:
         print(f'   • {r}')
 

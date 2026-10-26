@@ -40,6 +40,13 @@ jobs:
           sudo apt-get install -y mininet openvswitch-switch
           echo "系统依赖装好（可选）"
 
+      - name: Ruff 代码风格检查（防退化）
+        run: |
+          # ruff 只查不写 —— 格式统一靠 pre-commit 的 ruff --fix。
+          # 配置见 pyproject.toml（E402 已豁免: eventlet.monkey_patch 必须在 import 之前）。
+          ruff check .
+          echo "Ruff OK"
+
       - name: Python 语法检查
         run: |
           for f in *.py; do

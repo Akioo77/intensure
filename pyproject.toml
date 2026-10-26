@@ -1,0 +1,32 @@
+# intensure 项目配置
+# ruff: https://docs.astral.sh/ruff/
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+# legacy/ 是 v2.0 归档代码, 不再维护, 不纳入 lint
+extend-exclude = ["legacy", ".venv", "build", "dist"]
+
+[tool.ruff.lint]
+# E/W = pycodestyle, F = pyflakes (未用 import/变量、未定义名)
+select = ["E", "W", "F"]
+ignore = [
+  # E402: module-import-not-at-top-of-file
+  #   这是硬约束不是风格问题: eventlet.monkey_patch() 必须在 os_ken 之前调用,
+  #   否则 eventlet 不会 patch os_ken 用到的 socket, 控制器会挂。
+  #   涉及 controller_app.py / live_env.py / run_all.py / integration_demo.py。
+  "E402",
+  # E741: ambiguous-variable-name (单字母 l)
+  #   解析器里 l/i 表达索引是领域惯例, 改掉反而降低可读性。
+  "E741",
+]
+
+[tool.ruff.lint.per-file-ignores]
+# 测试文件里 print 是有意为之(用例输出就是给人看的)
+"test_*.py" = ["E402", "F541", "F841"]
+# demo 脚本需要动态 import 和未用变量做占位
+"demo*.py" = ["F401", "F841", "E402"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"

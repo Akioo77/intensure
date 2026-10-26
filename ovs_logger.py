@@ -29,7 +29,6 @@
   4. 线程安全（锁保护 buffer）
   5. 优雅启停（关闭时自动恢复 OVS 默认日志级别）
 """
-import os
 import sys
 import time
 import threading
@@ -354,7 +353,7 @@ if __name__ == '__main__':
     print("=" * 60)
 
     logger = OVSLogger()
-    print(f"\n启动 OVSLogger...")
+    print("\n启动 OVSLogger...")
     if not logger.start():
         print("启动失败，退出")
         sys.exit(1)
@@ -363,14 +362,14 @@ if __name__ == '__main__':
     # 然后跟新日志。历史日志的时间戳可能远早于 now，
     # 所以 since=now 会过滤掉历史日志——我们要看 buffer 里所有内容。
     since = 0  # 看所有历史日志
-    print(f"\n监控中... 10 秒后输出统计")
+    print("\n监控中... 10 秒后输出统计")
     try:
         time.sleep(10)
     except KeyboardInterrupt:
         pass
 
     stats = logger.get_stats()
-    print(f"\n📊 统计:")
+    print("\n📊 统计:")
     for k, v in stats.items():
         print(f"  {k}: {v}")
 

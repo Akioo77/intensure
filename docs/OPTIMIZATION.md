@@ -1,18 +1,18 @@
 # intensure 优化清单(2026-10-09 整理)
 
 > **目的**:盘点 intensure 项目当前可改进的地方,按优先级排好,标注**做什么 + 怎么开发 + 工作量**。
-> **状态**:v0.4(2026-10-26 更新)——**P0 全部完成**，P1-1 测试覆盖也已完成（7 个模块有测试：actual_state_builder / reporter / graceful / db_writer / assurance_mvp / state_server / state_history / ovs_logger / state_model），共 8 项已完成，剩余 12 项待办。
+> **状态**:v0.5(2026-10-26 更新)——**P0 全部完成**，P1-1 测试覆盖、P1-3 代码风格也已完成（9 个关键模块有测试、131 用例；ruff check 全绿且 CI 已接入拦截），共 9 项已完成，剩余 11 项待办。
 > **边界**:**只关心 intensure 这边**——翻译组 / 冲突消解组 / A 同学 assurance-agent 的内部设计不归我们管。
 > **不抢活**:我们能催/建议,但不能越界做。
 
 ---
 
-## 🎯 优先级总览(12 项待办 / 8 项已完成)
+## 🎯 优先级总览(11 项待办 / 9 项已完成)
 
 | 优先级 | 项数 | 类别 |
 |------|------|------|
 | 🔴 P0(基础缺失,必须补) | **0** | 全部完成 ✅ |
-| 🟡 P1(质量/可靠性) | 3 | 日志 / 文档 |
+| 🟡 P1(质量/可靠性) | 2 | 日志统一 |
 | 🟢 P2(性能/扩展) | 5 | 压测 / dashboard / 故障类型 |
 | 🔵 P3(完善) | 4 | 迁移 / Docker / observability |
 
@@ -55,28 +55,6 @@
 
 ---
 
-### P1-3 · 代码风格(lint/format)
-**问题**:无 ruff/black/flake8,代码风格靠作者自律——`demo_full.py` 有 4 空格,有的是 2 空格。
-
-**怎么开发**:
-1. 加 `pyproject.toml`:
-   ```toml
-   [tool.ruff]
-   line-length = 100
-   target-version = "py312"
-   ```
-2. `.pre-commit-config.yaml`:
-   ```yaml
-   repos:
-     - repo: https://github.com/astral-sh/ruff-pre-commit
-       rev: v0.6.x
-       hooks: [{id: ruff, args: [--fix]}]
-   ```
-3. CI 跑 ruff check(防止退化)
-4. 一次性 `ruff check --fix .` 把现有代码修了
-
-**工作量**:1 天
-**价值**:🟡 中(协作效率提升)
 
 ---
 
@@ -331,6 +309,19 @@
 
 ---
 
+### ✅ P1-3 · 代码风格(lint/format)
+
+**完成情况**: 新增 `pyproject.toml`（ruff 配置：line-length=100 / target py312 / 排除 legacy/）与 `.pre-commit-config.yaml`（ruff --fix）。
+关键豁免：**E402** 必须豁免 —— `eventlet.monkey_patch()` 必须在 os_ken import 之前调用，否则控制器直接挂；这不是风格问题。
+一次性 `ruff check --fix` 修了 52 处（未用 import / f-string 无占位符 / 文件尾换行等），另手工拆 24 处 E501 长行（只改排版不改语义，SQL 用换行等价替换）。
+CI 加了 `ruff check .` 步骤防退化。`ruff check` 现已 **All checks passed**。
+
+**提交**: `待提交（2026-10-26）`
+
+
+
+---
+
 ---
 
 ## 📋 工作量汇总
@@ -338,10 +329,10 @@
 | 类别 | 项数 | 估计总工作量 |
 |------|------|-------------|
 | 🔴 P0 | 0 | 0 天 ✅ |
-| 🟡 P1 | 3 | 7-9 天 |
+| 🟡 P1 | 2 | 2-3 天 |
 | 🟢 P2 | 5 | 9-12 天 |
 | 🔵 P3 | 4 | 8-9 天 |
-| **合计** | **12** | **~19-24 工作日** |
+| **合计** | **11** | **~17-21 工作日** |
 
 ---
 

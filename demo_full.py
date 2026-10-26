@@ -272,7 +272,7 @@ def main():
 
     print()
     print(f"{C.BLD}{C.GRN}🎉 Demo 完成!{C.END}")
-    print(f"   报告已保存在对话输出中")
+    print("   报告已保存在对话输出中")
 
 
 def cleanup(net, ctrl_proc):

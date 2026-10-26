@@ -11,8 +11,6 @@ eventlet.monkey_patch()  # 必须在所有 socket 之前
 
 import os
 import sys
-import time
-import threading
 
 PROJECT_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, PROJECT_DIR)
@@ -49,12 +47,13 @@ def main():
         os.remove(STATE_FILE)
 
     # 2. 起 HTTP server (green thread)
-    print(f"\n🌐 启动 REST API (port 8080)...")
+    print("\n🌐 启动 REST API (port 8080)...")
     eventlet.spawn(start_http_server, '0.0.0.0', 8080)
     eventlet.sleep(2)  # 等 Flask 起来
 
     # 3. 健康检查
-    import urllib.request, json
+    import urllib.request
+    import json
     try:
         with urllib.request.urlopen('http://127.0.0.1:8080/api/health', timeout=3) as r:
             print(f"   健康检查: {json.loads(r.read())}")
@@ -67,18 +66,18 @@ def main():
     try:
         from ovs_logger import start_global
         if start_global():
-            print(f"   OVS 详细日志: ✅ 已启动 (查询: GET /api/ovs/log)")
+            print("   OVS 详细日志: ✅ 已启动 (查询: GET /api/ovs/log)")
         else:
-            print(f"   OVS 详细日志: ⚠ 启动失败（不影响主流程）")
+            print("   OVS 详细日志: ⚠ 启动失败（不影响主流程）")
     except ImportError:
-        print(f"   OVS 详细日志: ⚠ ovs_logger 模块未找到（跳过）")
+        print("   OVS 详细日志: ⚠ ovs_logger 模块未找到（跳过）")
     except Exception as e:
         print(f"   OVS 详细日志: ⚠ 启动异常: {e}（不影响主流程）")
 
     # 4. 跑控制器 (主线程, 阻塞)
-    print(f"\n🎮 启动 os-ken 控制器 (controller_app)...")
-    print(f"   OpenFlow: 6633 / 6653")
-    print(f"   REST API: http://localhost:8080/api/...")
+    print("\n🎮 启动 os-ken 控制器 (controller_app)...")
+    print("   OpenFlow: 6633 / 6653")
+    print("   REST API: http://localhost:8080/api/...")
     print()
     try:
         start_controller()

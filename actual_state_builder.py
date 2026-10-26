@@ -23,7 +23,7 @@
   "down_ports": ["s1:eth2", ...]
 """
 from datetime import datetime, timezone, timedelta
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional
 
 
 # 交换机端口 LINK_DOWN 位（OFPPS_LINK_DOWN = 1 << 0）

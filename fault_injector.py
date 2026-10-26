@@ -12,7 +12,6 @@
 ⚠ 本版使用 Mininet 底层命令 (node.cmd) 实现, 不依赖
    Mininet.config / Intf.config 的高层参数 (该 Mininet 版本不支持)。
 """
-import time
 from typing import Optional
 
 

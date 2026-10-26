@@ -115,7 +115,7 @@ def check_flow_present(state):
 def main():
     setLogLevel('warning')
     info_lines = []
-    info_lines.append(f'LIVE_ENV_STARTED (v2.0 联调版)')
+    info_lines.append('LIVE_ENV_STARTED (v2.0 联调版)')
     info_lines.append(f'  assurance_url: {ASSURANCE_URL}')
     info_lines.append(f'  intent_id:     {INTENT_ID}')
     info_lines.append(f'  interval:      {PROBE_INTERVAL}s')

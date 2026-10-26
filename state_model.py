@@ -14,7 +14,7 @@
   level: 'error' | 'warning' | 'info'
 """
 import time
-from typing import Dict, List, Any
+from typing import List
 
 
 # ============ Schema 定义 ============
@@ -93,7 +93,7 @@ def validate_sanity(state: dict) -> List[dict]:
         for s in stats:
             if not isinstance(s, dict):
                 issues.append(_issue('error', 'sanity',
-                                     f'port_stat not dict',
+                                     'port_stat not dict',
                                      dpid=dpid))
                 continue
             for key in ('rx_bytes', 'tx_bytes', 'rx_packets', 'tx_packets',
@@ -125,7 +125,7 @@ def validate_sanity(state: dict) -> List[dict]:
         ca = sw.get('connected_at')
         if ca is None or not isinstance(ca, (int, float)):
             issues.append(_issue('error', 'sanity',
-                                 f'switch connected_at invalid',
+                                 'switch connected_at invalid',
                                  dpid=dpid))
 
     return issues
@@ -223,7 +223,8 @@ def validate_completeness(state: dict) -> List[dict]:
     n_links = len(pairs)
     if n_links < EXPECTED_TOPOLOGY['inter_switch_links']:
         issues.append(_issue('info', 'completeness',
-                             f'expected {EXPECTED_TOPOLOGY["inter_switch_links"]} inter-switch link(s), got {n_links}',
+                             f'expected {EXPECTED_TOPOLOGY["inter_switch_links"]} '
+                             f'inter-switch link(s), got {n_links}',
                              expected=EXPECTED_TOPOLOGY['inter_switch_links'],
                              actual=n_links))
 
@@ -247,7 +248,7 @@ def validate_anomaly(state: dict, baseline: dict = None) -> List[dict]:
             # OFPPS_LINK_DOWN = 1 << 0
             if state_bits & 1:
                 issues.append(_issue('warning', 'anomaly',
-                                     f'port link down',
+                                     'port link down',
                                      dpid=dpid,
                                      port_no=p.get('port_no'),
                                      port_name=p.get('name')))
@@ -264,7 +265,7 @@ def validate_anomaly(state: dict, baseline: dict = None) -> List[dict]:
                     for key in ('rx_bytes', 'tx_bytes', 'rx_packets', 'tx_packets'):
                         if s.get(key, 0) < base_by_port[port_no].get(key, 0):
                             issues.append(_issue('warning', 'anomaly',
-                                                 f'counter went down (counter reset?)',
+                                                 'counter went down (counter reset?)',
                                                  dpid=dpid, port_no=port_no,
                                                  metric=key))
                             break
@@ -311,7 +312,6 @@ def validate_state(state: dict, baseline: dict = None,
 
     # connectivity 由 demo 注入
     if connectivity is not None:
-        reachable = connectivity.get('reachable', [])
         unreachable = connectivity.get('unreachable', [])
         if unreachable:
             issues.append(_issue('error', 'connectivity',

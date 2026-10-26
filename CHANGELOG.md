@@ -77,6 +77,47 @@
 
 ---
 
+## v3.11.1 - 2026-10-26 P1-3 代码风格：ruff 接入，CI 加防退化拦截
+
+**触发**: 继续推进不依赖伙伴的工作 -> P1-3（代码风格靠作者自律）。
+
+### ✨ 新增
+
+- **`pyproject.toml`** —— ruff 配置
+  `line-length=100` / `target-version=py312` / `extend-exclude=["legacy", ...]`（legacy 是 v2.0 归档代码，不维护）。
+- **`.pre-commit-config.yaml`** —— ruff-pre-commit v0.6.9，钩子 `ruff --fix`，排除 `legacy/`。
+  故意**不加** `ruff-format` hook：那会重排整个文件，制造与本次改动无关的大 diff。
+
+### 🔧 一次性整改（76 处）
+
+- `ruff check --fix` 自动修 **52 处**：未用 import（19）、f-string 无占位符（25）、
+  文件尾缺换行（10）、多 import 挤一行（5）、未用变量（5）等。
+- 手工拆 **24 处 E501 长行**：只改排版不改语义 —— 字符串用隐式拼接，
+  SQL 用换行等价替换（`INSERT INTO t` / `CASE WHEN` 拆行后语义完全一致）。
+
+### ⚠️ 关键豁免（不是风格问题，是硬约束）
+
+- **E402（module-import-not-at-top-of-file）必须豁免**：
+  `eventlet.monkey_patch()` 必须在 `os_ken` 之前调用，否则 eventlet 不会 patch
+  os_ken 用到的 socket，**控制器直接挂**。涉及 `controller_app.py` / `live_env.py` /
+  `run_all.py` / `integration_demo.py` 共 27 处。
+- **E741（单字母变量名）豁免**：解析器里 `l`/`i` 表达索引是领域惯例。
+- `legacy/` 整个目录排除在 lint 之外。
+
+### 📝 其他
+
+- **CI 新增 `ruff check .` 步骤** —— 防止风格退化。
+- `docs/OPTIMIZATION.md` v0.4 -> v0.5：P1-3 移入「✅ 已完成」段；
+  已完成 8 -> 9 项，待办 12 -> 11 项。
+
+### ✅ 验收
+
+- `ruff check .` → **All checks passed!**
+- 单元测试 131(host) / 142(VM) 全绿（改行前后各验证一次）
+- F821 undefined-name 与 F811 redefinition 排查后确认**只存在于 `legacy/`**（v2.0 归档代码），活代码无此问题。
+
+---
+
 ## v3.11.0 - 2026-10-26 P1-1 测试覆盖：+131 个用例，CI 修复
 
 **触发**: 主人说「先在没有其他人的情况下推进我们自己的工作」-> 挑 P1-1（测试覆盖率极低）做，

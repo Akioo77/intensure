@@ -19,7 +19,6 @@ Phase 1 简化:
 import os
 import sys
 import time
-import json
 
 # === 加 intensure 目录到 path（db_writer.py 在这里） ===
 PROJECT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -45,12 +44,14 @@ def update_intent_state(intent_id: str, status: str):
         conn = w._get_conn()
         with conn.cursor() as cur:
             cur.execute("""
-                INSERT INTO assurance.intent_states (intent_id, current_status, last_checked_at, last_status_at)
+                INSERT INTO assurance.intent_states
+                    (intent_id, current_status, last_checked_at, last_status_at)
                 VALUES (%s, %s, now(), now())
                 ON CONFLICT (intent_id) DO UPDATE SET
                     current_status = EXCLUDED.current_status,
                     last_checked_at = now(),
-                    last_status_at = CASE WHEN assurance.intent_states.current_status != EXCLUDED.current_status
+                    last_status_at = CASE
+                        WHEN assurance.intent_states.current_status != EXCLUDED.current_status
                                           THEN now() ELSE assurance.intent_states.last_status_at END
             """, (intent_id, status))
         return True
@@ -446,7 +447,11 @@ def main():
 
             if result['violations']:
                 v = result['violations']
-                vsummary = ', '.join([f"{x['intent_id']}(conf={x['confidence']}, devs={x['affected_devices']})" for x in v])
+                vsummary = ', '.join([
+                    f"{x['intent_id']}(conf={x['confidence']}, "
+                    f"devs={x['affected_devices']})"
+                    for x in v
+                ])
                 print(f'CYCLE_{cycle:04d} policies={result["policies_checked"]} '
                       f'VIOLATIONS={len(v)} [{vsummary}] '
                       f'took={int((time.time()-t0)*1000)}ms',
@@ -468,7 +473,8 @@ def main():
                     conn = w._get_conn()
                     with conn.cursor() as cur:
                         cur.execute("""
-                            INSERT INTO shared.module_health (module_name, status, version, metadata)
+                            INSERT INTO shared.module_health
+                                (module_name, status, version, metadata)
                             VALUES ('assurance', 'healthy', %s, '{}'::jsonb)
                             ON CONFLICT (module_name) DO UPDATE SET
                                 last_heartbeat = now(),

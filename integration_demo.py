@@ -33,7 +33,6 @@ import os
 import subprocess
 import sys
 import time
-import threading
 import urllib.request
 import urllib.error
 from concurrent.futures import ThreadPoolExecutor
@@ -99,7 +98,7 @@ def stop_controller(proc):
 
 def cleanup_mininet():
     """清理 Mininet / osken / 残留进程。
-    
+
     ⚠️ 不用 'sudo mn -c': 它会 rm -f /tmp/*.log 把 controller log 也删了
     ⚠️ 不用 'pkill -f integration_demo': 会自杀
     """
@@ -108,8 +107,14 @@ def cleanup_mininet():
     subprocess.run(['sudo', 'pkill', '-9', 'osken-manager'], capture_output=True)
     subprocess.run(['sudo', 'pkill', '-9', 'ofprotocol'], capture_output=True)
     subprocess.run(['sudo', 'pkill', '-9', 'ofdatapath'], capture_output=True)
-    subprocess.run(['sudo', 'ovs-vsctl', '-timeout=2', '--if-exists', 'del-br', 's1'], capture_output=True)
-    subprocess.run(['sudo', 'ovs-vsctl', '-timeout=2', '--if-exists', 'del-br', 's2'], capture_output=True)
+    subprocess.run(
+        ['sudo', 'ovs-vsctl', '-timeout=2', '--if-exists', 'del-br', 's1'],
+        capture_output=True
+    )
+    subprocess.run(
+        ['sudo', 'ovs-vsctl', '-timeout=2', '--if-exists', 'del-br', 's2'],
+        capture_output=True
+    )
     time.sleep(1)
 
 

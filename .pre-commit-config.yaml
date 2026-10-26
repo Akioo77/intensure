@@ -1,0 +1,15 @@
+# intensure pre-commit 配置
+# 安装: pip install pre-commit && pre-commit install
+# 作用: 每次 commit 前自动跑 ruff check --fix, 拦住风格退化
+#
+# 注意: 故意不加 ruff-format hook ——
+#   ruff format 会重排整个文件, 造成与本次改动无关的大 diff。
+#   格式统一交给 CI 的 ruff check (只查不写)。
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.6.9
+    hooks:
+      - id: ruff
+        args: [--fix]
+        # legacy/ 是 v2.0 归档代码, 不参与
+        exclude: ^legacy/

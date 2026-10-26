@@ -15,7 +15,7 @@
 import os
 import time
 import threading
-from typing import Optional, Dict, Any, Tuple
+from typing import Optional, Dict, Tuple
 
 try:
     import psycopg2
@@ -332,7 +332,9 @@ class DBWriter:
                                   latency_ms: Optional[float] = None,
                                   probe_method: str = 'ping') -> bool:
         """一站式：判定 + 写（如异常则写）。返回是否写了。"""
-        is_anomaly, anomaly_type = self.should_write_probe(dst_host, reachable, loss_pct, latency_ms)
+        is_anomaly, anomaly_type = self.should_write_probe(
+            dst_host, reachable, loss_pct, latency_ms
+        )
         if is_anomaly:
             return self.write_probe_result(
                 src_host, dst_host, reachable, loss_pct, latency_ms,
@@ -527,7 +529,9 @@ def write_link_event(src_dpid: str, src_port: int, dst_dpid: str, dst_port: int,
 
 def write_probe_with_decision(src_host: str, dst_host: str, reachable: bool,
                                loss_pct: float, latency_ms: Optional[float] = None):
-    return get_writer().write_probe_with_decision(src_host, dst_host, reachable, loss_pct, latency_ms)
+    return get_writer().write_probe_with_decision(
+        src_host, dst_host, reachable, loss_pct, latency_ms
+    )
 
 
 def write_audit(action: str, target: Optional[str] = None, severity: str = 'INFO',
@@ -546,7 +550,9 @@ if __name__ == '__main__':
     print('--- DBWriter self-test ---')
     ok = w.write_network_state({'test': True, 'ts': time.time()})
     print(f'write_network_state: {ok}')
-    ok = w.write_audit('intensure', 'system', 'test_action', severity='INFO', payload={'test': True})
+    ok = w.write_audit(
+        'intensure', 'system', 'test_action', severity='INFO', payload={'test': True}
+    )
     print(f'write_audit: {ok}')
     ok = w.write_heartbeat(status='healthy', version='3.5')
     print(f'write_heartbeat: {ok}')
@@ -558,5 +564,8 @@ if __name__ == '__main__':
     aw = get_assurance_writer()
     ns = aw.query_one('SELECT version, captured_at FROM intensure.network_state LIMIT 1')
     print(f'network_state read: {ns}')
-    policies = aw.query('SELECT intent_id, intent_type FROM implementation.policies WHERE status=%s LIMIT 3', ('active',))
+    policies = aw.query(
+        'SELECT intent_id, intent_type FROM implementation.policies WHERE status=%s LIMIT 3',
+        ('active',)
+    )
     print(f'active policies: {len(policies)}')

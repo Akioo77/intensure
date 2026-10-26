@@ -38,7 +38,8 @@ def ssh_q(sql):
     """在 VM 里跑一条查询, 返回 (rc, stdout, stderr)。"""
     # 不能用 bash -c "... $1"：colima ssh 不会把 SQL 作为位置参数传进去，
     # psql 会收到空串，查询静默返回空结果。改用 stdin 管道。
-    inner = f"cat > /tmp/_q.sql && sudo -u postgres psql -v ON_ERROR_STOP=1 -d {DB} -t -A -F '|' -f /tmp/_q.sql"
+    inner = (f"cat > /tmp/_q.sql && sudo -u postgres psql -v ON_ERROR_STOP=1 -d {DB} "
+             f"-t -A -F '|' -f /tmp/_q.sql")
     p = subprocess.run(["colima", "ssh", "--", "bash", "-c", inner],
                        input=sql, capture_output=True, text=True)
     return p.returncode, p.stdout.strip(), p.stderr.strip()
@@ -46,7 +47,8 @@ def ssh_q(sql):
 
 def ssh_script(script):
     """把整段 SQL 送进 VM 执行。"""
-    inner = f"cat > /tmp/_partner_run.sql && sudo -u postgres psql -v ON_ERROR_STOP=1 -d {DB} -f /tmp/_partner_run.sql"
+    inner = (f"cat > /tmp/_partner_run.sql && sudo -u postgres psql -v ON_ERROR_STOP=1 "
+             f"-d {DB} -f /tmp/_partner_run.sql")
     p = subprocess.run(["colima", "ssh", "--", "bash", "-c", inner],
                        input=script, capture_output=True, text=True)
     return p.returncode, p.stdout.strip(), p.stderr.strip()

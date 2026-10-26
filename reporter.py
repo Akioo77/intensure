@@ -26,7 +26,7 @@ import time
 import urllib.request
 import urllib.error
 import threading
-from typing import Dict, Optional, Any
+from typing import Optional
 from collections import deque
 
 
@@ -296,7 +296,6 @@ class AssuranceReporter:
 # ============================================================
 
 if __name__ == '__main__':
-    import sys
     print('AssuranceReporter CLI')
     print('用法: 在其他模块里 from reporter import AssuranceReporter')
     print('示例:')

@@ -1,7 +1,6 @@
 """实时联动验证: OVS 真实状态 vs 控制器 REST 状态, 以及实时变化感知."""
 import json
 import subprocess
-import sys
 import time
 import urllib.request
 

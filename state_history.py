@@ -13,7 +13,6 @@
 """
 import json
 import os
-import time
 import threading
 
 HISTORY_FILE = '/tmp/network_history.json'
@@ -21,7 +20,8 @@ MAX_ENTRIES = 200
 
 HISTORY = {
     'summary': [],        # {time, switches, hosts, flows, rx_bytes, tx_bytes, ports_down}
-    'port_stats': [],     # [{time, dpid, port_no, name, rx_bytes, tx_bytes, rx_dropped, tx_dropped}]
+    # [{time, dpid, port_no, name, rx_bytes, tx_bytes, rx_dropped, tx_dropped}]
+    'port_stats': [],
     'validation': [],     # {time, ok, errors, warnings, infos, issues[]}
     'connectivity': [],   # {time, reachable, unreachable, loss_pct}
 }
