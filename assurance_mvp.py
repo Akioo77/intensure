@@ -436,7 +436,9 @@ def main():
     print('=' * 60)
     print(f'   check_interval: {CHECK_INTERVAL}s')
     print(f'   DSN: {DSN_ASSURANCE}')
-    print(f'   诊断表: {"写 assurance.diagnoses（本地 mock 模式）" if WRITE_DIAGNOSES else "不写（联调模式，诊断由伙伴 diagnosis_results 负责）"}')
+    mode_desc = ('写 assurance.diagnoses（本地 mock 模式）' if WRITE_DIAGNOSES
+                 else '不写（联调模式，诊断由伙伴 diagnosis_results 负责）')
+    print(f'   诊断表: {mode_desc}')
     print()
 
     # P0-3 优雅退出: 收到 SIGTERM/SIGINT 先关 DB 连接再退, 避免写一半
