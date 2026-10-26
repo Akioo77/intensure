@@ -541,6 +541,30 @@ def test_real_db_state_history_is_idempotent_guarded():
                 "WHERE summary->>'probe' = '%s'" % marker)
 
 
+def test_query_with_literal_percent():
+    """query() 带字面量 % (如 LIKE) 不能静默返回空。
+
+    2026-10-26 实测 bug: query() 原本 cur.execute(sql, params or ())，
+    空元组触发 %-插值，SQL 里字面量 % 被当格式符 -> 报错 -> except 吞掉
+    -> 返回 []。表现为「含 LIKE 的查询永远查不到数据」。
+    query_one() 也有同样问题（它也传了 params or ()）。
+    """
+    w = FakeWriter()
+    w.query("SELECT 1 WHERE name LIKE 'a%'")
+    _sql, params = w.fake.executed[-1]
+    check("params=None 时不传空元组", params is None, repr(params))
+
+    w2 = FakeWriter()
+    w2.query("SELECT 1 WHERE id=%s", ("x",))
+    _sql2, params2 = w2.fake.executed[-1]
+    check("有 params 时正常传参", params2 == ("x",), repr(params2))
+
+    w3 = FakeWriter()
+    w3.query_one("SELECT 1 WHERE name LIKE 'b%'")
+    _sql3, params3 = w3.fake.executed[-1]
+    check("query_one 也不传空元组", params3 is None, repr(params3))
+
+
 TESTS = [
     test_connection_lazy_load_and_reuse,
     test_connection_reconnect_when_dead,
@@ -575,6 +599,7 @@ TESTS = [
     test_query_returns_dicts,
     test_query_failure_returns_empty,
     test_query_one,
+    test_query_with_literal_percent,
     test_real_db_network_state_upsert,
     test_real_db_state_history_is_idempotent_guarded,
 ]

@@ -77,6 +77,58 @@
 
 ---
 
+## v3.11.2 - 2026-10-26 P1-5 一键启动脚本 + 按伙伴反馈补齐 healing 字段
+
+### ✨ 新增（P1-5）
+
+3 个脚本，均已在 VM 实测通过：
+- **start_all.sh** —— 一键起 4 组件（tmux 窗口 controller/api/mininet/assurance，
+  --with-live 加 live_env）。起完自动校验端口与 /api/health。
+- **stop_all.sh** —— 一键优雅停止：先 SIGTERM（走 graceful.py 落盘/关DB/停拓扑），
+  8 秒未退则强杀；同时清 tmux 与 Mininet，最后复查残留。
+- **status.sh** —— 5 段体检：进程 / tmux 窗口 / 端口+健康 / 13 张表行数 / 汇总。
+
+实测：start_all 起 4 组件全绿；status 全绿 exit 0；stop_all 三进程全部优雅退出、
+tmux 与 Mininet 清理干净、DB 数据保留。
+
+### 🤝 按伙伴反馈补字段（契约对齐）
+
+**冲突1** —— 采用我方 healing_intents 结构，补齐伙伴要求的 4 个字段：
+- status TEXT NOT NULL DEFAULT 'pending' + CHECK 约束（pending/approved/rejected/executed/failed）
+- priority INTEGER NOT NULL DEFAULT 100（队列排序，越小越先）
+- affected_devices TEXT[] NOT NULL DEFAULT '{}'（Guard G3 范围检查）
+- expires_at TIMESTAMPTZ（写入时不传则自动 now()+ttl_seconds）
+- 另补 2 索引：队列扫描 (status,priority,created_at) + 过期清扫 (expires_at)
+- 其余 strategy_spec / guard_passed / has_conflict 放 metadata JSONB
+- 语义区别：verdict 是 Guard 判定，status 是信封生命周期，两者独立
+
+**冲突2** —— 职责分离不合并：伙伴写 diagnosis_results（含 CoT），我方写
+consistency_checks；生产路径我方不写 diagnoses（表保留，仅本地 mock 用）。
+
+**healing_history** —— 分区保留，补伙伴需要的 result_details JSONB + verified BOOLEAN；
+healing_id 对应我方 healing_intent_id。
+
+### 🐛 Bug 修复（实测发现的真 bug）
+
+- **db_writer.query() 含字面量百分号静默返回空**：原实现 cur.execute(sql, params or ())，
+  空元组会触发 psycopg2 的 %-插值，SQL 里 LIKE 的百分号被当格式符 → 报错 →
+  except 吞掉 → 返回空列表。表现为「明明有数据，LIKE 查询却查不到」。
+  query_one() 同样问题。已修为「空参数不传」，并加回归测试 test_query_with_literal_percent。
+
+### 📝 文档
+
+- docs/database-schema.sql 同步新字段（保证「新建库 = 现有库」）
+- docs/partner_schema_confirmation.md（新建）—— 给伙伴的字段确认回复
+- docs/OPTIMIZATION.md v0.5 -> v0.6：P1-5 完成，已完成 9 -> 10，待办 11 -> 10
+
+### ✅ 验收
+
+- healing 新字段 12 项实测全过（含 CHECK 拒绝非法 status、分区表写入、索引可用）
+- 单元测试 131 -> 132（新增百分号回归测试）
+- DDL 前已备份 ~/intensure-backups/pre_healing_ddl.sql
+
+---
+
 ## v3.11.1 - 2026-10-26 P1-3 代码风格：ruff 接入，CI 加防退化拦截
 
 **触发**: 继续推进不依赖伙伴的工作 -> P1-3（代码风格靠作者自律）。

@@ -101,6 +101,7 @@ class DBWriter:
             'probe_skipped': 0,
             'consistency_writes': 0,
             'consistency_skipped': 0,
+            'healing_history_writes': 0,
             'errors': 0,
         }
 
@@ -144,11 +145,20 @@ class DBWriter:
     # ---------- 读（查询） ----------
 
     def query(self, sql, params=None):
-        """只读查询，返回 list of dict。"""
+        """只读查询，返回 list of dict。
+
+        注意: params 为 None 时**不能**传空元组给 psycopg2 ——
+        传空元组会触发 %-插值，SQL 里任何字面量 % （如 LIKE '%x%'）
+        都会被当成格式符而报错；而本方法 except 分支会吞掉异常返回 []，
+        表现为「查询静默返回空」。2026-10-26 实测复现并修复。
+        """
         conn = self._get_conn()
         try:
             with conn.cursor() as cur:
-                cur.execute(sql, params or ())
+                if not params:   # None / () / [] 都视为无参数，避免 %-插值
+                    cur.execute(sql)
+                else:
+                    cur.execute(sql, params)
                 cols = [d[0] for d in cur.description]
                 return [dict(zip(cols, row)) for row in cur.fetchall()]
         except Exception as e:
@@ -159,7 +169,7 @@ class DBWriter:
 
     def query_one(self, sql, params=None):
         """只读查询，返回单行 dict 或 None。"""
-        rows = self.query(sql, params or ())
+        rows = self.query(sql, params)
         return rows[0] if rows else None
 
     # ---------- network_state (单行 upsert, 每次都写) ----------
@@ -436,25 +446,83 @@ class DBWriter:
                              risk: str, guard_checks: dict,
                              verdict: str, blocked_by: list,
                              parent_intent_id: Optional[str] = None,
-                             ttl_seconds: int = 120) -> Optional[str]:
+                             ttl_seconds: int = 120,
+                             status: str = 'pending',
+                             priority: int = 100,
+                             affected_devices: Optional[list] = None,
+                             expires_at: Optional[str] = None,
+                             metadata: Optional[dict] = None) -> Optional[str]:
+        """写自愈意图信封。
+
+        status/priority/affected_devices/expires_at 是按伙伴反馈补的 4 个必需字段：
+          - status: 信封生命周期 pending/approved/rejected/executed/failed
+          - priority: 自愈队列排序，数值越小越先执行
+          - affected_devices: 受影响设备（Guard G3 范围安全检查）
+          - expires_at: 信封过期时间；不传则自动算 now() + ttl_seconds
+        与 verdict 的区别: verdict 是 Guard 判定(APPROVED/BLOCKED/PENDING)，
+        status 是信封生命周期，两者独立。
+        """
         conn = self._get_conn()
         try:
             with conn.cursor() as cur:
                 cur.execute("""
                     INSERT INTO assurance.healing_intents
                         (intent_id, diagnosis_id, parent_intent_id, strategy, primitives,
-                         risk, guard_checks, verdict, blocked_by, ttl_seconds)
-                    VALUES (%s, %s::uuid, %s, %s, %s::jsonb, %s, %s::jsonb, %s, %s::text[], %s)
+                         risk, guard_checks, verdict, blocked_by, ttl_seconds,
+                         status, priority, affected_devices, expires_at, metadata)
+                    VALUES (%s, %s::uuid, %s, %s, %s::jsonb, %s, %s::jsonb, %s, %s::text[], %s,
+                            %s, %s, %s::text[],
+                            COALESCE(%s::timestamptz,
+                                     now() + make_interval(secs => %s)),
+                            %s::jsonb)
                     RETURNING id
                 """, (intent_id, diagnosis_id, parent_intent_id, strategy,
                       Json(primitives), risk, Json(guard_checks), verdict,
-                      blocked_by or [], ttl_seconds))
+                      blocked_by or [], ttl_seconds,
+                      status, priority, affected_devices or [],
+                      expires_at, ttl_seconds,
+                      Json(metadata or {})))
                 return str(cur.fetchone()[0])
         except Exception as e:
             self.stats['errors'] += 1
             if DEBUG:
                 print(f'[DBWriter] write_healing_intent error: {e}', flush=True)
             return None
+
+    def write_healing_history(self, healing_intent_id: str, intent_id: str,
+                              success: bool,
+                              duration_ms: Optional[int] = None,
+                              error_message: Optional[str] = None,
+                              recovery_check_id: Optional[int] = None,
+                              result_details: Optional[dict] = None,
+                              verified: bool = False,
+                              metadata: Optional[dict] = None) -> bool:
+        """写自愈执行历史（分区表，按 executed_at 月分区）。
+
+        result_details / verified 是按伙伴反馈补的字段：
+          - result_details: 执行结果明细
+          - verified: 恢复是否已独立校验通过
+        """
+        conn = self._get_conn()
+        try:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    INSERT INTO assurance.healing_history
+                        (healing_intent_id, intent_id, success, duration_ms,
+                         error_message, recovery_check_id,
+                         result_details, verified, metadata)
+                    VALUES (%s::uuid, %s, %s, %s, %s, %s, %s::jsonb, %s, %s::jsonb)
+                """, (healing_intent_id, intent_id, success, duration_ms,
+                      error_message, recovery_check_id,
+                      Json(result_details or {}), verified,
+                      Json(metadata or {})))
+            self.stats['healing_history_writes'] += 1
+            return True
+        except Exception as e:
+            self.stats['errors'] += 1
+            if DEBUG:
+                print(f'[DBWriter] write_healing_history error: {e}', flush=True)
+            return False
 
     # ---------- 审计 ----------
 

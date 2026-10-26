@@ -457,7 +457,14 @@ CREATE TABLE assurance.healing_intents (
     executed_at         TIMESTAMPTZ,
     execution_result    TEXT,
     metadata            JSONB NOT NULL DEFAULT '{}'::jsonb,
-    CHECK (verdict IN ('APPROVED', 'BLOCKED', 'PENDING'))
+    -- ---- 按伙伴反馈补齐（2026-10-26）----
+    status              TEXT NOT NULL DEFAULT 'pending',
+    priority            INTEGER NOT NULL DEFAULT 100,
+    affected_devices    TEXT[] NOT NULL DEFAULT '{}'::text[],
+    expires_at          TIMESTAMPTZ,
+    CHECK (verdict IN ('APPROVED', 'BLOCKED', 'PENDING')),
+    CONSTRAINT healing_intents_status_check
+        CHECK (status IN ('pending', 'approved', 'rejected', 'executed', 'failed'))
 );
 
 COMMENT ON TABLE assurance.healing_intents IS '自愈意图（含 Guard 14 项校验结果）';
@@ -467,6 +474,21 @@ CREATE INDEX idx_healing_intents_intent_time ON assurance.healing_intents (inten
 CREATE INDEX idx_healing_intents_verdict_time ON assurance.healing_intents (verdict, created_at DESC)
     WHERE verdict = 'APPROVED';
 CREATE INDEX idx_healing_intents_diagnosis ON assurance.healing_intents (diagnosis_id);
+
+-- 队列扫描：取待执行自愈意图
+CREATE INDEX idx_healing_intents_queue
+    ON assurance.healing_intents (status, priority, created_at)
+    WHERE status IN ('pending', 'approved');
+-- 过期清扫
+CREATE INDEX idx_healing_intents_expires
+    ON assurance.healing_intents (expires_at)
+    WHERE expires_at IS NOT NULL;
+
+COMMENT ON COLUMN assurance.healing_intents.status IS
+    '信封生命周期: pending/approved/rejected/executed/failed（verdict 是 Guard 判定，两者不同）';
+COMMENT ON COLUMN assurance.healing_intents.priority IS '自愈队列排序，数值越小越先执行';
+COMMENT ON COLUMN assurance.healing_intents.affected_devices IS '受影响设备（Guard G3 范围安全检查用）';
+COMMENT ON COLUMN assurance.healing_intents.expires_at IS '信封过期时间（通常是 created_at + ttl_seconds）';
 
 -- 自愈执行历史（审计）
 CREATE TABLE assurance.healing_history (
@@ -479,6 +501,9 @@ CREATE TABLE assurance.healing_history (
     error_message   TEXT,
     recovery_check_id BIGINT,                   -- 关联到 consistency_checks
     metadata        JSONB NOT NULL DEFAULT '{}'::jsonb,
+    -- ---- 按伙伴反馈补齐（2026-10-26）----
+    result_details  JSONB NOT NULL DEFAULT '{}'::jsonb,
+    verified        BOOLEAN NOT NULL DEFAULT false,
     PRIMARY KEY (id, executed_at)
 ) PARTITION BY RANGE (executed_at);
 
@@ -490,6 +515,9 @@ CREATE TABLE assurance.healing_history_2026_12 PARTITION OF assurance.healing_hi
     FOR VALUES FROM ('2026-12-01') TO ('2027-01-01');
 
 CREATE INDEX idx_healing_history_intent_time ON assurance.healing_history (intent_id, executed_at DESC);
+
+COMMENT ON COLUMN assurance.healing_history.result_details IS '执行结果明细（伙伴需要）';
+COMMENT ON COLUMN assurance.healing_history.verified IS '恢复是否已独立校验通过（伙伴需要）';
 
 -- ============================================================================
 -- 6. ASSURANCE_MV schema（保障层物化视图，提升读路径性能）
