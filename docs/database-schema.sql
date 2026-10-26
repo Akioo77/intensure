@@ -520,6 +520,187 @@ COMMENT ON COLUMN assurance.healing_history.result_details IS '执行结果明�
 COMMENT ON COLUMN assurance.healing_history.verified IS '恢复是否已独立校验通过（伙伴需要）';
 
 -- ============================================================================
+-- 5.1 伙伴新增的 9 张保障表（2026-10-26 由伙伴 assurance_schema.sql 落地）
+--
+-- 说明:
+--   - 这 9 张表与伙伴的 SQL 脚本逐字对应, 已实测落地
+--   - 伙伴脚本里的 healing_intents / healing_history 因结构冲突未采用,
+--     仍用本文件第 5 节的版本（我方结构 + 已加的 4 个字段）
+--   - 权限: 见 access-control-grants.sql（对 9 张新表单独授权）
+-- ============================================================================
+
+CREATE TABLE assurance._metadata (
+    key character varying(128) NOT NULL,
+    value jsonb NOT NULL
+);
+COMMENT ON TABLE assurance._metadata IS '全局配置元数据，存储 healing_queue 等 JSON blob';
+CREATE TABLE assurance.assurance_records (
+    intent_id character varying(64) NOT NULL,
+    data jsonb NOT NULL,
+    status character varying(32) NOT NULL,
+    updated_at timestamp with time zone NOT NULL,
+    created_at timestamp with time zone NOT NULL
+);
+COMMENT ON TABLE assurance.assurance_records IS '保障记录主表，存储完整的 AssuranceRecord';
+COMMENT ON COLUMN assurance.assurance_records.data IS '完整的 AssuranceRecord JSON，包含 intent/diagnosis/healing 等所有信息';
+CREATE TABLE assurance.audit_logs (
+    log_id integer NOT NULL,
+    intent_id character varying(64),
+    event_type character varying(64) NOT NULL,
+    event_data jsonb NOT NULL,
+    created_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP NOT NULL
+);
+COMMENT ON TABLE assurance.audit_logs IS '审计日志，记录所有状态变更和关键操作';
+CREATE TABLE assurance.case_records (
+    case_id character varying(64) NOT NULL,
+    fault_id character varying(64) NOT NULL,
+    title character varying(256) NOT NULL,
+    description text,
+    violation_type character varying(64),
+    actual_state jsonb,
+    expected_root_cause text,
+    expected_confidence double precision,
+    embedding_text text,
+    embedding jsonb,
+    embedding_model character varying(64) DEFAULT 'bge-m3'::character varying,
+    embedding_updated_at timestamp with time zone,
+    retrieval_count integer DEFAULT 0,
+    last_retrieved_at timestamp with time zone,
+    created_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP,
+    updated_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP,
+    is_active boolean DEFAULT true
+);
+COMMENT ON TABLE assurance.case_records IS '案例库，用于 RAG 检索和 LLM 消歧';
+COMMENT ON COLUMN assurance.case_records.embedding IS 'bge-m3 embedding（1024 维），需要 pgvector 扩展';
+COMMENT ON COLUMN assurance.case_records.retrieval_count IS '检索次数，用于统计热度';
+CREATE TABLE assurance.device_inventory (
+    device_id character varying(64) NOT NULL,
+    device_name character varying(128) NOT NULL,
+    device_type character varying(32) NOT NULL,
+    management_ip inet,
+    management_port integer,
+    location text,
+    status character varying(32) NOT NULL,
+    last_seen_at timestamp with time zone,
+    ports jsonb,
+    created_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP,
+    updated_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP,
+    metadata jsonb
+);
+COMMENT ON TABLE assurance.device_inventory IS '网络设备基础信息，所有模块共享';
+CREATE TABLE assurance.diagnosis_results (
+    diagnosis_id character varying(64) NOT NULL,
+    intent_id character varying(64) NOT NULL,
+    record_id character varying(64) NOT NULL,
+    violation_event_id character varying(64),
+    root_cause text NOT NULL,
+    root_cause_confidence double precision NOT NULL,
+    affected_devices jsonb,
+    affected_links jsonb,
+    evidence jsonb,
+    cause_discriminator text,
+    llm_enabled boolean DEFAULT false,
+    llm_reasoning jsonb,
+    llm_model character varying(64),
+    llm_latency_ms integer,
+    retrieval_method character varying(64),
+    retrieved_cases jsonb,
+    retrieval_latency_ms integer,
+    diagnosed_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP,
+    diagnosis_duration_ms integer
+);
+COMMENT ON TABLE assurance.diagnosis_results IS '诊断结果记录，包含根因分析、置信度、证据等';
+COMMENT ON COLUMN assurance.diagnosis_results.llm_reasoning IS 'LLM 思维链推理步骤，用于审计追溯';
+CREATE TABLE assurance.fault_patterns (
+    fault_id character varying(64) NOT NULL,
+    version character varying(32) NOT NULL,
+    cause_type character varying(64) NOT NULL,
+    title character varying(256) NOT NULL,
+    category character varying(64),
+    description text,
+    typical_symptoms jsonb,
+    confirmation_signals jsonb,
+    exclusion_signals jsonb,
+    required_evidence jsonb,
+    cause_discriminators jsonb,
+    repair_strategies jsonb,
+    created_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP,
+    updated_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP,
+    is_active boolean DEFAULT true
+);
+COMMENT ON TABLE assurance.fault_patterns IS '故障模式知识库，用于规则匹配诊断';
+CREATE TABLE assurance.intent_registry (
+    intent_id character varying(64) NOT NULL,
+    intent_type character varying(32) NOT NULL,
+    source_module character varying(32) NOT NULL,
+    child_intent_id character varying(64),
+    lifecycle_status character varying(32) NOT NULL,
+    created_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP,
+    updated_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP,
+    deprecated_at timestamp with time zone,
+    owner_module character varying(32),
+    description text,
+    tags jsonb,
+    metadata jsonb
+);
+COMMENT ON TABLE assurance.intent_registry IS '全局意图索引，所有模块共享';
+COMMENT ON COLUMN assurance.intent_registry.tags IS '标签数组，便于查询过滤';
+CREATE TABLE assurance.violation_events (
+    event_id character varying(64) NOT NULL,
+    intent_id character varying(64) NOT NULL,
+    record_id character varying(64) NOT NULL,
+    violation_type character varying(64) NOT NULL,
+    violation_severity character varying(32) NOT NULL,
+    violation_details jsonb,
+    detected_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP,
+    resolved_at timestamp with time zone,
+    is_resolved boolean DEFAULT false,
+    resolution_method character varying(64),
+    diagnosis_id character varying(64),
+    created_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP
+);
+COMMENT ON TABLE assurance.violation_events IS '违例事件记录，每次检测发现违例时写入';
+ALTER TABLE ONLY assurance.audit_logs ALTER COLUMN log_id SET DEFAULT nextval('assurance.audit_logs_log_id_seq'::regclass);
+ALTER TABLE ONLY assurance._metadata
+    ADD CONSTRAINT _metadata_pkey PRIMARY KEY (key);
+ALTER TABLE ONLY assurance.assurance_records
+    ADD CONSTRAINT assurance_records_pkey PRIMARY KEY (intent_id);
+ALTER TABLE ONLY assurance.audit_logs
+    ADD CONSTRAINT audit_logs_pkey PRIMARY KEY (log_id);
+ALTER TABLE ONLY assurance.case_records
+    ADD CONSTRAINT case_records_pkey PRIMARY KEY (case_id);
+ALTER TABLE ONLY assurance.device_inventory
+    ADD CONSTRAINT device_inventory_pkey PRIMARY KEY (device_id);
+ALTER TABLE ONLY assurance.diagnosis_results
+    ADD CONSTRAINT diagnosis_results_pkey PRIMARY KEY (diagnosis_id);
+ALTER TABLE ONLY assurance.fault_patterns
+    ADD CONSTRAINT fault_patterns_pkey PRIMARY KEY (fault_id);
+ALTER TABLE ONLY assurance.intent_registry
+    ADD CONSTRAINT intent_registry_pkey PRIMARY KEY (intent_id);
+ALTER TABLE ONLY assurance.violation_events
+    ADD CONSTRAINT violation_events_pkey PRIMARY KEY (event_id);
+CREATE INDEX idx_al_intent ON assurance.audit_logs USING btree (intent_id);
+CREATE INDEX idx_al_time ON assurance.audit_logs USING btree (created_at);
+CREATE INDEX idx_al_type ON assurance.audit_logs USING btree (event_type);
+CREATE INDEX idx_ar_status ON assurance.assurance_records USING btree (status);
+CREATE INDEX idx_ar_updated ON assurance.assurance_records USING btree (updated_at);
+CREATE INDEX idx_cr_active ON assurance.case_records USING btree (is_active);
+CREATE INDEX idx_cr_fault ON assurance.case_records USING btree (fault_id);
+CREATE INDEX idx_di_status ON assurance.device_inventory USING btree (status);
+CREATE INDEX idx_di_type ON assurance.device_inventory USING btree (device_type);
+CREATE INDEX idx_dr_cause ON assurance.diagnosis_results USING btree (root_cause);
+CREATE INDEX idx_dr_diagnosed ON assurance.diagnosis_results USING btree (diagnosed_at);
+CREATE INDEX idx_dr_intent ON assurance.diagnosis_results USING btree (intent_id);
+CREATE INDEX idx_fp_active ON assurance.fault_patterns USING btree (is_active);
+CREATE INDEX idx_fp_cause ON assurance.fault_patterns USING btree (cause_type);
+CREATE INDEX idx_ir_created ON assurance.intent_registry USING btree (created_at);
+CREATE INDEX idx_ir_status ON assurance.intent_registry USING btree (lifecycle_status);
+CREATE INDEX idx_ir_type ON assurance.intent_registry USING btree (intent_type);
+CREATE INDEX idx_ve_detected ON assurance.violation_events USING btree (detected_at);
+CREATE INDEX idx_ve_intent ON assurance.violation_events USING btree (intent_id);
+CREATE INDEX idx_ve_type ON assurance.violation_events USING btree (violation_type);
+
+-- ============================================================================
 -- 6. ASSURANCE_MV schema（保障层物化视图，提升读路径性能）
 -- ============================================================================
 

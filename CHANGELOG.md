@@ -77,6 +77,50 @@
 
 ---
 
+## v3.12.0 - 2026-10-26 落地伙伴 9 张无冲突保障表
+
+**触发**: 伙伴发来 assurance_schema.sql（Downloads），实测冲突后决定先落无冲突的部分。
+
+### ✅ 已落地（9 张新表 + 22 个索引）
+
+intent_registry / device_inventory / assurance_records / violation_events /
+diagnosis_results / audit_logs / fault_patterns / case_records / _metadata
+
+流程：备份 → staging dry-run（9 张全过）→ 真库落地 → 精确授权 → 验收。
+`assurance` schema 从 11 张表变 20 张。**原有数据零丢失**
+（consistency_checks=538 / diagnoses=148 / network_state=1 / state_history=244）。
+
+### 🔒 安全处理（3 层过滤）
+
+落地前把伙伴脚本里不可直接执行的部分剔掉：
+1. **2 张硬冲突表**（healing_intents / healing_history）的 CREATE TABLE + 6 个索引
+2. 兜底剔除**所有仍引用这 2 张表的语句**（COMMENT ON 等）—— 第一版漏了，
+   dry-run 时报 `relation does not exist`，补上后才通过
+3. **伙伴的权限块 DO $$ ... $$;** —— 他说是「已注释」但实际是活代码，
+   且含 `GRANT SELECT ON ALL TABLES IN SCHEMA intensure` 与
+   `ALTER DEFAULT PRIVILEGES`，比我方逐表授权的设计更宽。改为我方口径精确授权。
+
+### 🔐 授权
+
+新表必须单独授权 —— PG 的 `GRANT ... ON ALL TABLES` **只覆盖授权时已存在的表**，
+新建的表不会自动继承。已对 9 张新表单独授 SELECT/INSERT/UPDATE/DELETE 给
+`assurance_user`，并对 assurance schema 的序列授权。
+
+### ✅ 验收（关键：冲突表没被动过）
+
+- `assurance` schema 20 张表
+- `healing_intents` 仍是我们 **19 列**（含 status / priority）
+- `healing_history` 仍是我们 **11 列**（含 result_details）
+- **`healing_id` 列数 = 0** —— 证明伙伴脚本没有覆盖我方表
+- `assurance_user` 对新表有完整读写
+
+### 📝 文档
+
+- `docs/database-schema.sql` 新增 5.1 节（9 张表的实际 DDL，从库里导出保证一致）
+- `docs/access-control-grants.sql` 补 9 张新表的授权
+
+---
+
 ## v3.11.2 - 2026-10-26 P1-5 一键启动脚本 + 按伙伴反馈补齐 healing 字段
 
 ### ✨ 新增（P1-5）

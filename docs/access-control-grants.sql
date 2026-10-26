@@ -115,3 +115,21 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA assurance
     GRANT USAGE, SELECT ON SEQUENCES TO assurance_user;
 
 -- 文件结束
+
+-- ---------- 伙伴新增的 9 张保障表（2026-10-26）----------
+-- 注意: PG 的 "GRANT ... ON ALL TABLES" 只覆盖授权时已存在的表,
+--       新建的表不会自动继承, 必须单独再授一次。
+DO $$
+DECLARE
+    t text;
+BEGIN
+    FOREACH t IN ARRAY ARRAY[
+        'intent_registry', 'device_inventory', 'assurance_records',
+        'violation_events', 'diagnosis_results', 'audit_logs',
+        'fault_patterns', 'case_records', '_metadata'
+    ] LOOP
+        EXECUTE format('GRANT SELECT, INSERT, UPDATE, DELETE ON assurance.%I TO assurance_user', t);
+    END LOOP;
+END $$;
+
+GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA assurance TO assurance_user;
