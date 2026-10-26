@@ -1,0 +1,107 @@
+================================================================
+源文件: /Users/sunxiaoxuan/Downloads/assurance_schema.sql  (357 行)
+建表语句: 11 个
+================================================================
+[闸1] 通过: 无危险语句
+[闸2] 通过: 所有 assurance. 引用已重定向到 assurance_partner_staging
+[闸3] 通过: 暂存执行成功
+
+表名 | 状态 | 伙伴列数 | 我们列数
+----------------------------------------------------------------
+  healing_history          硬冲突        17        11
+  healing_intents          硬冲突        24        19
+  _metadata                新表         2         0
+  assurance_records        新表         5         0
+  audit_logs               新表         5         0
+  case_records             新表         17        0
+  device_inventory         新表         12        0
+  diagnosis_results        新表         19        0
+  fault_patterns           新表         15        0
+  intent_registry          新表         12        0
+  violation_events         新表         12        0
+----------------------------------------------------------------
+
+新建 9 张, 硬冲突 2 张
+
+=== 硬冲突表的列差异 ===
+  > healing_history
+      [我们] id bigint
+      [我们] executed_at timestamp with time zone
+      [我们] healing_intent_id uuid
+      [我们] intent_id text
+      [我们] success boolean
+      [我们] duration_ms integer
+      [我们] error_message text
+      [我们] recovery_check_id bigint
+      [我们] metadata jsonb
+      [我们] result_details jsonb
+      [我们] verified boolean
+      [伙伴] history_id character varying
+      [伙伴] healing_id character varying
+      [伙伴] executed_by character varying
+      [伙伴] executor_instance character varying
+      [伙伴] executed_at timestamp with time zone
+      [伙伴] execution_duration_ms integer
+      [伙伴] success boolean
+      [伙伴] result_code character varying
+      [伙伴] result_details jsonb
+      [伙伴] error_message text
+      [伙伴] rollback_needed boolean
+      [伙伴] rollback_executed boolean
+      [伙伴] verification_enabled boolean
+      [伙伴] verified boolean
+      [伙伴] verified_at timestamp with time zone
+      [伙伴] verification_details jsonb
+      [伙伴] created_at timestamp with time zone
+      只有我们有: id, healing_intent_id, intent_id, duration_ms, recovery_check_id, metadata
+      只有他有: history_id, healing_id, executed_by, executor_instance, execution_duration_ms, result_code, rollback_needed, rollback_executed, verification_enabled, verified_at, verification_details, created_at
+  > healing_intents
+      [我们] id uuid
+      [我们] created_at timestamp with time zone
+      [我们] intent_id text
+      [我们] diagnosis_id uuid
+      [我们] parent_intent_id text
+      [我们] strategy text
+      [我们] primitives jsonb
+      [我们] risk text
+      [我们] guard_checks jsonb
+      [我们] verdict text
+      [我们] blocked_by ARRAY
+      [我们] ttl_seconds integer
+      [我们] executed_at timestamp with time zone
+      [我们] execution_result text
+      [我们] metadata jsonb
+      [我们] status text
+      [我们] priority integer
+      [我们] affected_devices ARRAY
+      [我们] expires_at timestamp with time zone
+      [伙伴] healing_id character varying
+      [伙伴] intent_id character varying
+      [伙伴] record_id character varying
+      [伙伴] diagnosis_id character varying
+      [伙伴] strategy_name character varying
+      [伙伴] strategy_category character varying
+      [伙伴] strategy_spec jsonb
+      [伙伴] affected_devices jsonb
+      [伙伴] affected_links jsonb
+      [伙伴] status character varying
+      [伙伴] priority integer
+      [伙伴] auto_approved boolean
+      [伙伴] approved_by character varying
+      [伙伴] approved_at timestamp with time zone
+      [伙伴] rejection_reason text
+      [伙伴] has_conflict boolean
+      [伙伴] conflict_details jsonb
+      [伙伴] is_security_baseline boolean
+      [伙伴] guard_checks jsonb
+      [伙伴] guard_passed boolean
+      [伙伴] created_at timestamp with time zone
+      [伙伴] scheduled_at timestamp with time zone
+      [伙伴] expires_at timestamp with time zone
+      [伙伴] updated_at timestamp with time zone
+      只有我们有: id, parent_intent_id, strategy, primitives, risk, verdict, blocked_by, ttl_seconds, executed_at, execution_result, metadata
+      只有他有: healing_id, record_id, strategy_name, strategy_category, strategy_spec, affected_links, auto_approved, approved_by, approved_at, rejection_reason, has_conflict, conflict_details, is_security_baseline, guard_passed, scheduled_at, updated_at
+
+暂存 schema 已删除, 现有库零影响
+
+这是 DRY RUN。确认无冲突后, 加 --apply 真落地。
