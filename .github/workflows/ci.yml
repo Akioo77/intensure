@@ -64,4 +64,18 @@ jobs:
 
       - name: 跑单元测试
         run: |
-          python -m pytest test_actual_state_builder.py test_reporter.py -v
+          # 跑全部 pytest 测试文件。
+          # 注意: test_recovery.py 是手动脚本(硬编码 VM 路径 + 需要真实 mininet 拓扑),
+          #       pytest 收集不到用例且在 CI 会 import 失败, 故排除。
+          # test_db_writer.py 的真实库用例在无 PG 时会自动 SKIP, 不影响 CI。
+          python -m pytest \
+            test_actual_state_builder.py \
+            test_reporter.py \
+            test_graceful.py \
+            test_db_writer.py \
+            test_assurance_mvp.py \
+            test_state_server.py \
+            test_state_history.py \
+            test_ovs_logger.py \
+            test_state_model.py \
+            -v

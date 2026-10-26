@@ -77,6 +77,58 @@
 
 ---
 
+## v3.11.0 - 2026-10-26 P1-1 测试覆盖：+131 个用例，CI 修复
+
+**触发**: 主人说「先在没有其他人的情况下推进我们自己的工作」-> 挑 P1-1（测试覆盖率极低）做，
+全程不依赖伙伴。
+
+### ✨ 新增测试（6 个文件 / 131 用例，host）
+
+- **`test_db_writer.py`**（35）—— 写库关口
+  12 个 `write_*` 方法的成功+失败路径（失败返回 False/None 不抛、errors 计数 +1）、
+  连接懒加载/复用/探活失败重连、state_history 30s 节流 + 变化触发 + force、
+  `should_write_probe` 四种 anomaly_type、`should_write_consistency` 五种判定。
+  含真实库集成用例（无 PG 时自动 SKIP）：upsert 幂等（version 递增且只有一行）+ 节流只落一行。
+- **`test_assurance_mvp.py`**（24）—— 状态机核心
+  3 个 extract 边界（按 IP/MAC 索引、/mask 剥离、OFPP_LOCAL 跳过、链路双向去重）+
+  `check_one_policy` 7 种转换 + `diagnose_violation` 4 种诊断规则。
+  重点覆盖「ARP 未触发时不算违例」这个易错边界。
+- **`test_state_server.py`**（11）—— 11 个 REST 端点
+  状态码 / JSON 格式 / since+limit 参数过滤 / 缺 key 返回 {} 而非 500 / links 双向去重成对。
+- **`test_state_history.py`**（10）—— 环形缓冲 + 原子持久化
+  MAX_ENTRIES 封顶、get 语义（key/limit/limit=0/未知 key）、dump 先写 .tmp 再 rename、load 往返。
+- **`test_ovs_logger.py`**（15）—— 日志解析
+  行解析、空行/畸形行返回 None、**UTC 时间戳不偏 8 小时**（这处错了归因会全错）、
+  since/until/module/level/keyword/limit 六种过滤、buffer 定长、关联函数结构。
+- **`test_state_model.py`**（26）—— 5 个验证器 + 主入口
+  schema/sanity/consistency/completeness/anomaly 各自边界 +
+  `validate_state` 的 ok/issue_count/by_level 汇总。
+
+### 🐛 Bug 修复
+
+- **CI 形同虚设**：`ci.yml` 原本只跑 `test_actual_state_builder.py test_reporter.py`，
+  新增的测试文件根本不会被执行 —— 名义上有 CI，实际漏掉全部新增覆盖。
+  现改为跑 9 个测试文件（`test_recovery.py` 排除：它是手动脚本，硬编码 VM 路径 + 需要真实 mininet 拓扑）。
+- **`test_db_writer.py` 类名触发 pytest 误收集**：`TestWriter` 会被 pytest 当测试类收集并告警，
+  改名为 `FakeWriter`。
+- **真实库用例不幂等**：连续跑第二次会因上次的残留行而失败。
+  改为跑前清理 + `finally` 清理（`intensure_user` 有 DELETE 权限）。
+
+### 📊 统计
+
+- 单元测试 **21 -> 131**（host）/ **142**（VM，多 11 个 Flask 用例）
+- 6 个裸奔模块补齐：`db_writer` / `assurance_mvp` / `state_server` /
+  `state_history` / `ovs_logger` / `state_model`
+- 关键模块从 3/9 提升到 **9/9 有测试**
+- CI 从 2 个测试文件提升到 9 个
+
+### 📝 文档
+
+- **`docs/OPTIMIZATION.md`**：v0.3 -> v0.4。P1-1 移入「✅ 已完成」段；
+  **P0 全部完成 + P1-1 完成**，已完成 7 -> 8 项，待办 13 -> 12 项。
+
+---
+
 ## v3.10.4 - 2026-10-25 P0-3 graceful shutdown + P0 全部收口
 
 **触发**: 主人问「接下来应该做什么」-> 盘点 P0 剩余项，发现 P0-2/P0-4 其实早已实现（只是清单没记账），P0-3 是真缺口。

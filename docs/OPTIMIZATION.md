@@ -1,18 +1,18 @@
 # intensure 优化清单(2026-10-09 整理)
 
 > **目的**:盘点 intensure 项目当前可改进的地方,按优先级排好,标注**做什么 + 怎么开发 + 工作量**。
-> **状态**:v0.3(2026-10-25 更新)——**P0 全部完成**（P0-1 / P0-2 / P0-3 / P0-4 / P0-5），连同 P1-4 / P3-5 共 7 项已完成并移入下方「✅ 已完成」段，剩余 13 项待办。
+> **状态**:v0.4(2026-10-26 更新)——**P0 全部完成**，P1-1 测试覆盖也已完成（7 个模块有测试：actual_state_builder / reporter / graceful / db_writer / assurance_mvp / state_server / state_history / ovs_logger / state_model），共 8 项已完成，剩余 12 项待办。
 > **边界**:**只关心 intensure 这边**——翻译组 / 冲突消解组 / A 同学 assurance-agent 的内部设计不归我们管。
 > **不抢活**:我们能催/建议,但不能越界做。
 
 ---
 
-## 🎯 优先级总览(13 项待办 / 7 项已完成)
+## 🎯 优先级总览(12 项待办 / 8 项已完成)
 
 | 优先级 | 项数 | 类别 |
 |------|------|------|
 | 🔴 P0(基础缺失,必须补) | **0** | 全部完成 ✅ |
-| 🟡 P1(质量/可靠性) | 4 | 测试 / 日志 / 文档 |
+| 🟡 P1(质量/可靠性) | 3 | 日志 / 文档 |
 | 🟢 P2(性能/扩展) | 5 | 压测 / dashboard / 故障类型 |
 | 🔵 P3(完善) | 4 | 迁移 / Docker / observability |
 
@@ -37,19 +37,6 @@
 
 ## 🟡 P1 · 质量 / 可靠性
 
-### P1-1 · 测试覆盖率极低(8/9 关键模块 0 测试)
-**问题**:9 个关键模块里 8 个**没有单元测试**——`db_writer.py` / `assurance_mvp.py` / `state_server.py` / `controller_app.py` / `state_history.py` / `state_model.py` / `ovs_logger.py` 都裸奔。
-
-**怎么开发**(优先级排序):
-1. **`test_db_writer.py`**:为 12 个 write_* 方法做 mock + 真实 DB 双测试(每个方法:成功 + 失败 + idempotent)
-2. **`test_assurance_mvp.py`**:8 状态机转换 + 14 guard_checks 边界
-3. **`test_state_server.py`**:12 个 REST 端点状态码 + JSON 格式
-4. **`test_state_history.py`**:环形缓冲 + 原子持久化
-5. **`test_ovs_logger.py`**:日志解析(已有 OVSLogParser 类的话)
-6. `controller_app.py` 不容易单测(依赖 os-ken 事件循环),但可以用 mock EventOFP* 测试事件钩子逻辑
-
-**工作量**:5-7 天
-**价值**:🟢 高(下次改代码心里有底)
 
 ---
 
@@ -319,6 +306,31 @@
 
 ---
 
+### ✅ P1-1 · 测试覆盖率极低(8/9 关键模块 0 测试)
+
+**完成情况**: 新增 6 个测试文件、131 个用例（host）/ 142 个（VM，含真实库 + Flask）：
+  - `test_db_writer.py`（35）—— 12 个 write_* 的成功/失败路径、连接懒加载与探活重连、
+    state_history 30s 节流与变化触发、should_write_probe 四种 anomaly_type、
+    should_write_consistency 五种判定；含真实库集成（upsert 幂等 + 节流落库）
+  - `test_assurance_mvp.py`（24）—— 3 个 extract 边界 + 状态机 7 种转换 + 4 种诊断规则
+  - `test_state_server.py`（11）—— 11 个 REST 端点状态码/JSON 格式/参数过滤
+  - `test_state_history.py`（10）—— 环形缓冲上限、get 语义、dump 原子写 + load 往返
+  - `test_ovs_logger.py`（15）—— 日志行解析、UTC 时间戳（不偏 8 小时）、6 种过滤
+  - `test_state_model.py`（26）—— 5 个验证器 + 主入口 ok/issue_count/by_level 汇总
+同时修了 CI：原先只跑 2 个测试文件，新测试不会被执行；现改为跑 9 个。
+
+**提交**: `待提交（2026-10-26）`
+
+**怎么开发**(优先级排序):
+1. **`test_db_writer.py`**:为 12 个 write_* 方法做 mock + 真实 DB 双测试(每个方法:成功 + 失败 + idempotent)
+2. **`test_assurance_mvp.py`**:8 状态机转换 + 14 guard_checks 边界
+3. **`test_state_server.py`**:12 个 REST 端点状态码 + JSON 格式
+4. **`test_state_history.py`**:环形缓冲 + 原子持久化
+5. **`test_ovs_logger.py`**:日志解析(已有 OVSLogParser 类的话)
+6. `controller_app.py` 不容易单测(依赖 os-ken 事件循环),但可以用 mock EventOFP* 测试事件钩子逻辑
+
+---
+
 ---
 
 ## 📋 工作量汇总
@@ -326,10 +338,10 @@
 | 类别 | 项数 | 估计总工作量 |
 |------|------|-------------|
 | 🔴 P0 | 0 | 0 天 ✅ |
-| 🟡 P1 | 4 | 9-12 天 |
+| 🟡 P1 | 3 | 7-9 天 |
 | 🟢 P2 | 5 | 9-12 天 |
 | 🔵 P3 | 4 | 8-9 天 |
-| **合计** | **13** | **~21-27 工作日** |
+| **合计** | **12** | **~19-24 工作日** |
 
 ---
 
