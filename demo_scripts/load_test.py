@@ -115,8 +115,13 @@ class Sampler:
         sizes = {}
         for t in self.hot_tables:
             try:
+                # 分区表的 pg_total_relation_size(父表) 只算父表自身(为 0),
+                # 必须把子分区一起加进去。
                 r = self.w.query(
-                    "SELECT pg_total_relation_size('%s'::regclass) AS sz" % t)
+                    "SELECT coalesce(sum(pg_total_relation_size(c.oid)), 0) AS sz "
+                    "FROM pg_class c WHERE c.oid = '%s'::regclass "
+                    "OR c.oid IN (SELECT inhrelid FROM pg_inherits "
+                    "WHERE inhparent = '%s'::regclass)" % (t, t))
                 if r:
                     sizes[t] = r[0]["sz"]
             except Exception:
@@ -192,6 +197,9 @@ def main():
     ap.add_argument("--cycle", type=float, default=5.0, help="采集周期秒（线上=5）")
     ap.add_argument("--violation-rate", type=float, default=0.1,
                     help="判为违例的 intent 比例（触发诊断写入）")
+    ap.add_argument("--realistic", action="store_true",
+                    help="真实模式: 走 should_write_consistency 节流(变更+60s心跳), "
+                         "与线上 assurance_mvp 一致。默认是最坏上界(每 intent 每周期都写)。")
     ap.add_argument("--cleanup", action="store_true", help="结束后清理压测数据")
     ap.add_argument("--out", default="docs/load_test_results.md")
     args = ap.parse_args()
@@ -207,8 +215,16 @@ def main():
     print("  违例率: %.0f%%" % (args.violation_rate * 100))
     print("")
 
+    # 清掉上一轮遗留的压测数据, 保证体积基线干净
+    intensure_w.query("DELETE FROM assurance.consistency_checks "
+                      "WHERE intent_id LIKE 'loadtest-%'")
+    intensure_w.query("DELETE FROM assurance.diagnoses "
+                      "WHERE intent_id LIKE 'loadtest-%'")
     ids = seed_policies(args.intents)
     print("  ✅ 已插入 %d 条测试策略" % len(ids))
+    print("  写模式: %s" % ("真实节流（变更检测+60s心跳，与线上一致）"
+                           if args.realistic
+                           else "最坏上界（每 intent 每周期都写）"))
 
     sampler = Sampler(HOT_TABLES)
     base = sampler.sample(0)
@@ -249,6 +265,13 @@ def main():
             for i, iid in enumerate(ids):
                 violated = i < n_violated
                 try:
+                    if args.realistic:
+                        # 真实模式: 与线上 assurance_mvp 一致, 走变更检测 + 60s 心跳
+                        should_write, _hb = assurance_w.should_write_consistency(
+                            iid, "violated" if violated else "pass",
+                            is_diagnosing=violated)
+                        if not should_write:
+                            continue
                     assurance_w.write_consistency_check(
                         intent_id=iid,
                         check_type="reachability",
@@ -366,6 +389,9 @@ def main():
     r.append("| 时长 | %d 分钟（实际 %.1f 分钟）|" % (args.minutes, elapsed / 60))
     r.append("| 采集周期 | %ds（线上 STATS_INTERVAL=5）|" % args.cycle)
     r.append("| 违例率 | %.0f%%（触发 diagnoses 写入）|" % (args.violation_rate * 100))
+    r.append("| 写模式 | %s |" % ("真实节流（变更检测+60s心跳，与线上一致）"
+                                 if args.realistic
+                                 else "最坏上界（每 intent 每周期都写）"))
     r.append("| 周期数 | %d |" % cycle)
     r.append("")
     r.append("## 二、写入量与吞吐")
