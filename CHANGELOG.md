@@ -77,6 +77,61 @@
 
 ---
 
+## v3.14.0 - 2026-10-27 P3-1 alembic：schema 迁移工具 + 伙伴方案 A 达成
+
+**触发**: 主人让「先做 3.1」，同时处理伙伴回传的新 SQL 文件。
+
+### 🤝 伙伴新脚本 `assurance_schema-2.sql`（v1.1）
+
+伙伴**已按方案 A 修订**：移除 `healing_intents` / `healing_history` 的 CREATE TABLE
+（采用我方结构），确认我方已加 status/priority/affected_devices/expires_at，
+自愈队列存 `_metadata`。
+
+**核对结果**：新旧脚本的 9 张公共表结构**逐张完全一致**（列数 2/5/5/17/12/19/15/12/12），
+现库这 9 张表与新脚本一致 → **新脚本对我方库是 no-op，无需执行**。
+我方库已处于双方约定的最终状态。
+
+### ✨ P3-1 alembic
+
+把「改 schema」从「手工 DDL + 手工同步两个文件」变成「一条命令 + 一个版本号」。
+过去两天因此出过 3 次事故（error_archive 漏进规范文件 / RAISE 参数不匹配 /
+分区删除用起始日会删掉当月分区），现在都有可执行检查兜着。
+
+- `alembic.ini` + `migrations/env.py`（自定义，**不用 autogenerate** —— 本项目无
+  SQLAlchemy 模型，autogenerate 没比对基准只产噪音）+ `script.py.mako`
+- `0001_baseline.py`：**由 `db_maintenance/gen_baseline.py` 从 `docs/database-schema.sql`
+  自动生成**（不手抄，保证基线 == 规范文件）
+- `0002_retention_function.py`：只建函数。**刻意不含清理主流程** —— 迁移必须无副作用，
+  把删分区的动作放进 upgrade 等于「升个版本就删数据」，清理留在
+  `db_maintenance/run_retention_cleanup.sh`（cron 跑）
+- **顺手修掉分区定时炸弹**：schema 把月分区写死 2026_10/11/12，2027 年 1 月建新库
+  就没有当月分区 → 任何 INSERT 报 `no partition of relation ... found for row`。
+  基线改为按「当前月 + 0..2」**动态创建**
+- `docs/ALEMBIC_WORKFLOW.md`：用法 + 流程 + **8 个踩过的坑**
+- `verify_fresh_db.sh` 改走 alembic 路径，新增「**基线 vs 规范文件漂移检查**」
+- CI 新增「检查基线与 schema 规范文件一致」（纯文件比对，**不需要数据库**）
+
+### ✅ 验收
+
+- `alembic upgrade head` 从零建库 → 5 个 schema 表数与现库逐一相等
+- `drop_old_partitions()` 函数已建、7/7 分区表有当月分区、7/7 写入路由正常
+- `downgrade base` 干净清库（0 残留）→ 再 `upgrade head` 正常
+- `verify_fresh_db.sh` → ✅ 全部通过 —— 新建库 = 现有库
+
+### 🛠 本轮踩的坑（都记进 ALEMBIC_WORKFLOW.md）
+
+1. `format('%I', 'a.b')` → `"a.b"` 是**一个带点的标识符**，PG 当成普通表名 →
+   报 `relation "a.b" does not exist`。必须拆成 `%I.%I`
+2. `op.execute(sa.text(sql))` → `::jsonb` 的冒号被当绑定参数
+3. `exec_driver_sql` 传空 dict → psycopg2 多语句 SQL 报 `immutabledict is not a sequence`
+4. `\set` 是 psql 元命令 → 走 DBAPI 语法错 → 整个事务回滚
+5. alembic 会 **import `versions/` 下所有 .py** → 生成器放那儿会在 import 时炸
+6. Python `%` 格式化模板里字面量 `%I` 必须处处转义 → 改用 `str.replace()` 占位符
+7. rsync 不删文件 → 旧 revision 残留造成 multiple heads → 同步要加 `--delete`
+8. 分区写死月份 → 2027 年建库就炸
+
+---
+
 ## v3.13.1 - 2026-10-27 修「新建库 ≠ 现有库」+ 分区清理脚本致命 bug
 
 **触发**: 复查 2026-10-27 00:03 的 heartbeat 改动，发现它引入/遗留了 3 个真问题。

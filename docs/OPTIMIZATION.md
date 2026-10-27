@@ -1,20 +1,20 @@
 # intensure 优化清单(2026-10-09 整理)
 
 > **目的**:盘点 intensure 项目当前可改进的地方,按优先级排好,标注**做什么 + 怎么开发 + 工作量**。
-> **状态**:v0.7(2026-10-26 更新)——**P0 全部完成**；P1-1 测试覆盖、P1-3 代码风格、P1-5 启动脚本、P2-1 压测也已完成（压测实测数据已修正 retention-policy.md 的容量估算）。共 11 项已完成，剩余 9 项待办。
+> **状态**:v0.8(2026-10-27 更新)——**P0 全部完成**；P1-1 测试、P1-3 风格、P1-5 启动脚本、P2-1 压测、**P3-1 alembic 迁移**也已完成。共 12 项已完成，剩余 8 项待办。
 > **边界**:**只关心 intensure 这边**——翻译组 / 冲突消解组 / A 同学 assurance-agent 的内部设计不归我们管。
 > **不抢活**:我们能催/建议,但不能越界做。
 
 ---
 
-## 🎯 优先级总览(9 项待办 / 11 项已完成)
+## 🎯 优先级总览(8 项待办 / 12 项已完成)
 
 | 优先级 | 项数 | 类别 |
 |------|------|------|
 | 🔴 P0(基础缺失,必须补) | **0** | 全部完成 ✅ |
 | 🟡 P1(质量/可靠性) | 1 | 日志统一 |
 | 🟢 P2(性能/扩展) | 4 | dashboard / 故障类型 |
-| 🔵 P3(完善) | 4 | 迁移 / Docker / observability |
+| 🔵 P3(完善) | 3 | Docker / observability |
 
 ---
 
@@ -128,17 +128,6 @@
 
 ## 🔵 P3 · 完善
 
-### P3-1 · alembic 数据库迁移工具
-**问题**:现在是手工跑 SQL(`docs/database-schema.sql`)。改表结构要手工对比 + 手工 ALTER。
-
-**怎么开发**:
-1. `alembic init migrations`
-2. `alembic revision --autogenerate -m "add audit_log correlation_id index"`
-3. CI 验证 migration 能跑(`alembic upgrade head` + `alembic downgrade base`)
-4. 配合 P3-2(deployment)一起做
-
-**工作量**:2 天
-**价值**:🟢 高(长期工程价值)
 
 ---
 
@@ -339,6 +328,33 @@ PG 锁等待 **0**；连接数全程 1；5s 周期实际只用 p50 395ms = 预�
 
 ---
 
+### ✅ P3-1 · alembic 数据库迁移工具
+
+**完成情况**: 引入 alembic，把「改 schema」从「手工 DDL + 手工同步两个文件」变成「一条命令 + 一个版本号」。
+- `alembic.ini` + `migrations/env.py`（自定义，**不用 autogenerate** —— 本项目无 SQLAlchemy 模型，
+  autogenerate 没有比对基准只会产噪音）+ `migrations/script.py.mako`
+- `0001_baseline.py`：**由 `db_maintenance/gen_baseline.py` 从 `docs/database-schema.sql` 自动生成**
+  （不手抄，保证基线 == 规范文件）
+- `0002_retention_function.py`：只建 `drop_old_partitions()` 函数。**刻意不包含**清理主流程 ——
+  迁移必须无副作用，把删分区的动作放进 upgrade 等于「升个版本就删数据」。
+  清理留在 `db_maintenance/run_retention_cleanup.sh`（cron 定期跑）
+- **顺手修掉分区定时炸弹**：schema 文件把月分区写死成 2026_10/11/12，到 2027 年 1 月建新库
+  就没有当月分区，任何 INSERT 报 `no partition of relation ... found for row`。
+  基线改为按「当前月 + 0..2」**动态创建**
+- `docs/ALEMBIC_WORKFLOW.md`：用法 + 流程 + **8 个踩过的坑**
+- `demo_scripts/verify_fresh_db.sh` 改走 alembic 路径，并新增「**基线 vs 规范文件漂移检查**」
+- CI 新增一步「检查基线与 schema 规范文件一致」（纯文件比对，**不需要数据库**）
+
+**验收**：`alembic upgrade head` 从零建库 → 5 个 schema 表数与现库逐一相等、
+`drop_old_partitions()` 函数已建、7/7 分区表有当月分区、7/7 写入路由正常；
+`downgrade base` 干净清库（0 残留）再 `upgrade head` 正常。
+
+**提交**: `待提交（2026-10-27）`
+
+
+
+---
+
 ---
 
 ## 📋 工作量汇总
@@ -348,8 +364,8 @@ PG 锁等待 **0**；连接数全程 1；5s 周期实际只用 p50 395ms = 预�
 | 🔴 P0 | 0 | 0 天 ✅ |
 | 🟡 P1 | 1 | 2-3 天 |
 | 🟢 P2 | 4 | 7-9 天 |
-| 🔵 P3 | 4 | 8-9 天 |
-| **合计** | **9** | **~13-16 工作日** |
+| 🔵 P3 | 3 | 6-7 天 |
+| **合计** | **8** | **~11-13 工作日** |
 
 ---
 

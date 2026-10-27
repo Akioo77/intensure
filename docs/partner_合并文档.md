@@ -149,7 +149,27 @@ ERROR:  column "healing_id" does not exist        ← 第 207 行
 
 ---
 
-## 五、🔴 需要你决策：你的文字要求和 SQL 文件不一致
+## 五、✅ 已达成一致（2026-10-27 更新）
+
+**你已按方案 A 修订脚本**（`assurance_schema-2.sql`，v1.1 2026-10-26）：
+- ✅ 移除了 `healing_intents` / `healing_history` 的 CREATE TABLE（采用我方结构）
+- ✅ 确认我方已加你需要的 4 个字段（status / priority / affected_devices / expires_at）
+- ✅ 自愈队列存储在 `_metadata` 表（JSON blob），不直接写这两张表
+
+**我方核对结果**：
+
+| 项 | 结果 |
+|---|---|
+| 新旧脚本的 9 张公共表结构 | ✅ **逐张完全一致**（列数 2/5/5/17/12/19/15/12/12）|
+| 现库这 9 张表 | ✅ 与新脚本一致，无需 ALTER |
+| 新脚本对我方库的影响 | **no-op**（全部 `IF NOT EXISTS`，且表已存在）|
+| `healing_intents` / `healing_history` | ✅ 保持我方结构不变（19 列 / 11 列）|
+
+> 也就是说：**新脚本已无需再执行**，我方库已处于双方约定的最终状态。
+
+---
+
+## 五之二、原始分歧存档（历史记录，保留备查）
 
 **你上一轮文字说的**：
 > 「冲突1 用你那边的结构，但是 status / priority / affected_devices / expires_at 这 4 个必须加，

@@ -63,6 +63,32 @@
 
 ## 🚀 日常使用
 
+### 0️⃣.5 schema 迁移（alembic）
+
+改 schema 的**唯一入口**。别再手工敲 ALTER TABLE 了。
+
+```bash
+colima ssh
+cd /home/sunxiaoxuan.guest/intensure
+export ALEMBIC_DB_URL='postgresql:///intensure_dev'
+
+alembic current        # 现在哪个版本
+alembic upgrade head   # 升到最新 / 建全新库
+alembic history        # 版本历史
+```
+
+改 schema 的流程（**三步，缺一不可**）：
+
+```bash
+vim docs/database-schema.sql                       # 1. 改规范文件
+python3 db_maintenance/gen_baseline.py             # 2. 重新生成基线
+alembic revision -m "..."                          # 3. 写增量 revision
+alembic upgrade head
+bash demo_scripts/verify_fresh_db.sh               # 4. 验证「新建库=现有库」
+```
+
+详细说明（含踩过的坑）见 **`docs/ALEMBIC_WORKFLOW.md`**。
+
 ### 0️⃣ 环境搭建（一次性，新机器）
 
 **VM 内 apt 装系统依赖**（推荐）：

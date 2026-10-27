@@ -40,6 +40,14 @@ jobs:
           sudo apt-get install -y mininet openvswitch-switch
           echo "系统依赖装好（可选）"
 
+      - name: 检查基线与 schema 规范文件一致
+        # 不需要数据库 —— 纯文件比对。
+        # 改了 docs/database-schema.sql 却忘了重新生成基线, 这里直接失败。
+        run: |
+          python3 db_maintenance/gen_baseline.py
+          git diff --exit-code -- migrations/versions/0001_baseline.py
+          echo "基线与规范文件一致"
+
       - name: Ruff 代码风格检查（防退化）
         run: |
           # ruff 只查不写 —— 格式统一靠 pre-commit 的 ruff --fix。
@@ -49,7 +57,7 @@ jobs:
 
       - name: Python 语法检查
         run: |
-          for f in *.py; do
+          for f in *.py migrations/versions/*.py db_maintenance/*.py; do
             python -m py_compile "$f" || { echo "syntax error: $f"; exit 1; }
           done
           echo "All Python files OK"
