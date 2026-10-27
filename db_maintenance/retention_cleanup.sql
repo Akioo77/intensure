@@ -30,6 +30,7 @@ CREATE OR REPLACE FUNCTION drop_old_partitions(
 DECLARE
     part RECORD;
     part_date DATE;
+    part_end DATE;
     cutoff_date DATE := CURRENT_DATE - p_retention_days;
     dropped_count INTEGER := 0;
     parent_prefix TEXT;
@@ -49,10 +50,18 @@ BEGIN
         -- 提取起始日期
         part_date := (regexp_matches(part.bounds, 
             'FROM \(''([0-9]{4}-[0-9]{2}-[0-9]{2})', 'g'))[1]::DATE;
+        part_end  := (regexp_matches(part.bounds, 'TO \(''([0-9]{4}-[0-9]{2}-[0-9]{2})', 'g'))[1]::DATE;
         
-        IF part_date IS NOT NULL AND part_date < cutoff_date THEN
+        -- ⚠️ 必须用「结束日」判断，不能用「起始日」。
+        -- 用起始日会把**当前月**的分区删掉 —— 例如 state_history 保留 7 天时，
+        -- cutoff=今天-7，而当月分区起始日（如 2026-10-01）< cutoff，
+        -- 结果当前月分区被删，之后任何 INSERT 都报
+        --   ERROR: no partition of relation "state_history" found for row
+        -- 2026-10-27 实测发现并修复。
+        -- 正确语义：只有当分区**整个区间**都早于 cutoff 才删。
+        IF part_end IS NOT NULL AND part_end <= cutoff_date THEN
             EXECUTE format('DROP TABLE IF EXISTS %s', part.partition_name);
-            RAISE NOTICE 'Dropped: % (date=%, cutoff=%)', part.partition_name, part_date, cutoff_date;
+            RAISE NOTICE 'Dropped: % (range % to %, cutoff=%)', part.partition_name, part_date, part_end, cutoff_date;
             dropped_count := dropped_count + 1;
         END IF;
     END LOOP;

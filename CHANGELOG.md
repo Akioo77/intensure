@@ -77,6 +77,54 @@
 
 ---
 
+## v3.13.1 - 2026-10-27 修「新建库 ≠ 现有库」+ 分区清理脚本致命 bug
+
+**触发**: 复查 2026-10-27 00:03 的 heartbeat 改动，发现它引入/遗留了 3 个真问题。
+
+### 🐛 修的真问题
+
+1. **`db_maintenance/retention_cleanup.sql` · RAISE 参数不匹配（致命）**
+   `RAISE NOTICE 'Dropped: % (range %, cutoff=%)'` 只有 3 个占位符，却传了 **4 个参数**
+   → 脚本报 `ERROR: too many parameters specified for RAISE`，**整个脚本无法执行**。
+   补成 4 个占位符。
+2. **`docs/database-schema.sql` 缺 `shared.audit_log_error_archive`**
+   该表在现库存在但规范文件里没有 → **「新建库 = 现有库」这条承诺是破的**。
+   已从现库导出真实 DDL 补进规范文件（含主键 + 2 个索引）。
+3. **分区清理的判定逻辑**（heartbeat 昨晚修的那版）
+   `drop_old_partitions` 原按「分区**起始日** < cutoff」判断 → 保留 7 天时当月分区起始日
+   (2026-10-01) < cutoff (今天-7)，**当月分区被删**，之后任何 INSERT 报
+   `no partition of relation "state_history" found for row`。
+   改为按**结束日**判断（只有整个区间都早于 cutoff 才删）。已用真实分区数据模拟验证：
+   旧逻辑会删当月、新逻辑不删。
+
+### 🔧 新增 `demo_scripts/verify_fresh_db.sh`
+
+把「新建库 = 现有库」变成**可执行的验证**而不是口头承诺：
+建临时库 → 套 schema → 套 retention → 5 个 schema 表数逐一对比 →
+校验每个分区表都有覆盖 now() 的分区 → 7 张分区表写入路由冒烟 → 清理。
+
+**同时修掉它自己的 2 处误报**：
+- 步骤⑤ 原按「TO = 当月」匹配分区，但覆盖当月的分区 TO 是**下月**（10 月分区 TO 2026-11-01）
+  → 逻辑反了，把 7/7 误报成 0/7。改为「区间包含 now()」判定。
+- 步骤⑥ 用 `INSERT ... DEFAULT VALUES` 必然撞 NOT NULL，报的是「null 值违规」而非「分区缺失」，
+  而**null 值违规恰恰证明分区是找到了的**。改为按错误类型分类，只有
+  `no partition of relation` 才算真失败。
+
+### 🛠 本轮自己的坑
+
+- **heredoc 结束标记被我多缩进了 2 个空格** → bash 不认（结束标记必须在行首），
+  把**后面整个脚本当 heredoc 内容吃掉**，脚本「静默退出 0」看起来像成功。
+  → 改完必须 `bash -n` + 看 heredoc 标记是否在行首。
+
+### ✅ 验收
+
+`bash demo_scripts/verify_fresh_db.sh` → **✅ 全部通过 —— 新建库 = 现有库**
+- 5 个 schema 表数逐一相等（assurance 20 / intensure 18 / shared 7 / translation 3 / implementation 5）
+- 7/7 分区表有覆盖当月的分区
+- 7/7 分区表写入路由正常（无 no partition found）
+
+---
+
 ## v3.13.0 - 2026-10-26 P2-1 压测：实测基线 + 修正容量估算
 
 **触发**: 剩下 10 项里唯一「高价值 + 完全自主」的一项，给「100 意图扛不扛得住」一份实测基线。

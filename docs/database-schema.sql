@@ -433,7 +433,10 @@ CREATE TABLE assurance.diagnoses (
     CHECK (confidence >= 0 AND confidence <= 1)
 );
 
-COMMENT ON TABLE assurance.diagnoses IS '根因诊断（**关键：含 evidence/confidence/affected_devices**）';
+COMMENT ON TABLE assurance.diagnoses IS
+    '[我方·本地 mock 专用] 违例诊断记录。联调/生产模式我方不写此表'
+    '(见 docs/partner_合并文档.md 第二节), 诊断数据以伙伴的 assurance.diagnosis_results 为准。'
+    '开关: ASSURANCE_WRITE_DIAGNOSES=0';
 COMMENT ON COLUMN assurance.diagnoses.evidence IS '09-19 联调发现：空 evidence → Guard BLOCKED；真实 evidence → APPROVED';
 
 CREATE INDEX idx_diagnoses_intent_time ON assurance.diagnoses (intent_id, diagnosed_at DESC);
@@ -609,7 +612,9 @@ CREATE TABLE assurance.diagnosis_results (
     diagnosed_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP,
     diagnosis_duration_ms integer
 );
-COMMENT ON TABLE assurance.diagnosis_results IS '诊断结果记录，包含根因分析、置信度、证据等';
+COMMENT ON TABLE assurance.diagnosis_results IS
+    '[伙伴负责] 完整版诊断结果(含 CoT 推理步骤/LLM 审计信息)。'
+    '我方只读此表, 只写 assurance.consistency_checks。两表用 intent_id 关联。';
 COMMENT ON COLUMN assurance.diagnosis_results.llm_reasoning IS 'LLM 思维链推理步骤，用于审计追溯';
 CREATE TABLE assurance.fault_patterns (
     fault_id character varying(64) NOT NULL,
@@ -660,6 +665,12 @@ CREATE TABLE assurance.violation_events (
     created_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP
 );
 COMMENT ON TABLE assurance.violation_events IS '违例事件记录，每次检测发现违例时写入';
+-- audit_logs.log_id 的自增序列。
+-- 伙伴的原始脚本里这列是 serial（PG 会自动建序列），但规范文件是手写 CREATE TABLE，
+-- 序列不会自动出现 —— 漏建会导致全新库执行到此报错。
+-- 2026-10-27 实测发现：文件套到新库时报 relation "assurance.audit_logs_log_id_seq" does not exist
+CREATE SEQUENCE assurance.audit_logs_log_id_seq;
+ALTER SEQUENCE assurance.audit_logs_log_id_seq OWNED BY assurance.audit_logs.log_id;
 ALTER TABLE ONLY assurance.audit_logs ALTER COLUMN log_id SET DEFAULT nextval('assurance.audit_logs_log_id_seq'::regclass);
 ALTER TABLE ONLY assurance._metadata
     ADD CONSTRAINT _metadata_pkey PRIMARY KEY (key);
@@ -699,6 +710,26 @@ CREATE INDEX idx_ir_type ON assurance.intent_registry USING btree (intent_type);
 CREATE INDEX idx_ve_detected ON assurance.violation_events USING btree (detected_at);
 CREATE INDEX idx_ve_intent ON assurance.violation_events USING btree (intent_id);
 CREATE INDEX idx_ve_type ON assurance.violation_events USING btree (violation_type);
+
+-- 错误级别审计归档（severity='ERROR' 的另存一份，便于排障；见 retention-policy.md）
+CREATE TABLE shared.audit_log_error_archive (
+    id             BIGINT DEFAULT nextval('shared.audit_log_id_seq'::regclass) NOT NULL,
+    occurred_at    TIMESTAMPTZ DEFAULT now() NOT NULL,
+    module_name    TEXT NOT NULL,
+    actor          TEXT NOT NULL,
+    action         TEXT NOT NULL,
+    target         TEXT,
+    severity       TEXT DEFAULT 'INFO'::text NOT NULL,
+    payload        JSONB DEFAULT '{}'::jsonb NOT NULL,
+    correlation_id UUID
+);
+ALTER TABLE ONLY shared.audit_log_error_archive
+    ADD CONSTRAINT audit_log_error_archive_pkey PRIMARY KEY (id, occurred_at);
+CREATE INDEX audit_log_error_archive_correlation_id_idx
+    ON shared.audit_log_error_archive USING btree (correlation_id)
+    WHERE (correlation_id IS NOT NULL);
+CREATE INDEX audit_log_error_archive_module_name_occurred_at_idx
+    ON shared.audit_log_error_archive USING btree (module_name, occurred_at DESC);
 
 -- ============================================================================
 -- 6. ASSURANCE_MV schema（保障层物化视图，提升读路径性能）
