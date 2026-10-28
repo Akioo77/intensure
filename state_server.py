@@ -16,7 +16,9 @@ import time
 
 import state_history
 
-from flask import Flask, jsonify, request, send_from_directory
+import metrics  # noqa: E402  (v3.18.0 可观测性)
+
+from flask import Flask, Response, g, jsonify, request, send_from_directory
 from flask_cors import CORS
 
 # ---- 日志（P1-2: 统一用 logging, 不再用 print）----
@@ -65,7 +67,44 @@ def health():
         'status': 'ok',
         'time': time.time(),
         'source': 'memory' if CONTROLLER_STATE is not None else 'file',
+        'version': metrics.PROJECT_VERSION,
     })
+
+
+# ============================================================
+# 可观测性（v3.18.0 · P3-4）
+# ============================================================
+
+@app.route('/metrics')
+def metrics_endpoint():
+    """Prometheus 指标导出（文本格式，version 0.0.4）。
+
+    没有装 prometheus_client 也能被 Prometheus 直接抓取；
+    也可以直接 curl 看，或塞进 dashboard 的「系统指标」面板。
+    """
+    body = metrics.render()
+    return Response(body, content_type='text/plain; version=0.0.4; charset=utf-8')
+
+
+@app.before_request
+def _metrics_before_request():
+    """记下请求开始时间（after_request 要用）。"""
+    g._metrics_t0 = time.perf_counter()
+
+
+@app.after_request
+def _metrics_after_request(response):
+    """每个请求记一次计数 + 耗时。"""
+    endpoint = request.endpoint or 'unknown'
+    t0 = getattr(g, '_metrics_t0', None)
+    elapsed = max(0.0, time.perf_counter() - t0) if t0 else 0.0
+    metrics.HTTP_REQUESTS_TOTAL.inc({
+        'method': request.method,
+        'endpoint': endpoint,
+        'status': str(response.status_code),
+    })
+    metrics.HTTP_DURATION.observe(elapsed, {'endpoint': endpoint})
+    return response
 
 
 @app.route('/api/state')

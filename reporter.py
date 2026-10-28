@@ -32,6 +32,8 @@ from collections import deque
 # ---- 日志（P1-2: 统一用 logging, 不再用 print）----
 import logging  # noqa: E402
 
+import metrics  # noqa: E402  (v3.18.0 可观测性埋点)
+
 
 logger = logging.getLogger(__name__)
 
@@ -117,13 +119,13 @@ class AssuranceReporter:
         """
         url = f'{self.base_url}/check'
         body_json = {'intent_id': intent_id, 'actual': actual}
-        return self._post(url, body_json, expect_409=True)
+        return self._post(url, body_json, expect_409=True, endpoint='check')
 
     def verify(self, intent_id: str, actual_after_heal: dict) -> dict:
         """上报修复后复测结果。POST /api/v1/assurance/verify。"""
         url = f'{self.base_url}/verify'
         body_json = {'intent_id': intent_id, 'actual_after_heal': actual_after_heal}
-        return self._post(url, body_json, expect_409=True)
+        return self._post(url, body_json, expect_409=True, endpoint='verify')
 
     def query_intent_status(self, intent_id: str) -> Optional[dict]:
         """查询意图当前状态（GET /api/v1/assurance/record/{intent_id}）。
@@ -132,7 +134,7 @@ class AssuranceReporter:
         可以轮询此接口看 ACTIVE 状态何时就绪。
         """
         url = f'{self.base_url}/record/{intent_id}'
-        result = self._get(url)
+        result = self._get(url, endpoint='record')
         if result['status_code'] == 200:
             return result['body']
         return None
@@ -163,7 +165,8 @@ class AssuranceReporter:
     # 内部 HTTP
     # ============================================================
 
-    def _post(self, url: str, body_dict: dict, expect_409: bool = True) -> dict:
+    def _post(self, url: str, body_dict: dict, expect_409: bool = True,
+              endpoint: str = 'unknown') -> dict:
         """内部 POST 方法，带重试 + 统计。"""
         body_bytes = json.dumps(body_dict, ensure_ascii=False).encode('utf-8')
         headers = {
@@ -190,7 +193,7 @@ class AssuranceReporter:
                         'latency_ms': round(latency_ms, 2),
                         'error': None,
                     }
-                    self._record_stats(result)
+                    self._record_stats(result, endpoint)
                     last_result = result
                     break
             except urllib.error.HTTPError as e:
@@ -206,7 +209,7 @@ class AssuranceReporter:
                     'latency_ms': round(latency_ms, 2),
                     'error': str(e),
                 }
-                self._record_stats(result)
+                self._record_stats(result, endpoint)
                 last_result = result
 
                 # 4xx 处理（除 409 外不重试）
@@ -229,7 +232,7 @@ class AssuranceReporter:
                     'latency_ms': round(latency_ms, 2),
                     'error': str(e),
                 }
-                self._record_stats(result)
+                self._record_stats(result, endpoint)
                 last_result = result
                 if attempt < self.retry:
                     self._sleep_backoff(attempt)
@@ -243,7 +246,7 @@ class AssuranceReporter:
                     'latency_ms': round(latency_ms, 2),
                     'error': f'{type(e).__name__}: {e}',
                 }
-                self._record_stats(result)
+                self._record_stats(result, endpoint)
                 last_result = result
                 if attempt < self.retry:
                     self._sleep_backoff(attempt)
@@ -255,7 +258,7 @@ class AssuranceReporter:
             'error': 'unknown failure',
         }
 
-    def _get(self, url: str) -> dict:
+    def _get(self, url: str, endpoint: str = 'unknown') -> dict:
         """内部 GET 方法。"""
         t0 = time.time()
         try:
@@ -264,25 +267,29 @@ class AssuranceReporter:
                 raw = resp.read()
                 latency_ms = (time.time() - t0) * 1000
                 body = json.loads(raw.decode('utf-8')) if raw else {}
-                return {
+                result = {
                     'status_code': resp.status,
                     'body': body,
                     'latency_ms': round(latency_ms, 2),
                     'error': None,
                 }
+                self._record_stats(result, endpoint)
+                return result
         except Exception as e:
-            return {
+            result = {
                 'status_code': 0,
                 'body': None,
                 'latency_ms': (time.time() - t0) * 1000,
                 'error': str(e),
             }
+            self._record_stats(result, endpoint)
+            return result
 
     def _sleep_backoff(self, attempt: int) -> None:
         """指数退避：base * 2^attempt。"""
         time.sleep(self.retry_backoff_base * (2 ** attempt))
 
-    def _record_stats(self, result: dict) -> None:
+    def _record_stats(self, result: dict, endpoint: str = 'unknown') -> None:
         """更新统计（线程安全）。"""
         with self._stats_lock:
             self._stats['total_calls'] += 1
@@ -295,6 +302,33 @@ class AssuranceReporter:
                 self._stats['success_calls'] += 1
             else:
                 self._stats['failed_calls'] += 1
+
+        # ---- v3.18.0 可观测性埋点 ----
+        kind = self._classify(result)
+        metrics.REPORTS_TOTAL.inc({'endpoint': endpoint, 'result': kind})
+        metrics.REPORT_DURATION.observe(
+            max(0.0, float(result.get('latency_ms') or 0.0)) / 1000.0,
+            {'endpoint': endpoint})
+        if kind != 'ok':
+            metrics.REPORT_FAILURES_TOTAL.inc({'endpoint': endpoint, 'reason': kind})
+
+    @staticmethod
+    def _classify(result: dict) -> str:
+        """把一次调用结果归类（用于指标标签）。
+
+        ok            = 2xx
+        client_error  = 4xx（含 409 状态机错）
+        server_error  = 5xx
+        network_error = 连不上（status_code == 0）
+        """
+        code = result.get('status_code') or 0
+        if 200 <= code < 300:
+            return 'ok'
+        if 400 <= code < 500:
+            return 'client_error'
+        if code >= 500:
+            return 'server_error'
+        return 'network_error'
 
 
 # ============================================================
