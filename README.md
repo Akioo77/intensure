@@ -12,13 +12,13 @@
 - **对外接口**：向同学 A 的"意图保障模块"上报 ActualState（HTTP POST）
 - **采集视角 dashboard**：单文件 SPA（`dashboard.html`）作为加分项
 
-> 📌 **范围沿革**：v2.0（2026-09-03）起本系统收敛为"采集 + 上报"（一致性校验 / 冲突检测 / 自愈决策交给其他模块）；**v3.7（2026-10-08）起重新扩展**——新增 `assurance_mvp.py`（一致性检查 + 根因诊断 + 写库），并配套数据库（6 schema / 39 表）、alembic 迁移、DB 重连与历史归档等工程能力（v3.10 ~ v3.17）。
+> 📌 **范围沿革**：v2.0（2026-09-03）起本系统收敛为"采集 + 上报"（一致性校验 / 冲突检测 / 自愈决策交给其他模块）；**v3.7（2026-10-08）起重新扩展**——新增 `assurance_mvp.py`（一致性检查 + 根因诊断 + 写库），并配套数据库（6 schema / 39 表）、alembic 迁移、DB 重连与历史归档等工程能力（v3.10 ~ v3.17）；**v3.18.0（2026-10-29）**起补上可观测性（`metrics.py` + `GET /metrics`）与跨模块契约版本协商。
 
 ---
 
 ## ✅ 完成状态
 
-### ✅ 已完成（v1.0 ~ v3.17, 2026-08-04 ~ 2026-10-29）
+### ✅ 已完成（v1.0 ~ v3.18, 2026-08-04 ~ 2026-10-29）
 
 | 任务 | 状态 |
 |---|---|
@@ -51,6 +51,8 @@
 | **历史归档定时清理**（systemd timer，每日 04:07，7 张分区表）| ✅ v3.15.0 (2026-10-28) |
 | **日志统一**（7 模块 75 处 print → logging，可按级别过滤 + 落文件）| ✅ v3.16.0 (2026-10-28) |
 | **复杂故障类型**（burst / reorder / vlan_mismatch / flow_race）| ✅ v3.17.0 (2026-10-28) |
+| **可观测性**（`metrics.py` 纯标准库 Prometheus 注册表 + `GET /metrics` + 上报/自营 REST 埋点）| ✅ v3.18.0 (2026-10-29) |
+| **契约版本管理**（`assurance_bridge.py` 版本协商 6 态 + 60s TTL + 严格模式开关）| ✅ v3.18.0 (2026-10-29) |
 
 ### 🎯 下一步（我们主动要做）
 
@@ -59,11 +61,12 @@
 | 三方联调真实数据完整闭环（intensure → A 同学 service）| 🟡 P1 | assurance_bridge 已接，**当前卡在 A 同学 cloudflared 隧道不通（HTTP 000）** |
 | 修复 `reporter.py` 频率 + DNS 老 bug（10-19 联调发现）| 🟡 P1 | 老 bug 100% 失败 |
 | Dashboard 单文件 SPA 拆分（可维护性）| 🟢 P2 | 优化清单 P2-2 |
-| Docker 化 / 跨模块 API 版本管理 / Metrics | 🟢 P2-P3 | 优化清单 P3-2 ~ P3-4，见 `docs/OPTIMIZATION.md` |
+| Docker 化 | 🟢 P3 | 优化清单 P3-2，见 `docs/OPTIMIZATION.md` |
 | Dashboard 增强（历史回放 / 跳数对比）| 🟢 P2 | 演示后看反馈再加 |
 | IPv6 / BGP 支持（如项目要求）| 🔵 P3 | 长期 |
 
-> ✅ 已从本表移出（已完成，见上方完成状态）：性能压测（v3.13.0）、复杂故障类型扩展（v3.17.0）。
+> ✅ 已从本表移出（已完成，见上方完成状态）：性能压测（v3.13.0）、复杂故障类型扩展（v3.17.0）、
+> **跨模块 API 版本管理（v3.18.0）**、**Metrics / Observability（v3.18.0）**。
 
 > **我们不做的**（边界）：翻译组 / 冲突消解组 / A 同学 assurance-agent 内部 / 协调三组（那是组长的活）
 
@@ -305,7 +308,7 @@ colima stop
 
 ---
 
-## 📂 文件清单（截至 v3.17）
+## 📂 文件清单（截至 v3.18）
 
 ```
 intensure/
@@ -316,7 +319,7 @@ intensure/
 ├── 控制器层
 │   ├── simple_switch_13.py     # 最简 L2
 │   ├── controller_app.py       # 链路事件采集（LLDP + PortStatus）
-│   └── state_server.py         # 自营 REST API（Flask，15 端点）
+│   └── state_server.py         # 自营 REST API（Flask，16 端点，含 /metrics）✅ v3.18.0
 ├── 采集层
 │   ├── state_model.py          # 内部数据抽象（供 ActualStateBuilder 读）
 │   ├── state_collector.py      # CLI 工具（手工验证）
@@ -331,13 +334,14 @@ intensure/
 │   ├── reporter.py             # POST /check + /verify（对方 assurance-agent）
 │   ├── integration_demo.py     # 端到端联调（real/mock/skip）
 │   ├── mock_assurance_server.py# 本地 mock 保障模块
-│   └── assurance_bridge.py     # 跨智能体推送桥（ASSURANCE_BASE）
+│   └── assurance_bridge.py     # 跨智能体推送桥（ASSURANCE_BASE）+ 契约版本协商 ✅ v3.18.0
 ├── 保障模块层 ✅ v3.7
 │   ├── assurance_mvp.py        # 一致性检查 + 根因诊断 + 写库
 │   └── graceful.py             # 优雅降级
 ├── 持久化 / 工程层 ✅ v3.5 ~ v3.16
 │   ├── db_writer.py            # 选择性写库（21 方法）✅ v3.15 加自动重连
 │   ├── logging_setup.py        # 统一日志配置 ✅ v3.16.0
+│   ├── metrics.py              # Prometheus 指标注册表（纯标准库）✅ v3.18.0
 │   ├── ovs_logger.py           # OVS 日志采集 + 关联分析
 │   └── db_maintenance/         # alembic 基线生成 + 保留期清理
 ├── 启动器 / 演示
@@ -350,7 +354,7 @@ intensure/
 │   ├── README.md               # 本文件
 │   ├── REQUIREMENTS.md         # 职责 + 联调契约背景
 │   ├── STATE_MODEL.md          # 统一状态模型
-│   ├── CHANGELOG.md            # 版本历史（v1.0 ~ v3.17）
+│   ├── CHANGELOG.md            # 版本历史（v1.0 ~ v3.18）
 │   └── docs/                   # 优化清单 / 架构 / 契约 / 汇报材料
 └── legacy/                     # 历史探索材料（不接入主流程）
     ├── intent_registry.py / conflict_detector.py / conflict_resolver.py
@@ -371,6 +375,21 @@ intensure/
 | **同学 B** | 意图实现模块 | — | 配置下发（修复链路等） |
 
 > ⚠️ **关键约束**：本系统**只 POST 不读 GET**。所有"当前状态"由保障模块管理（它的 `/record/{intent_id}`），采集模块不维护。
+
+### 📈 对外暴露的观测端点（v3.18.0 新增）
+
+本模块自营的 Flask 服务（`state_server.py`，默认端口 8080）暴露：
+
+| 端点 | 用途 | 说明 |
+|---|---|---|
+| `GET /metrics` | Prometheus 指标导出 | 文本格式 **version 0.0.4**，**不依赖 `prometheus_client`**（纯标准库实现），Prometheus 可直接抓取；也可以 `curl` 直接看 |
+
+`/metrics` 覆盖三类指标：上报链路（`intensure_reports_total` / `intensure_report_failures_total` /
+`intensure_report_duration_seconds`）、自营 REST 层（`intensure_http_requests_total` /
+`intensure_http_request_duration_seconds`）、契约状态与构建信息
+（`intensure_assurance_contract` / `intensure_build_info`）。
+
+顺带一提：`GET /api/health` 现在带 `version` 字段（当前 `3.18.0`）。
 
 ---
 

@@ -9,6 +9,111 @@
 ---
 
 
+## v3.18.0 - 2026-10-29 P3-4 可观测性 + P3-3 契约版本管理
+
+**触发**: 优化清单剩余 4 项中的 P3-3 / P3-4 —— 演示和联调需要能回答两个问题：
+「现在每分钟多少上报、多少错？」以及「对方接口悄悄升级了怎么办？」
+
+### 📊 P3-4 · Metrics / Observability
+
+**新增 `metrics.py`（333 行，纯标准库）**
+
+没用 `prometheus_client`，原因三条（写在模块 docstring 里）：
+CI 是离线/受限网络环境，多一个第三方依赖就多一次装不上的风险；本项目只需要
+counter / gauge / histogram 三种类型；不引入依赖 = 不引入版本升级与安全维护负担。
+
+支持能力：
+- `Counter` / `Gauge` / `Histogram` 三种指标
+- 标签（labels）维度
+- Prometheus 文本 exposition 格式（**version 0.0.4**）
+- 线程安全（采集层与上报层是多线程的）
+
+**已注册的指标**
+
+| 指标名 | 类型 | 标签 | 含义 |
+|---|---|---|---|
+| `intensure_reports_total` | Counter | endpoint, result | 上报请求总次数（按端点与结果分类）|
+| `intensure_report_failures_total` | Counter | endpoint, reason | 上报失败总次数（按失败原因分类）|
+| `intensure_report_duration_seconds` | Histogram | endpoint | 上报耗时（秒）|
+| `intensure_http_requests_total` | Counter | method, endpoint, status | 自营 REST 请求总数 |
+| `intensure_http_request_duration_seconds` | Histogram | endpoint | 自营 REST 耗时（秒）|
+| `intensure_assurance_contract` | Gauge | state | 与保障模块的契约版本状态（1=当前状态）|
+| `intensure_build_info` | Gauge | version | intensure 构建信息（`3.18.0`）|
+
+**`reporter.py` 埋点**（`_record_stats` 内，check / verify / record 三个入口共用）
+- `REPORTS_TOTAL` 按 `endpoint` + `result` 计数
+- `REPORT_DURATION` 直方图记录耗时（`latency_ms` / 1000 换算成秒）
+- 非 ok 时额外记 `REPORT_FAILURES_TOTAL`，`reason` 取值：
+  `ok`（2xx）/ `client_error`（4xx，含 409 状态机错）/ `server_error`（5xx）/ `network_error`（连不上，status_code == 0）
+
+**`state_server.py` 埋点**
+- 新增 `GET /metrics` 端点，输出 Prometheus 文本格式
+  （`Content-Type: text/plain; version=0.0.4`），**没装 prometheus_client 也能被 Prometheus 直接抓取**
+- `before_request` / `after_request` 钩子：每个请求记一次计数（method / endpoint / status）+ 耗时直方图
+- `/api/health` 增加 `version` 字段（当前 `3.18.0`）
+
+### 🔐 P3-3 · 跨模块 API 版本管理
+
+**`assurance_bridge.py` 新增契约版本协商**
+
+原来对方接口没有 version 字段，他升级到 v2 我们这边**没人通知就坏了**。
+现在的做法是**可选协商**，不打断现有联调：
+
+- 读对方 `/api/health` 的版本字段，按优先级依次尝试：
+  `version` → `api_version` → `agent_version` → `assurance_version` → `schema_version`；
+  也支持嵌在 `service` / `server` / `meta` / `info` 对象里
+- 我方期望版本常量 `DEFAULT_EXPECTED_VERSION = '0.4.0'`，契约 schema 版本 `CONTRACT_SCHEMA_VERSION = '0.1.0'`
+- **60 秒 TTL 缓存**（`VERSION_CHECK_TTL_S`），避免每次推送都多打一次 `/api/health`
+- 状态机 6 态：
+
+| 状态 | 含义 | 是否阻断上报 |
+|---|---|---|
+| `ok` | 对方版本 == 期望版本 | 否 |
+| `compatible` | 同 major.minor（补丁级差异）| 否 |
+| `unknown` | 对方没暴露版本字段 | **否**（默认兼容模式，只 warn）|
+| `mismatch` | major.minor 不一致 | **是** |
+| `unreachable` | 对方连不上 | 否（让真正的请求去报错）|
+| `disabled` | 未配置 `ASSURANCE_BASE` | 否 |
+
+> ⚠️ **为什么 `unknown` 不阻断**：对方**目前确实没有 version 字段**（`/api/health` 只返回
+> `{"status":"ok"}` 一类内容）。如果把「读不到版本」也当成不兼容，现有联调会 100% 被打断。
+> 所以默认走兼容模式，只在日志里 warn 一次。
+
+**两个环境变量**
+
+| 变量 | 作用 | 默认 |
+|---|---|---|
+| `ASSURANCE_STRICT_VERSION=1` | 严格模式：对方没暴露版本字段时也拒绝推送 | 关闭（不阻断）|
+| `ASSURANCE_EXPECTED_VERSION` | 临时对齐对方版本（如对方升到 `0.5.0` 就设这个），**不用改代码** | `0.4.0` |
+
+**`mock_assurance_server.py`**：加 `version` 字段（默认 `0.4.0`）+ `--version` 参数，
+可模拟版本不兼容来验证降级路径。
+
+**CLI 新增 `contract` 子命令**
+
+```bash
+python3 assurance_bridge.py contract
+# 契约版本协商:
+#   期望版本: 0.4.0
+#   对方版本: （未暴露）
+#   状态    : unknown
+#   说明    : ...
+#   可上报  : 是
+```
+
+### 🧪 测试
+
+- 新增 `test_metrics.py`（**10 例**）、`test_contract_version.py`（**11 例**）
+- CI 的 pytest 文件列表已补上这两个文件
+- **测试总数 146 → 167**，本地跑 **167 passed**，`ruff check` 全过
+
+### 📝 文档
+
+本条目之外，同步更新了 README.md、docs/OPTIMIZATION.md、
+docs/cross-module-api-contract.md、INTEGRATION_HANDBOOK.md。
+
+---
+
 ## v3.10.2 — 2026-10-25 状态复查 + 修 3 个问题
 
 **触发**: 16 天没动（上次提交 10-09），主人问进度 → 全量复查 git / 文档 / 环境，发现问题

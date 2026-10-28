@@ -1,20 +1,20 @@
 # intensure 优化清单(2026-10-09 整理)
 
 > **目的**:盘点 intensure 项目当前可改进的地方,按优先级排好,标注**做什么 + 怎么开发 + 工作量**。
-> **状态**:v1.1(2026-10-28 更新)——**P0 与 P1 全部完成**；P2-1 压测、P2-3 复杂故障、P2-4 重连、P2-5 归档、P3-1 alembic 也已完成。共 16 项已完成，剩余 4 项待办。
+> **状态**:v1.2(2026-10-29 更新)——**P0 与 P1 全部完成**；P2-1 压测、P2-3 复杂故障、P2-4 重连、P2-5 归档、P3-1 alembic 也已完成。共 16 项已完成，剩余 4 项待办。
 > **边界**:**只关心 intensure 这边**——翻译组 / 冲突消解组 / A 同学 assurance-agent 的内部设计不归我们管。
 > **不抢活**:我们能催/建议,但不能越界做。
 
 ---
 
-## 🎯 优先级总览(4 项待办 / 16 项已完成)
+## 🎯 优先级总览(2 项待办 / 18 项已完成)
 
 | 优先级 | 项数 | 类别 |
 |------|------|------|
 | 🔴 P0(基础缺失,必须补) | **0** | 全部完成 ✅ |
 | 🟡 P1(质量/可靠性) | 0 | 全部完成 ✅ |
 | 🟢 P2(性能/扩展) | 1 | dashboard 拆分 |
-| 🔵 P3(完善) | 3 | Docker / observability |
+| 🔵 P3(完善) | 1 | Docker |
 
 ---
 
@@ -98,31 +98,6 @@
 
 ---
 
-### P3-3 · 跨模块 API 版本管理
-**问题**:assurance-agent 接口没 version 字段(`/api/v1/assurance/...`),如果他升级到 v2,我们 intensure 这边**没人通知就坏了**。
-
-**怎么开发**:
-1. `assurance_bridge.py` 加 `API_VERSION = "0.4.0"` 常量
-2. 启动时调 `/api/health` 拿他那边 version,断言一致
-3. 不一致 → logger.error + 不上报(降级到本地缓存)
-
-**工作量**:0.5 天
-**价值**:🟡 中(防止被外部服务偷偷破坏)
-
----
-
-### P3-4 · Metrics / Observability
-**问题**:演示/生产没有任何 metrics——不知道每分钟多少 POST / 多少错误 / 平均延迟。
-
-**怎么开发**:
-1. 加 `prometheus_client`:`Counter('intensure_post_total')` / `Histogram('intensure_post_latency')`
-2. 加 `/metrics` 端点
-3. (可选)Grafana dashboard
-
-**工作量**:2 天
-**价值**:🟡 中(生产期重要)
-
----
 
 
 ---
@@ -405,6 +380,79 @@ postgres 不需要读路径 —— 和 alembic 里 `_exec_raw` 同一思路。
 
 ---
 
+### ✅ P3-4 · Metrics / Observability
+
+**完成情况**:新增 `metrics.py`（333 行，**纯标准库**，不引入 `prometheus_client`）。
+
+**为什么不用 prometheus_client**:CI 是离线/受限网络环境,多一个第三方依赖就多一次装不上的
+风险;本项目只需要 counter / gauge / histogram 三种类型 + Prometheus 文本格式;
+不引入依赖 = 不引入版本升级与安全维护负担。（理由写在模块 docstring 里）
+
+**实现方式**:
+1. `metrics.py` —— `Counter` / `Gauge` / `Histogram` 三种指标 + labels 维度 +
+   Prometheus 文本 exposition 格式（**version 0.0.4**）+ 线程安全
+2. `reporter.py` —— 在 `_record_stats` 埋点（check / verify / record 三个入口共用）:
+   上报次数按 `endpoint`+`result` 分类、失败原因、耗时直方图
+   （`ok` / `client_error` / `server_error` / `network_error`）
+3. `state_server.py` —— 新增 `GET /metrics` 端点 + `before_request`/`after_request` 钩子
+   记自营 REST 请求数与耗时；`/api/health` 带上 `version=3.18.0`
+4. 顺带把 `mock_assurance_server.py` 的 `/api/health` 加上 `version` 字段 + `--version` 参数
+
+**实测结论**:
+- 已注册 7 个指标:`intensure_reports_total` / `intensure_report_failures_total` /
+  `intensure_report_duration_seconds` / `intensure_http_requests_total` /
+  `intensure_http_request_duration_seconds` / `intensure_assurance_contract` / `intensure_build_info`
+- `GET /metrics` 输出 `Content-Type: text/plain; version=0.0.4`,**没装 prometheus_client 也能被
+  Prometheus 直接抓取**,也能 `curl` 直接看
+- 新增 `test_metrics.py`（10 例）,**测试总数 146 → 167**,本地 167 passed,`ruff check` 全过
+
+**踩过的坑**（已修,commit `5dde82b`）:直方图 `+Inf` 桶与 `_count` 统计漏掉超桶样本。
+
+**价值**:🟡 中(生产期重要)—— 现在能直接回答「每分钟多少上报、多少错、平均延迟」。
+
+---
+
+### ✅ P3-3 · 跨模块 API 版本管理
+
+**完成情况**:`assurance_bridge.py` 新增契约版本协商（**可选协商,不打断现有联调**）。
+
+**原计划的偏差**:原写法是「不一致 → 断言失败 → 不上报」。实测发现对方 `/api/health`
+**目前根本没有 version 字段**,照原计划实现会把现有联调 100% 打断,所以改成
+**缺失不阻断、只 warn**。
+
+**实现方式**:
+1. 读对方 `/api/health` 的版本字段,按优先级试
+   `version` → `api_version` → `agent_version` → `assurance_version` → `schema_version`,
+   也支持嵌在 `service` / `server` / `meta` / `info` 对象里
+2. 期望版本常量 `DEFAULT_EXPECTED_VERSION = '0.4.0'`,
+   契约 schema 版本 `CONTRACT_SCHEMA_VERSION = '0.1.0'`
+3. **60 秒 TTL 缓存**（`VERSION_CHECK_TTL_S`）,避免每次推送都多打一次 `/api/health`
+4. 状态机 6 态 + 降级策略:
+
+| 状态 | 含义 | 阻断上报? |
+|---|---|---|
+| `ok` | 对方版本 == 期望版本 | 否 |
+| `compatible` | 同 major.minor（补丁级差异）| 否 |
+| `unknown` | 对方没暴露版本字段 | **否**（默认兼容模式,只 warn）|
+| `mismatch` | major.minor 不一致 | **是** |
+| `unreachable` | 对方连不上 | 否（让真正的请求去报错）|
+| `disabled` | 未配置 `ASSURANCE_BASE` | 否 |
+
+5. 两个环境变量:
+   - `ASSURANCE_STRICT_VERSION=1` —— 严格模式,对方没暴露版本字段时也拒绝推送（默认关闭）
+   - `ASSURANCE_EXPECTED_VERSION` —— 临时对齐对方版本,**不用改代码**
+6. `mock_assurance_server.py` 加 `version` 字段（默认 `0.4.0`）+ `--version` 参数,
+   可模拟版本不兼容验证降级路径
+7. CLI 新增 `contract` 子命令:`python3 assurance_bridge.py contract`
+
+**实测结论**:新增 `test_contract_version.py`（11 例）;契约状态同时以
+`intensure_assurance_contract` gauge 暴露到 `/metrics`。
+
+**价值**:🟡 中(防止被外部服务偷偷破坏)—— 对方偷偷升到 v2 时我们会 `mismatch` 并阻断,
+而不是在演示现场莫名其妙 404。
+
+---
+
 ## 📋 工作量汇总
 
 | 类别 | 项数 | 估计总工作量 |
@@ -412,8 +460,8 @@ postgres 不需要读路径 —— 和 alembic 里 `_exec_raw` 同一思路。
 | 🔴 P0 | 0 | 0 天 ✅ |
 | 🟡 P1 | 0 | 0 天 ✅ |
 | 🟢 P2 | 1 | 3-5 天 |
-| 🔵 P3 | 3 | 6-7 天 |
-| **合计** | **4** | **~6-8 工作日** |
+| 🔵 P3 | 1 | 2-3 天 |
+| **合计** | **2** | **~3-5 工作日** |
 
 ---
 
@@ -432,6 +480,13 @@ _下次更新:每完成一项,把该项从原优先级移到底部"已完成"段
 ---
 
 ## 🕘 最近更新
+
+**2026-10-29 · v3.18.0 落地：P3-3 / P3-4 移入已完成段**
+
+- 待办 **4 → 2**，已完成 **16 → 18**；总览表与工作量汇总表同步
+- P3-4（Metrics / Observability）与 P3-3（跨模块 API 版本管理）从待办段移到已完成段，
+  并写清实现方式与实测结论（详见 `CHANGELOG.md` v3.18.0 条目）
+- 剩余待办：**P2-2 dashboard 单文件 SPA 拆分**、**P3-2 Docker 化**
 
 **2026-10-29 · 文档同步至当前实现状态**
 

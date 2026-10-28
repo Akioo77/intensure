@@ -24,6 +24,10 @@
   - [3.3 演示截图（demo_screenshots/）](#33-演示截图demo_screenshots)
   - [3.4 脚本环境配置（demo_scripts/.env）](#34-脚本环境配置demo_scriptsenv)
   - [3.5 项目代码内嵌日志](#35-项目代码内嵌日志)
+- [4. 契约版本协商](#4-契约版本协商-v3180)
+  - [4.1 演示前怎么查](#41-演示前怎么查)
+  - [4.2 两个环境变量](#42-两个环境变量)
+  - [4.3 对方升级版本时怎么办](#43-对方升级版本时怎么办)
 
 ---
 
@@ -185,12 +189,12 @@
 
 - [ ] **演示讲稿**（15-20 分钟完整剧本，含每步讲什么 / 看什么 / 解释什么）
 - [ ] **Q&A 预案**（15-20 个老师可能问的问题 + 答案）
-- [x] **README 重写** ✅ 2026-10-29 —— 已按 v3.17 实际实现状态重写
+- [x] **README 重写** ✅ 2026-10-29 —— 已按 v3.18 实际实现状态重写
 - [ ] **跑通真实联调** 至少 1 次（确认 A 同学接口真能用）
 
 #### 🟡 P1（演示加分项）
 
-- [x] **CHANGELOG.md 更新** ✅ 已到 v3.17（OVS logger / 联调脚本 / 契约对齐均有条目）
+- [x] **CHANGELOG.md 更新** ✅ 已到 v3.18（OVS logger / 联调脚本 / 契约对齐 / 可观测性均有条目）
 - [ ] **架构图** ❌ 仍未产出（仓库内暂无 diagram 文件）
 - [ ] **PPT 准备**（如老师要求幻灯片，create-pptx + Apple 风）
 - [ ] **故障注入 REST 路由** ❌ 仍未实现（`state_server.py` 当前无 `inject-fault` 路由；注入走 `fault_cli.sh`）
@@ -284,6 +288,109 @@ BASE=https://x
 | `state_history.py` | 内存 + `/api/history?key=***` | 历史数据查询 |
 | `ovs_logger.py` | 内存 + `GET /api/ovs/log` + `POST /api/ovs/log/correlate` | OVS 详细日志 + 事件关联 |
 | `reporter.py` | stdout + `test_reports/` | HTTP POST 状态码 + 响应时间 |
+
+---
+
+## 4. 契约版本协商（v3.18.0）
+
+> 目的：对方（assurance-agent）如果偷偷升级了接口版本，我们这边要能**提前发现**，
+> 而不是等演示现场报一堆 404 才发现对不上。
+
+### 4.0 先搞清楚现状
+
+| 项 | 我方（intensure）| 对方（assurance-agent）|
+|---|---|---|
+| `/api/health` 返回 | `{"status":"ok","time":...,"source":...,"version":"3.18.0"}` | **没有 `version` 字段** |
+
+⚠️ 所以现在的实际情况是：**对方是哪个版本，从接口里问不出来**。
+
+我们（`assurance_bridge.py`）的做法是**可选协商**：
+尝试从对方 `/api/health` 读版本字段，按优先级试这几个键名：
+
+```
+version → api_version → agent_version → assurance_version → schema_version
+```
+
+也支持嵌在 `service` / `server` / `meta` / `info` 对象里。
+
+协商结果有 6 种状态：
+
+| 状态 | 触发条件 | 是否阻断上报 |
+|---|---|---|
+| `ok` | 对方版本 == 期望版本 | 否 |
+| `compatible` | 同 major.minor（补丁级差异）| 否 |
+| `unknown` | **对方没暴露版本字段** | **否**（默认兼容模式，只 warn 一次）|
+| `mismatch` | major.minor 不一致 | **是** —— 阻断，logger.error |
+| `unreachable` | 对方连不上 | 否（让真正的请求去报错）|
+| `disabled` | 未配置 `ASSURANCE_BASE` | 否 |
+
+> 💡 **为什么 `unknown` 不阻断**：对方目前确实没有 version 字段。
+> 如果「读不到版本」也判成不兼容，现有联调会 100% 被打断。
+> 所以默认放行，只在日志里 warn 一次。
+
+### 4.1 演示前怎么查
+
+```bash
+ASSURANCE_BASE=https://对方地址 python3 assurance_bridge.py contract
+```
+
+输出长这样：
+
+```
+契约版本协商:
+  期望版本: 0.4.0
+  对方版本: （未暴露）
+  状态    : unknown
+  说明    : 对方未暴露版本字段，按兼容模式处理（不阻断上报）
+  可上报  : 是
+```
+
+**看两个地方**：
+1. **「状态」** —— `ok` / `compatible` 最稳；`unknown` 正常（对方现在就这样）；`mismatch` 要停下来处理
+2. **「可上报」** —— `否` 就说明推送会被拦，先修版本再演示
+
+> 📌 **建议加进演示前的预检**，跟 §「演示当天流程」里那 5 项预检并列。
+
+### 4.2 两个环境变量
+
+| 变量 | 作用 | 默认 | 什么时候用 |
+|---|---|---|---|
+| `ASSURANCE_STRICT_VERSION=1` | **严格模式**：对方没暴露版本字段时也拒绝推送 | 关闭（不阻断）| 对方补上版本字段之后，想收紧 |
+| `ASSURANCE_EXPECTED_VERSION` | 临时对齐对方版本，**不用改代码** | `0.4.0` | 对方升级了版本（见 4.3）|
+
+### 4.3 对方升级版本时怎么办
+
+场景：对方把契约升到了 `0.5.0`，我们这边期望值还停在 `0.4.0` → 状态变 `mismatch` → **阻断上报**。
+
+**处理办法（不用改代码）**：
+
+```bash
+export ASSURANCE_EXPECTED_VERSION=0.5.0
+```
+
+然后重新查一次确认：
+
+```bash
+ASSURANCE_BASE=https://对方新地址 python3 assurance_bridge.py contract
+# 状态    : ok
+# 对方版本: 0.5.0
+```
+
+**为什么不直接改代码里的常量**：对方版本迭代节奏不由我们控制，
+用环境变量对齐可以在演示现场一条命令搞定，不用重新发版。
+
+**对方加了 version 字段之后**（比方说返回 `{"status":"ok","version":"0.5.0"}`），
+我们这边**什么都不用改**就会自动从 `unknown` 变成 `ok`。
+如果这时想收紧成严格模式，把 `ASSURANCE_STRICT_VERSION=1` 打开就行。
+
+### 4.4 顺便：指标里也能看
+
+契约状态会作为 gauge `intensure_assurance_contract`（按 `state` 标签）暴露在
+自营 REST 服务的 `GET /metrics` 里：
+
+```bash
+curl -s http://127.0.0.1:8080/metrics | grep assurance_contract
+```
 
 ---
 

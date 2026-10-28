@@ -54,7 +54,8 @@
 
 > 📌 **范围沿革**：v2.0（2026-09-03）收敛为「采集 + 上报」；**v3.7（2026-10-08）起重新扩展** ——
 > 新增 `assurance_mvp.py`（一致性检查 + 根因诊断 + `intent_states` 状态轨迹 + 写库），
-> 并配套数据库（6 schema / 39 表）、alembic 迁移、DB 自动重连、历史归档定时清理、统一日志（v3.10 ~ v3.17）。
+> 并配套数据库（6 schema / 39 表）、alembic 迁移、DB 自动重连、历史归档定时清理、统一日志（v3.10 ~ v3.17）；
+> **v3.18.0（2026-10-29）**起补上可观测性（`metrics.py` + `GET /metrics`）与跨模块契约版本协商。
 
 > ⚠️ **范围调整说明**：v1.0 文档（2026-08-08）将本系统定义为"状态采集与数字化网络状态"，包含一致性校验、冲突检测、自愈回路等。**实际项目分工中，这些由其他同学的智能体模块（翻译/实现/保障）实现**。
 >
@@ -192,7 +193,7 @@ intensure/
 ├── 控制器层
 │   ├── simple_switch_13.py     # 最简 L2 参考
 │   ├── controller_app.py       # LLDP + PortStatus 链路事件流
-│   └── state_server.py         # 自营 REST API（Flask，15 个端点）
+│   └── state_server.py         # 自营 REST API（Flask，16 个端点，含 /metrics）✅ v3.18.0
 ├── 采集 / 状态层
 │   ├── state_collector.py      # CLI 探测工具（手工验证用）
 │   ├── actual_state_builder.py # 内部 state → ActualState 格式 ✅ v2.0
@@ -245,7 +246,9 @@ intensure/
 | `test_reporter.py` | 9 |
 | `test_actual_state_builder.py` | 8 |
 | `test_graceful.py` | 4 |
-| **合计** | **146** |
+| `test_contract_version.py` | 11 |
+| `test_metrics.py` | 10 |
+| **合计** | **167** |
 
 ### 5.3 待补测试（联调相关）
 
@@ -347,7 +350,7 @@ legacy/
 - [x] 写 `integration_demo.py`（端到端联调脚本）—— v2.0
 - [x] 改造 `live_env.py` 为"探测 + 上报"模式 —— v2.0
 - [x] 补齐 `mock_assurance_server.py`（本地 mock，离线可调试）—— v2.0
-- [x] 写 `state_server.py`（自营 REST，15 个端点）—— 后续版本启用，非归档
+- [x] 写 `state_server.py`（自营 REST，16 个端点）—— 后续版本启用，非归档
 
 ---
 
@@ -371,7 +374,7 @@ legacy/
 | §5.1 模块树 | 「核心 .py 11 个」，上报层标 **❌ 待做** | 非测试 .py **28 个** + 10 个测试；上报层 / 保障层 / 持久化层均为已完成 |
 | §5.1 故障注入 | 5 种 | **9 种**（含 burst / reorder / VLAN mismatch / flow race）|
 | §5.1 dashboard | 51KB | **37KB** |
-| §5.2 测试覆盖 | 无量化 | 补 **146 例**逐文件实测表 |
+| §5.2 测试覆盖 | 无量化 | 补 **167 例**逐文件实测表 |
 | §5.3 待补测试 | 4 项全未做 | 前 3 项已完成并标注对应测试文件 |
 | §8 #4 历史缓冲 | 「本模块不再持久化历史」| **v3.5 起自己持久化**（分区表 + 每日清理 timer）|
 | §9 待办清单 | 写着「写 reporter.py」「改造 live_env.py」等 | 已完成项勾选并标注版本；阻塞项换成真实原因（隧道 HTTP 000）|
