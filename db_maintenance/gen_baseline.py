@@ -26,13 +26,58 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 Q = r"'"
 
 
+RETENTION_TEMPLATE = '''r"""retention 分区清理**函数**（只建函数，不执行清理）
+
+把 `db_maintenance/retention_cleanup.sql` 的**函数部分**纳入版本管理。
+
+⚠️ 刻意**不包含**脚本末尾的主流程（那段会真的 DROP 分区）——
+   迁移必须无副作用：把破坏性清理放进 `alembic upgrade head` 意味着
+   「升个版本就删数据」。清理仍然是运维动作，由 run_retention_cleanup.sh 定期跑。
+
+⚠️ psql 元命令（\\set ...）必须剔除 —— 走 DBAPI 会语法错并回滚整个事务。
+
+Revision ID: 0002_retention_function
+Revises: 0001_baseline
+Create Date: 2026-10-27
+"""
+from alembic import op
+
+revision = "0002_retention_function"
+down_revision = "0001_baseline"
+branch_labels = None
+depends_on = None
+
+
+RETENTION_FUNC_SQL = r"""__SQL__"""
+
+
+def _exec_raw(sql):
+    bind = op.get_bind()
+    raw = bind.connection
+    with raw.cursor() as cur:
+        cur.execute(sql)
+    raw.commit()
+
+
+def upgrade():
+    """只建函数，不删任何分区。"""
+    _exec_raw(RETENTION_FUNC_SQL)
+
+
+def downgrade():
+    op.get_bind().exec_driver_sql(
+        "DROP FUNCTION IF EXISTS drop_old_partitions(TEXT, INTEGER)")
+'''
+
+
 def main():
     src = io.open(os.path.join(ROOT, 'docs/database-schema.sql'), encoding='utf-8').read()
 
     # ---------- 1. 处理硬编码分区（单趟，避免偏移量错位）----------
     PART_RE = re.compile(
         r'CREATE TABLE ([\w.]+_\d{4}_\d{2}) PARTITION OF ([\w.]+)\s*\n'
-        r'\s*FOR VALUES FROM \(' + Q + r'([\d-]+)' + Q + r'\) TO \(' + Q + r'([\d-]+)' + Q + r'\);\n',
+        r'\s*FOR VALUES FROM \(' + Q + r'([\d-]+)' + Q
+        + r'\) TO \(' + Q + r'([\d-]+)' + Q + r'\);\n',
         re.M)
 
     matches = list(PART_RE.finditer(src))
@@ -190,7 +235,38 @@ def downgrade():
     out = os.path.join(outdir, '0001_baseline.py')
     io.open(out, 'w', encoding='utf-8').write(revision)
     print('  v 基线已生成: migrations/versions/0001_baseline.py (%d 字节)' % len(revision))
+
+    gen_retention_revision()
     return 0
+
+
+def gen_retention_revision():
+    """生成 0002_retention_function.py（只含函数，不含破坏性主流程）。"""
+    src = io.open(os.path.join(ROOT, 'db_maintenance/retention_cleanup.sql'),
+                  encoding='utf-8').read()
+
+    i = src.find('LANGUAGE plpgsql;')
+    if i == -1:
+        print('  x 找不到 retention 函数结束标记')
+        return
+    func_part = src[:i + len('LANGUAGE plpgsql;')]
+
+    # 去掉 psql 元命令(\set ...) —— 走 DBAPI 会语法错
+    func_part = '\n'.join(l for l in func_part.split('\n')
+                           if not l.strip().startswith('\\'))
+
+    # 主流程不能带进来(它会 DROP 分区)
+    if 'Starting retention cleanup' in func_part:
+        print('  x 主流程被带进来了')
+        return
+    if 'drop_old_partitions' not in func_part:
+        print('  x 函数体丢了')
+        return
+
+    out = os.path.join(ROOT, 'migrations', 'versions', '0002_retention_function.py')
+    io.open(out, 'w', encoding='utf-8').write(
+        RETENTION_TEMPLATE.replace('__SQL__', func_part))
+    print('  v 0002_retention_function.py 已生成 (%d 字节)' % len(func_part))
 
 
 if __name__ == '__main__':

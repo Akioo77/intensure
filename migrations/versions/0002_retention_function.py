@@ -1,16 +1,12 @@
-"""retention 分区清理**函数**（只建函数，不执行清理）
+r"""retention 分区清理**函数**（只建函数，不执行清理）
 
 把 `db_maintenance/retention_cleanup.sql` 的**函数部分**纳入版本管理。
 
 ⚠️ 刻意**不包含**脚本末尾的主流程（那段会真的 DROP 分区）——
    迁移必须无副作用：把破坏性清理放进 `alembic upgrade head` 意味着
-   「升个版本就删数据」。清理仍然是运维动作，由 psql 脚本 + cron 定期跑。
+   「升个版本就删数据」。清理仍然是运维动作，由 run_retention_cleanup.sh 定期跑。
 
-另外修了两个 bug（2026-10-27）:
-  1. RAISE NOTICE 'Dropped: % (range %, cutoff=%)' 3 个占位符传了 4 个参数
-     -> ERROR: too many parameters specified for RAISE，整个脚本执行不了
-  2. 删分区判定从「分区起始日 < cutoff」改成「分区结束日 <= cutoff」
-     —— 用起始日会把**当月**分区删掉，之后任何 INSERT 报 no partition found
+⚠️ psql 元命令（\set ...）必须剔除 —— 走 DBAPI 会语法错并回滚整个事务。
 
 Revision ID: 0002_retention_function
 Revises: 0001_baseline
@@ -56,9 +52,9 @@ DECLARE
 BEGIN
     -- 取父表名（schema-qualified），前缀作为命名匹配
     parent_prefix := split_part(p_parent_table, '.', 2) || '_';
-    
+
     FOR part IN
-        SELECT 
+        SELECT
             inhrelid::regclass::text AS partition_name,
             pg_get_expr(c.relpartbound, c.oid) AS bounds
         FROM pg_inherits i
@@ -67,10 +63,10 @@ BEGIN
     LOOP
         -- bounds 形如：FOR VALUES FROM ('2026-08-01 00:00:00+08') TO ('2026-09-01 00:00:00+08')
         -- 提取起始日期
-        part_date := (regexp_matches(part.bounds, 
+        part_date := (regexp_matches(part.bounds,
             'FROM \(''([0-9]{4}-[0-9]{2}-[0-9]{2})', 'g'))[1]::DATE;
         part_end  := (regexp_matches(part.bounds, 'TO \(''([0-9]{4}-[0-9]{2}-[0-9]{2})', 'g'))[1]::DATE;
-        
+
         -- ⚠️ 必须用「结束日」判断，不能用「起始日」。
         -- 用起始日会把**当前月**的分区删掉 —— 例如 state_history 保留 7 天时，
         -- cutoff=今天-7，而当月分区起始日（如 2026-10-01）< cutoff，
@@ -84,7 +80,7 @@ BEGIN
             dropped_count := dropped_count + 1;
         END IF;
     END LOOP;
-    
+
     RETURN dropped_count;
 END;
 $$ LANGUAGE plpgsql;"""

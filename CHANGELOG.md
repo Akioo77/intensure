@@ -77,6 +77,51 @@
 
 ---
 
+## v3.15.0 - 2026-10-28 P2-4 DB 自动重连 + P2-5 历史归档定时清理
+
+**触发**: 主人说「先继续做计划内的，不急着联调」。
+
+### 🔌 P2-4 DB 自动重连
+
+`db_writer._get_conn` 原来有两个问题：PG 重启后每次调用直接抛 OperationalError
+（看起来像「永久失败直到重启 intensure」），且 `psycopg2.connect` **没设 timeout** ——
+libpq 默认无超时，PG 真挂了会长时间挂起。
+
+现在：
+- 最多 3 次尝试，指数退避 **0.5 / 1 / 2 秒**，日志打印 `reconnecting in Xs`
+- `connect` 带 `connect_timeout=5`
+- **区分「连接死了」和「查询本身出错」**：前者重连，后者直接冒泡不重连
+  （语法错/权限不足时重连只会掩盖真因）
+- 退避等待在锁外，不阻塞其他线程
+- 新增统计：`reconnects`（成功建连次数）/ `connect_retries`（失败重试次数）
+
+**实测**：`systemctl restart postgresql` 后写入自动恢复（**0.91s**），
+stats 显示 reconnects=3 / errors=0。另加 3 个回归测试锁住行为。
+
+### 🗄 P2-5 历史数据归档（定时清理）
+
+**先确认了问题真的存在**：VM 里既没有 crontab 也没有 systemd timer ——
+文档写的「30/7 天保留」**从来没被自动执行过**。
+
+- 新增 `db_maintenance/retention-cleanup.service` + `.timer`（进版本库，可复现）
+- 每天 **04:07** 跑（避开整点不撞车）+ 随机延迟 5 分钟 + `Persistent=true`
+  （关机/休眠错过了开机补跑 —— 笔记本场景重要）
+- 跑 `db_maintenance/run_retention_cleanup.sh`（systemd 包装脚本）
+
+**踩到并修掉的坑**：服务用 `User=postgres` + `psql -f` 报 `Permission denied` ——
+项目目录 0700，postgres 读不到 .sql 文件。改成 `User=sunxiaoxuan` + **stdin 管道**
+（`<` 重定向）：由项目属主打开文件喂给 psql 的 stdin，postgres 不需要读路径
+—— 和 alembic 里 `_exec_raw` 同一思路。
+
+**实测**：造了 2026_08 的过期分区 → 触发 service → **两个分区都被删掉**，只剩当月及以后。
+
+### 📊 状态
+
+- 优化清单 v0.9：**已完成 14 / 待办 6**（P0 全清 + P1-1/3/5 + P2-1/4/5 + P3-1）
+- 单元测试 132 → **135**（新增 3 个重连回归测试）
+
+---
+
 ## v3.14.0 - 2026-10-27 P3-1 alembic：schema 迁移工具 + 伙伴方案 A 达成
 
 **触发**: 主人让「先做 3.1」，同时处理伙伴回传的新 SQL 文件。

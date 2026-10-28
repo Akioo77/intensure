@@ -1,0 +1,14 @@
+[Unit]
+Description=intensure 分区保留清理（删除过期月分区）
+Documentation=file:/home/sunxiaoxuan.guest/intensure/docs/ALEMBIC_WORKFLOW.md
+After=postgresql.service
+Requires=postgresql.service
+
+[Service]
+Type=oneshot
+# ⚠️ 不能用 User=postgres: 家目录是 0750 / 项目目录 0700, postgres 进不去读不到脚本。
+# 改成以项目属主身份跑, 由 run_retention_cleanup.sh 内部 sudo -u postgres 执行。
+User=sunxiaoxuan
+WorkingDirectory=/home/sunxiaoxuan.guest/intensure
+# 必须走 psql: retention_cleanup.sql 里有 \set 这类 psql 元命令, 走 DBAPI 会语法错
+ExecStart=/bin/bash /home/sunxiaoxuan.guest/intensure/db_maintenance/run_retention_cleanup.sh

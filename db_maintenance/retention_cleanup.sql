@@ -37,9 +37,9 @@ DECLARE
 BEGIN
     -- 取父表名（schema-qualified），前缀作为命名匹配
     parent_prefix := split_part(p_parent_table, '.', 2) || '_';
-    
+
     FOR part IN
-        SELECT 
+        SELECT
             inhrelid::regclass::text AS partition_name,
             pg_get_expr(c.relpartbound, c.oid) AS bounds
         FROM pg_inherits i
@@ -48,10 +48,10 @@ BEGIN
     LOOP
         -- bounds 形如：FOR VALUES FROM ('2026-08-01 00:00:00+08') TO ('2026-09-01 00:00:00+08')
         -- 提取起始日期
-        part_date := (regexp_matches(part.bounds, 
+        part_date := (regexp_matches(part.bounds,
             'FROM \(''([0-9]{4}-[0-9]{2}-[0-9]{2})', 'g'))[1]::DATE;
         part_end  := (regexp_matches(part.bounds, 'TO \(''([0-9]{4}-[0-9]{2}-[0-9]{2})', 'g'))[1]::DATE;
-        
+
         -- ⚠️ 必须用「结束日」判断，不能用「起始日」。
         -- 用起始日会把**当前月**的分区删掉 —— 例如 state_history 保留 7 天时，
         -- cutoff=今天-7，而当月分区起始日（如 2026-10-01）< cutoff，
@@ -65,7 +65,7 @@ BEGIN
             dropped_count := dropped_count + 1;
         END IF;
     END LOOP;
-    
+
     RETURN dropped_count;
 END;
 $$ LANGUAGE plpgsql;
@@ -78,38 +78,38 @@ DECLARE
     n INT;
 BEGIN
     RAISE NOTICE '=== Starting retention cleanup at % ===', now();
-    
+
     -- intensure
     n := drop_old_partitions('intensure.probe_results', 30);
     RAISE NOTICE 'intensure.probe_results: dropped % partition(s)', n;
-    
+
     n := drop_old_partitions('intensure.state_history', 7);
     RAISE NOTICE 'intensure.state_history: dropped % partition(s)', n;
-    
+
     n := drop_old_partitions('intensure.port_events', 30);
     RAISE NOTICE 'intensure.port_events: dropped % partition(s)', n;
-    
+
     n := drop_old_partitions('intensure.link_events', 30);
     RAISE NOTICE 'intensure.link_events: dropped % partition(s)', n;
-    
+
     -- assurance
     n := drop_old_partitions('assurance.consistency_checks', 30);
     RAISE NOTICE 'assurance.consistency_checks: dropped % partition(s)', n;
-    
+
     n := drop_old_partitions('assurance.healing_history', 365);
     RAISE NOTICE 'assurance.healing_history: dropped % partition(s)', n;
-    
+
     -- shared
     n := drop_old_partitions('shared.audit_log', 30);
     RAISE NOTICE 'shared.audit_log: dropped % partition(s) (ERROR severity 已另存到 error_archive)', n;
-    
+
     RAISE NOTICE '=== Cleanup done at % ===', now();
 END $$;
 
 -- -----------------------------------------------------------------
 -- shared.module_health：只保留最近 7 天记录（单表清理）
 -- -----------------------------------------------------------------
-DELETE FROM shared.module_health 
+DELETE FROM shared.module_health
 WHERE last_heartbeat < now() - INTERVAL '7 days';
 
 -- -----------------------------------------------------------------
@@ -119,9 +119,9 @@ WHERE last_heartbeat < now() - INTERVAL '7 days';
 CREATE TABLE IF NOT EXISTS shared.audit_log_error_archive (LIKE shared.audit_log INCLUDING ALL);
 
 -- 把老 ERROR 复制到归档
-INSERT INTO shared.audit_log_error_archive 
-SELECT * FROM shared.audit_log 
-WHERE severity = 'ERROR' 
+INSERT INTO shared.audit_log_error_archive
+SELECT * FROM shared.audit_log
+WHERE severity = 'ERROR'
   AND occurred_at < now() - INTERVAL '30 days'
 ON CONFLICT DO NOTHING;
 

@@ -24,6 +24,9 @@ ignore = [
 [tool.ruff.lint.per-file-ignores]
 # 测试文件里 print 是有意为之(用例输出就是给人看的)
 "test_*.py" = ["E402", "F541", "F841"]
+# 生成的 migration 内嵌整份 schema SQL, 长行不可避免。
+# 只豁免 E501 —— F 类(未定义名/未用 import)仍然生效, 手写 migration 的笔误照样能查出来。
+"migrations/versions/*.py" = ["E501"]
 # demo 脚本需要动态 import 和未用变量做占位
 "demo*.py" = ["F401", "F841", "E402"]
 

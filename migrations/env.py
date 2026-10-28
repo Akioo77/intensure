@@ -11,7 +11,6 @@
 DSN 优先级: 环境变量 ALEMBIC_DB_URL > alembic.ini 的 sqlalchemy.url
 """
 import os
-import sys
 
 from alembic import context
 from sqlalchemy import engine_from_config, pool

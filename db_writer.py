@@ -48,6 +48,14 @@ PROBE_HEARTBEAT_INTERVAL = 60      # 一致性检查心跳间隔（秒，给保�
 # 调试开关
 DEBUG = os.environ.get('INTENSURE_DB_DEBUG', '0') == '1'
 
+# ---------- PG 短暂不可用时的重连策略（P2-4, 2026-10-28）----------
+# 场景: systemctl restart postgresql 之后，缓存的连接变成僵尸。
+# 原来每次调用都直接抛 OperationalError（且 libpq 默认无 connect timeout，
+# PG 真挂了会挂很久），调用方看到的是一串连接错误而不是「正在重连」。
+CONNECT_MAX_ATTEMPTS = 3          # 最多尝试 3 次
+CONNECT_BACKOFF_BASE = 0.5         # 秒，指数退避: 0.5 / 1 / 2
+CONNECT_TIMEOUT = 5                # 秒，libpq 默认无超时，PG 挂了会长时间挂起
+
 
 # ============ 单例 ============
 
@@ -102,35 +110,77 @@ class DBWriter:
             'consistency_writes': 0,
             'consistency_skipped': 0,
             'healing_history_writes': 0,
+            'reconnects': 0,
+            'connect_retries': 0,
             'errors': 0,
         }
 
     # ---------- 连接管理 ----------
 
+    def _connect_once(self):
+        """建立或复用连接。连接已死时抛 OperationalError/InterfaceError。
+
+        调用方必须已持有 self._conn_lock。
+        """
+        if self._conn is None or self._conn.closed:
+            self._conn = psycopg2.connect(self.dsn, connect_timeout=CONNECT_TIMEOUT)
+            self._conn.autocommit = True
+            self.stats['reconnects'] += 1
+        else:
+            # 探活。注意: 只把「连接死了」当连接问题处理 ——
+            # 语法错/权限不足之类的异常直接冒泡, 不重连, 免得掩盖真因。
+            try:
+                with self._conn.cursor() as cur:
+                    cur.execute('SELECT 1')
+            except (psycopg2.OperationalError, psycopg2.InterfaceError):
+                self.stats['reconnects'] += 1
+                try:
+                    self._conn.close()
+                except Exception:
+                    pass
+                self._conn = None
+                raise
+        return self._conn
+
     def _get_conn(self):
-        """懒加载 + 自动重连。"""
+        """懒加载 + 自动重连（指数退避）。
+
+        PG 短暂不可用时（如 systemctl restart postgresql）会自动重试，
+        并打印 reconnecting 便于排障 —— 而不是直接抛一串连接错误。
+        """
         if psycopg2 is None:
             raise RuntimeError('psycopg2 not installed')
-        with self._conn_lock:
+
+        last_err = None
+        for attempt in range(CONNECT_MAX_ATTEMPTS):
             try:
-                if self._conn is None or self._conn.closed:
-                    self._conn = psycopg2.connect(self.dsn)
-                    self._conn.autocommit = True
-                else:
-                    # 检查连接是否还活着
-                    try:
-                        with self._conn.cursor() as cur:
-                            cur.execute('SELECT 1')
-                    except Exception:
-                        self._conn.close()
-                        self._conn = psycopg2.connect(self.dsn)
-                        self._conn.autocommit = True
-            except Exception as e:
+                # 锁只覆盖「一次尝试」，退避等待在锁外，不阻塞其他线程
+                with self._conn_lock:
+                    return self._connect_once()
+            except (psycopg2.OperationalError, psycopg2.InterfaceError) as e:
+                last_err = e
+                self.stats['connect_retries'] += 1
+                if attempt < CONNECT_MAX_ATTEMPTS - 1:
+                    delay = CONNECT_BACKOFF_BASE * (2 ** attempt)
+                    if DEBUG:
+                        print(f'[DBWriter] reconnecting in {delay:.1f}s '
+                              f'(attempt {attempt + 1}/{CONNECT_MAX_ATTEMPTS}): {e}',
+                              flush=True)
+                    time.sleep(delay)
+                    continue
                 self.stats['errors'] += 1
                 if DEBUG:
                     print(f'[DBWriter] connection error: {e}', flush=True)
                 raise
-            return self._conn
+            except Exception as e:
+                # 不是连接问题 -> 不重连
+                self.stats['errors'] += 1
+                if DEBUG:
+                    print(f'[DBWriter] connection error: {e}', flush=True)
+                raise
+
+        self.stats['errors'] += 1
+        raise last_err
 
     def close(self):
         """关闭连接（测试用）。"""

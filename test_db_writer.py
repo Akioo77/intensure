@@ -105,8 +105,12 @@ def test_connection_lazy_load_and_reuse():
     calls = []
 
     class FakePsycopg2:
+        # _get_conn 现在会带 connect_timeout, 并引用 OperationalError/InterfaceError
+        OperationalError = _FakeOperationalError
+        InterfaceError = _FakeInterfaceError
+
         @staticmethod
-        def connect(dsn):
+        def connect(dsn, connect_timeout=None):
             calls.append(dsn)
             c = FakeConn()
             c.closed = False
@@ -132,12 +136,17 @@ def test_connection_reconnect_when_dead():
         def cursor(self):
             class C(FakeCursor):
                 def execute(self, sql, params=None):
-                    raise RuntimeError("connection dead")
+                    # 必须是 OperationalError/InterfaceError 才会触发重连;
+                    # 其它异常会被当成「查询本身出错」而直接冒泡(这是有意的设计)
+                    raise _FakeOperationalError("connection dead")
             return C(self)
 
     class FakePsycopg2:
+        OperationalError = _FakeOperationalError
+        InterfaceError = _FakeInterfaceError
+
         @staticmethod
-        def connect(dsn):
+        def connect(dsn, connect_timeout=None):
             calls.append(dsn)
             return DeadConn()
 
@@ -565,6 +574,139 @@ def test_query_with_literal_percent():
     check("query_one 也不传空元组", params3 is None, repr(params3))
 
 
+class _FakeOperationalError(Exception):
+    pass
+
+
+class _FakeInterfaceError(Exception):
+    pass
+
+
+class _FakePsycopg2:
+    """假的 psycopg2 —— 可控 connect 行为。"""
+
+    OperationalError = _FakeOperationalError
+    InterfaceError = _FakeInterfaceError
+
+    def __init__(self, fail_times=0):
+        self.calls = 0
+        self.fail_times = fail_times
+        self.timeouts = []
+
+    def connect(self, dsn, connect_timeout=None):
+        self.calls += 1
+        self.timeouts.append(connect_timeout)
+        if self.calls <= self.fail_times:
+            raise _FakeOperationalError('server closed the connection unexpectedly')
+        return FakeConn()
+
+
+class _FakeTime:
+    """假的 time 模块 —— 只记录 sleep 时长, 不真睡。"""
+
+    def __init__(self, real):
+        self._real = real
+        self.delays = []
+
+    def sleep(self, d):
+        self.delays.append(d)
+
+    def __getattr__(self, k):
+        return getattr(self._real, k)
+
+
+def test_get_conn_retries_on_connection_death():
+    """PG 短暂不可用 -> 自动重试并拿到连接（P2-4 核心行为）。"""
+    old_psycopg2 = db_writer.psycopg2
+    old_time = db_writer.time
+    fake = _FakePsycopg2(fail_times=2)
+    ft = _FakeTime(old_time)
+    db_writer.psycopg2 = fake
+    db_writer.time = ft
+    try:
+        w = db_writer.DBWriter(dsn="postgresql://fake/fake")
+        conn = w._get_conn()
+        check("重试后拿到连接", conn is not None)
+        check("尝试了 3 次", fake.calls == 3, fake.calls)
+        check("退避是指数的 [0.5, 1.0]", ft.delays == [0.5, 1.0], ft.delays)
+        check("connect 带了 timeout", all(t is not None for t in fake.timeouts), fake.timeouts)
+        # reconnects = 成功(重)建连次数; connect_retries = 失败重试次数
+        check("成功建连 1 次", w.get_stats()["reconnects"] == 1, w.get_stats())
+        check("失败重试 2 次", w.get_stats()["connect_retries"] == 2, w.get_stats())
+        check("errors 仍为 0", w.get_stats()["errors"] == 0, w.get_stats())
+    finally:
+        db_writer.psycopg2 = old_psycopg2
+        db_writer.time = old_time
+
+
+def test_get_conn_gives_up_after_max_attempts():
+    """一直连不上 -> 重试到上限后抛出, errors 计数 +1。"""
+    old_psycopg2 = db_writer.psycopg2
+    old_time = db_writer.time
+    fake = _FakePsycopg2(fail_times=99)
+    ft = _FakeTime(old_time)
+    db_writer.psycopg2 = fake
+    db_writer.time = ft
+    try:
+        w = db_writer.DBWriter(dsn="postgresql://fake/fake")
+        raised = False
+        try:
+            w._get_conn()
+        except _FakeOperationalError:
+            raised = True
+        check("最终抛出连接错误", raised is True)
+        check("尝试次数 = 上限", fake.calls == db_writer.CONNECT_MAX_ATTEMPTS, fake.calls)
+        check("errors 计数 +1", w.get_stats()["errors"] == 1, w.get_stats())
+    finally:
+        db_writer.psycopg2 = old_psycopg2
+        db_writer.time = old_time
+
+
+def test_get_conn_does_not_retry_on_query_error():
+    """非连接类异常(语法错/权限不足) -> 不重连, 立刻冒泡（免得掩盖真因）。"""
+    old_psycopg2 = db_writer.psycopg2
+    old_time = db_writer.time
+
+    class BadConn(FakeConn):
+        def cursor(self):
+            c = FakeCursor(self)
+
+            def execute(sql, params=None):
+                raise ValueError('syntax error at or near "FOO"')
+
+            c.execute = execute
+            return c
+
+    class FakePy2:
+        OperationalError = _FakeOperationalError
+        InterfaceError = _FakeInterfaceError
+
+        def __init__(self):
+            self.calls = 0
+
+        def connect(self, dsn, connect_timeout=None):
+            self.calls += 1
+            return BadConn()
+
+    fake = FakePy2()
+    ft = _FakeTime(old_time)
+    db_writer.psycopg2 = fake
+    db_writer.time = ft
+    try:
+        w = db_writer.DBWriter(dsn="postgresql://fake/fake")
+        w._conn = fake.connect("postgresql://fake/fake")
+        raised = False
+        try:
+            w._get_conn()
+        except ValueError:
+            raised = True
+        check("查询类异常直接冒泡", raised is True)
+        check("没有重连", fake.calls == 1, fake.calls)
+    finally:
+        db_writer.psycopg2 = old_psycopg2
+        db_writer.time = old_time
+
+
 TESTS = [
     test_connection_lazy_load_and_reuse,
     test_connection_reconnect_when_dead,
@@ -600,6 +742,9 @@ TESTS = [
     test_query_failure_returns_empty,
     test_query_one,
     test_query_with_literal_percent,
+    test_get_conn_retries_on_connection_death,
+    test_get_conn_gives_up_after_max_attempts,
+    test_get_conn_does_not_retry_on_query_error,
     test_real_db_network_state_upsert,
     test_real_db_state_history_is_idempotent_guarded,
 ]

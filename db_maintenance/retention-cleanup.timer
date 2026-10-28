@@ -1,0 +1,14 @@
+[Unit]
+Description=每天清理 intensure 过期分区（保留策略：consistency_checks 30 天 / state_history 7 天 / 其余 30 天）
+Documentation=file:/home/sunxiaoxuan.guest/intensure/db_maintenance/retention_cleanup.sql
+
+[Timer]
+# 每天 04:07 —— 避开整点，不跟其他定时任务撞一起
+OnCalendar=*-*-* 04:07:00
+# 随机延迟 0-5 分钟，避免多机同时打 DB
+RandomizedDelaySec=300
+# 关机/休眠错过了，开机后补跑（笔记本场景重要）
+Persistent=true
+
+[Install]
+WantedBy=timers.target
