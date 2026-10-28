@@ -147,6 +147,7 @@ class Histogram:
         self.buckets = tuple(sorted(float(b) for b in buckets))
         self._counts: Dict[LabelKey, List[int]] = {}
         self._sums: Dict[LabelKey, float] = {}
+        self._totals: Dict[LabelKey, int] = {}
         self._lock = threading.Lock()
 
     def observe(self, value: float, labels: Optional[Dict[str, str]] = None) -> None:
@@ -159,15 +160,13 @@ class Histogram:
                 if value <= upper:
                     counts[i] += 1
             self._sums[key] = self._sums.get(key, 0.0) + value
+            self._totals[key] = self._totals.get(key, 0) + 1
 
     def count(self, labels: Optional[Dict[str, str]] = None) -> int:
-        """观测总次数。"""
+        """观测总次数（含超出最大桶的样本）。"""
         key = _normalize_labels(labels)
         with self._lock:
-            counts = self._counts.get(key)
-            if not counts:
-                return 0
-            return sum(counts)
+            return self._totals.get(key, 0)
 
     def sum(self, labels: Optional[Dict[str, str]] = None) -> float:
         """观测值总和。"""
@@ -178,26 +177,25 @@ class Histogram:
     def render(self) -> List[str]:
         with self._lock:
             keys = sorted(self._counts.keys())
-            snapshot = {k: (list(self._counts[k]), self._sums.get(k, 0.0)) for k in keys}
+            snapshot = {k: (list(self._counts[k]), self._sums.get(k, 0.0),
+                            self._totals.get(k, 0)) for k in keys}
 
         lines = [f'# HELP {self.name} {self.documentation}',
                  f'# TYPE {self.name} histogram']
         bucket_labelnames = self.labelnames + ('le',)
-        for key, (counts, total) in snapshot.items():
-            cumulative = 0
+        for key, (counts, total, observed) in snapshot.items():
             for upper, count in zip(self.buckets, counts):
-                cumulative = count
                 bucket_labels = dict(key)
                 bucket_labels['le'] = f'{upper:g}'
                 label_str = _render_labels(bucket_labelnames, bucket_labels)
-                lines.append(f'{self.name}_bucket{label_str} {cumulative}')
-            # +Inf 桶
+                lines.append(f'{self.name}_bucket{label_str} {count}')
+            # +Inf 桶 = 全部观测数（含超出最大桶的样本）
             inf_labels = dict(key)
             inf_labels['le'] = '+Inf'
             label_str = _render_labels(bucket_labelnames, inf_labels)
-            lines.append(f'{self.name}_bucket{label_str} {cumulative}')
+            lines.append(f'{self.name}_bucket{label_str} {observed}')
             lines.append(f'{self.name}_sum{_render_labels(self.labelnames, key)} {total:g}')
-            lines.append(f'{self.name}_count{_render_labels(self.labelnames, key)} {cumulative}')
+            lines.append(f'{self.name}_count{_render_labels(self.labelnames, key)} {observed}')
         return lines
 
 
