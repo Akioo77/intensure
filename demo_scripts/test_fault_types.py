@@ -33,7 +33,9 @@ results = []
 
 def check(name, cond, detail=''):
     results.append((name, bool(cond), detail))
-    print(('  [PASS] ' if cond else '  [FAIL] ') + name + ('  ' + str(detail) if detail else ''), flush=True)
+    status = '  [PASS] ' if cond else '  [FAIL] '
+    extra = '  ' + str(detail) if detail else ''
+    print(status + name + extra, flush=True)
 
 
 # 控制器必须先起(否则基线 ping 不通, 流表也没人下发)
@@ -58,7 +60,9 @@ h4 = net.get('h4')
 
 # 基线: 互通
 base_loss = h1.cmd('ping -c 3 -W 1 10.0.0.4')
-check('基线 h1->h4 可达', ' 0% ' in base_loss or ' 0.00%' in base_loss or base_loss.strip().endswith('0% packet loss'), base_loss.strip().splitlines()[-1] if base_loss.strip() else '')
+check('基线 h1->h4 可达',
+    ' 0% ' in base_loss or ' 0.00%' in base_loss or base_loss.strip().endswith('0% packet loss'),
+    base_loss.strip().splitlines()[-1] if base_loss.strip() else '')
 
 # ---------- 1. burst ----------
 fi.burst('s1', 'h1', rate_mbps=100, limit_kb=8)
@@ -79,11 +83,15 @@ fi.clear_all()
 # ---------- 3. vlan_mismatch ----------
 fi.vlan_mismatch('s1', 'h1', vlan_id=999)
 v = net.get('s1').cmd('ovs-vsctl list port s1-eth1')
-check('vlan_mismatch 打了 tag', '999' in v, [l.strip() for l in v.splitlines() if l.strip().startswith('tag')])
+check('vlan_mismatch 打了 tag',
+    '999' in v,
+    [l.strip() for l in v.splitlines() if l.strip().startswith('tag')])
 check('vlan_mismatch 记进 active_faults', any(f[0] == 'vlan_mismatch' for f in fi.active_faults))
 fi.clear_all()
 v2 = net.get('s1').cmd('ovs-vsctl list port s1-eth1')
-check('clear_all 后 VLAN tag 已撤', 'tag                 : []' in v2 or '999' not in v2, [l.strip() for l in v2.splitlines() if l.strip().startswith('tag')])
+check('clear_all 后 VLAN tag 已撤',
+    'tag                 : []' in v2 or '999' not in v2,
+    [l.strip() for l in v2.splitlines() if l.strip().startswith('tag')])
 
 # ---------- 4. flow_race ----------
 before_flows = net.get('s1').cmd('ovs-ofctl -O OpenFlow13 dump-flows s1')
@@ -96,7 +104,9 @@ fi.clear_all()
 # ---------- 收尾: 链路恢复 ----------
 time.sleep(1)
 after = h1.cmd('ping -c 3 -W 1 10.0.0.4')
-check('clear_all 后链路恢复正常', ' 0% ' in after or after.strip().endswith('0% packet loss'), after.strip().splitlines()[-1] if after.strip() else '')
+check('clear_all 后链路恢复正常',
+    ' 0% ' in after or after.strip().endswith('0% packet loss'),
+    after.strip().splitlines()[-1] if after.strip() else '')
 
 net.stop()
 try:
