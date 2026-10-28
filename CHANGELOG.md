@@ -77,6 +77,38 @@
 
 ---
 
+## v3.17.0 - 2026-10-28 P2-3 复杂故障类型：burst / reorder / vlan_mismatch / flow_race
+
+伙伴的诊断分支（port_failure / link_failure / 高延迟）之前只有「断链」一种真实样本可验，
+其余分支根本没数据。现在补上 4 种。
+
+- **burst** —— tc netem rate + 小 limit，队列被打爆（microburst）。
+  与 `rate_limit` 的 tbf 平滑整形是不同故障
+- **reorder** —— tc netem delay + reorder + gap
+- **vlan_mismatch** —— 给交换机端口打 VLAN tag（发方带 tag / 收方期望 untagged）
+- **flow_race** —— 两个 subprocess 真并发改流表
+
+`clear_all` 同步补了 VLAN 清理，否则 vlan_mismatch 撤不掉。
+
+### 🐛 实测踩出 4 个坑（实现里都注释了）
+
+1. `netem reorder` 必须配 `delay` —— 只写 reorder 报
+   `reordering not possible without specifying some delay`
+2. `netem` 的 `gap` 单位是**包数**不是时间 —— `gap 20ms` 报 `Illegal "gap"`
+3. 这个 ovs-ofctl 版本**没有 `mod-vlan` 命令**（unknown command），
+   改用 OVS 原生 `ovs-vsctl set port <port> tag=999` 等价实现
+4. `node.cmd()` **不是线程安全的** —— Mininet 只有一个 shell，并发调用撞
+   `assert self.shell and not self.waiting`。flow_race 改用 subprocess 起两个
+   独立进程，既是真并发也才真造得出竞态
+
+### ✅ 验收
+
+`demo_scripts/test_fault_types.py` 在真实 Mininet 拓扑上 **12/12 全过**
+（4 种故障各生效 + 记进 active_faults + clear_all 全清 + 链路恢复）。
+该脚本需 mininet/ovs-ofctl/控制器，属集成测试，不进 CI 单元测试套件。
+
+---
+
 ## v3.16.0 - 2026-10-28 P1-2 日志统一：75 处 print → logging
 
 **触发**: 主人「继续做计划内的」-> P1-2（代码库里 1 个文件用 logging、23 个用 print，

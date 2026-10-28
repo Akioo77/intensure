@@ -1,19 +1,19 @@
 # intensure 优化清单(2026-10-09 整理)
 
 > **目的**:盘点 intensure 项目当前可改进的地方,按优先级排好,标注**做什么 + 怎么开发 + 工作量**。
-> **状态**:v1.0(2026-10-28 更新)——**P0 与 P1 全部完成**；P2-1 压测、P2-4 重连、P2-5 归档、P3-1 alembic 也已完成。共 15 项已完成，剩余 5 项待办。
+> **状态**:v1.1(2026-10-28 更新)——**P0 与 P1 全部完成**；P2-1 压测、P2-3 复杂故障、P2-4 重连、P2-5 归档、P3-1 alembic 也已完成。共 16 项已完成，剩余 4 项待办。
 > **边界**:**只关心 intensure 这边**——翻译组 / 冲突消解组 / A 同学 assurance-agent 的内部设计不归我们管。
 > **不抢活**:我们能催/建议,但不能越界做。
 
 ---
 
-## 🎯 优先级总览(5 项待办 / 15 项已完成)
+## 🎯 优先级总览(4 项待办 / 16 项已完成)
 
 | 优先级 | 项数 | 类别 |
 |------|------|------|
 | 🔴 P0(基础缺失,必须补) | **0** | 全部完成 ✅ |
 | 🟡 P1(质量/可靠性) | 0 | 全部完成 ✅ |
-| 🟢 P2(性能/扩展) | 2 | dashboard / 故障类型 |
+| 🟢 P2(性能/扩展) | 1 | dashboard 拆分 |
 | 🔵 P3(完善) | 3 | Docker / observability |
 
 ---
@@ -71,19 +71,6 @@
 
 ---
 
-### P2-3 · 复杂故障类型扩展
-**问题**:现在 `fault_injector.py` 支持断链 / 时延 / 丢包 / 限速 / 任意 IP link。**没有**:burst 流量、packet reorder、VLAN mismatch、流表 race condition。
-
-**怎么开发**:
-1. `fault_injector.py` 加新类:
-   - `BurstFault(tc qdisc ... tbf burst)` 突发流量
-   - `ReorderFault(tc qdisc ... reordering)` 包乱序
-   - `VlanMismatchFault(ovs-ofctl mod-vlan)` VLAN 不匹配
-   - `FlowRaceFault(同时发两条 ovs-ofctl 改流表)`
-2. 给 assurance-agent 准备测试场景(它诊断器需要这些样本)
-
-**工作量**:2-3 天
-**价值**:🟡 中(联调需要)
 
 ---
 
@@ -384,6 +371,38 @@ postgres 不需要读路径 —— 和 alembic 里 `_exec_raw` 同一思路。
 
 ---
 
+### ✅ P2-3 · 复杂故障类型扩展
+
+**完成情况**: 新增 4 种故障类型，伙伴的诊断分支（port_failure / link_failure / 高延迟）
+终于有真实样本可验：
+- `burst` —— tc netem rate + 小 limit，队列被打爆（microburst）；
+  与 `rate_limit` 的 tbf 平滑整形是不同故障
+- `reorder` —— tc netem delay + reorder + gap
+- `vlan_mismatch` —— 给交换机端口打 VLAN tag（发方带 tag / 收方期望 untagged）
+- `flow_race` —— 两个 subprocess 真并发改流表
+
+`clear_all` 同步补了 VLAN 清理，否则 vlan_mismatch 撤不掉。
+
+**实测踩出 4 个坑（实现里都注释了）**：
+1. `netem reorder` 必须配 `delay`，只写 reorder 报 
+   "reordering not possible without specifying some delay"
+2. `netem` 的 `gap` 单位是**包数**不是时间 —— `gap 20ms` 报 `Illegal "gap"`
+3. 这个 ovs-ofctl 版本**没有 mod-vlan 命令**，改用 OVS 原生 
+   `ovs-vsctl set port <port> tag=999` 等价实现
+4. `node.cmd()` **不是线程安全的** —— Mininet 只有一个 shell，并发调用撞
+   `assert self.shell and not self.waiting`。flow_race 改用 subprocess 起两个
+   独立进程，既是真并发也才真造得出竞态
+
+**验收**：`demo_scripts/test_fault_types.py` 在真实 Mininet 拓扑上 **12/12 全过**
+（4 种故障各生效 + 记进 active_faults + clear_all 全清 + 链路恢复）。
+该脚本需 mininet/ovs-ofctl/控制器，属集成测试，不进 CI 单元测试套件。
+
+**提交**: `待提交（2026-10-28）`
+
+
+
+---
+
 ---
 
 ## 📋 工作量汇总
@@ -392,9 +411,9 @@ postgres 不需要读路径 —— 和 alembic 里 `_exec_raw` 同一思路。
 |------|------|-------------|
 | 🔴 P0 | 0 | 0 天 ✅ |
 | 🟡 P1 | 0 | 0 天 ✅ |
-| 🟢 P2 | 2 | 5-6 天 |
+| 🟢 P2 | 1 | 3-5 天 |
 | 🔵 P3 | 3 | 6-7 天 |
-| **合计** | **5** | **~7-9 工作日** |
+| **合计** | **4** | **~6-8 工作日** |
 
 ---
 
