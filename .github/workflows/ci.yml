@@ -93,4 +93,6 @@ jobs:
             test_state_history.py \
             test_ovs_logger.py \
             test_state_model.py \
+            test_metrics.py \
+            test_contract_version.py \
             -v
