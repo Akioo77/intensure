@@ -188,7 +188,7 @@ sudo mn -c 2>/dev/null
 ```
 1. (5min) 课前准备：colima up，SSH VM
 2. (1min)  展示 presentation.md 大纲
-3. (2min) 讲方法（4 条铁律 + 5 schema）
+3. (2min) 讲方法（4 条铁律 + 6 schema）
 4. (2min) 现场演示越权测试（DB 双保险）
 5. (90s)  一键演示 demo_db_pipeline.sh
 6. (1min) 现场查询 DB 数据
@@ -213,3 +213,12 @@ sudo mn -c 2>/dev/null
 ---
 
 _Runbook v0.1 · 写于 2026-10-08 · 演示前一天再读一遍_
+
+---
+
+## 🕘 最近更新
+
+**2026-10-29 · 文档同步至当前实现状态**
+
+修正「5 schema」→ **6 schema**。
+原因：与 `docs/database-schema.sql` 实际内容对齐。

@@ -185,20 +185,20 @@
 
 - [ ] **演示讲稿**（15-20 分钟完整剧本，含每步讲什么 / 看什么 / 解释什么）
 - [ ] **Q&A 预案**（15-20 个老师可能问的问题 + 答案）
-- [ ] **README 重写**（当前 README 还写"等同学 A"，已过时）
+- [x] **README 重写** ✅ 2026-10-29 —— 已按 v3.17 实际实现状态重写
 - [ ] **跑通真实联调** 至少 1 次（确认 A 同学接口真能用）
 
 #### 🟡 P1（演示加分项）
 
-- [ ] **CHANGELOG.md 更新**（v3.x：OVS logger + 联调脚本 + 契约格式升级）
-- [ ] **架构图**（3 智能体 + intensure 的位置，用 diagram-maker 画）
+- [x] **CHANGELOG.md 更新** ✅ 已到 v3.17（OVS logger / 联调脚本 / 契约对齐均有条目）
+- [ ] **架构图** ❌ 仍未产出（仓库内暂无 diagram 文件）
 - [ ] **PPT 准备**（如老师要求幻灯片，create-pptx + Apple 风）
-- [ ] **故障注入 REST 路由**（`/api/v1/test/inject-fault` Flask 路由，15 分钟工作量）
-- [ ] **跨智能体对接文档 v2**（OVS log 端点 + 新 down_links 格式加入 STATE_MODEL.md）
+- [ ] **故障注入 REST 路由** ❌ 仍未实现（`state_server.py` 当前无 `inject-fault` 路由；注入走 `fault_cli.sh`）
+- [x] **跨智能体对接文档 v2** ✅ 2026-10-29 —— `docs/cross-module-api-contract.md` 已补「契约目标 vs 当前实现」映射表
 
 #### 🟢 P2（演示后优化）
 
-- [ ] 真实园区迁移路径文档（已在 9/8 写完，需更新到 INTEGRATION_GUIDE.md）
+- [ ] 真实园区迁移路径文档 ❌ 仍未并入 `INTEGRATION_GUIDE.md`（该文件当前 0 处提及园区）
 - [ ] collector 多协议适配器（SNMP / CLI / OpenFlow）骨架
 - [ ] OVS log → 根因归因的 demo（直接展示 `ovs_logger` 抓到"是谁下的 ofctl 命令"）
 - [ ] Dashboard 加联调统计面板（上报成功率 / 响应时间 / ActualState 样例）

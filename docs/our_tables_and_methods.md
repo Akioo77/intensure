@@ -2,20 +2,22 @@
 
 > **演示现场速查**：被问到"你们管哪些表 / 怎么写 / 怎么证明数据写进去了"时读这一篇
 > **配套**：演示脚本 `demo_scripts/demo_db_pipeline.sh`
-> **最近**：v3.9（2026-10-08，心跳默认关）
+> **最近**：v3.17（2026-10-28，复杂故障类型扩展）
 > **版本**：v0.2（2026-10-09 修订：去掉演示时间描述，改为常驻参考）
 
 ---
 
 ## 一句话总结
 
-> 我们（intensure 采集层）**只写 8 张表**：6 张在自己的 `intensure` schema，2 张在 `shared`。**读 0 张别人的表**——读别人表的事情交给上层（保障模块）。这是有意的职责分离。
+> 我们（intensure 采集层）**只写 12 张表**：5 张在自己的 `intensure` schema、5 张在 `assurance` schema、2 张在 `shared`。**读 0 张别人的表**——读别人表的事情交给上层（保障模块）。这是有意的职责分离。
+>
+> ⚠️ （2026-10-29 核对）旧版写「只写 8 张表」，且把 `intensure.flows_snapshot` 算在内 —— **该表当前并没有被写**，而实际在写的 5 张 `assurance.*` 表当时漏列了。
 
 ---
 
 ## 一、我们负责哪些表（写权限）
 
-### 1.1 intensure schema（6 张，都是我们写的）
+### 1.1 intensure schema（5 张，都是我们写的）
 
 | 表 | 写频率 | 干什么 |
 |---|---|---|
@@ -23,10 +25,20 @@
 | `intensure.state_history` | **30s 节流 + summary 变化才写** | 历史快照，用于趋势分析 |
 | `intensure.port_events` | **端口状态翻转时**（up→down / down→up）| 端口变更流水（用于排障）|
 | `intensure.link_events` | **LLDP 链路发现/丢失时** | 拓扑变化流水 |
-| `intensure.flows_snapshot` | **未来用**（Phase 2）| 流表快照 |
+| ~~`intensure.flows_snapshot`~~ | **当前不写**（表已建，未接入）| 流表快照 —— 计划中 |
 | `intensure.probe_results` | **仅异常**（reachable 变 / 丢包>1% / 延迟>200ms）| 连通性探针异常记录 |
 
-### 1.2 shared schema（2 张，我们可以写）
+### 1.2 assurance schema（5 张，v3.7 起由 `assurance_mvp.py` / `db_writer.py` 写）
+
+| 表 | 写频率 | 干什么 |
+|---|---|---|
+| `assurance.consistency_checks` | **每 5s 一次**（一致性检查结果）| 每次检查的 pass / violated 记录 |
+| `assurance.diagnoses` | **仅违例时** | 根因诊断结果（`diagnose_violation` 的产物）|
+| `assurance.intent_states` | **状态变化时**（upsert）| 意图状态轨迹（`active` / `violated` 等）|
+| `assurance.healing_intents` | **自愈意图生成时** | 自愈意图落库 |
+| `assurance.healing_history` | **自愈动作执行后** | 自愈历史流水（月分区表）|
+
+### 1.3 shared schema（2 张，我们可以写）
 
 | 表 | 写频率 | 干什么 |
 |---|---|---|
@@ -241,3 +253,20 @@ ORDER BY 1;
 _写于 2026-10-08 (v0.1) · 2026-10-09 (v0.2 修订) · Phase 1 MVP 完成_
 _配套：demo_runbook.md / database-architecture.md_
 _常驻参考：被问"管哪些表 / 怎么写 / 怎么证明写进去了"时读这一篇就够 💎_
+
+---
+
+## 🕘 最近更新
+
+**2026-10-29 · 文档同步至当前实现状态**
+
+| 位置 | 原写法 | 改为 |
+|---|---|---|
+| 头部「最近」 | v3.9（2026-10-08）| v3.17（2026-10-28）|
+| 一句话总结 | 只写 **8 张表**（6 intensure + 2 shared）| 只写 **12 张表**（5 intensure + **5 assurance** + 2 shared）|
+| §1.1 | 6 张 intensure 表 | **5 张**（`flows_snapshot` 当前不写）|
+| §1.2（新增）| 无 | 补 **`assurance` schema 5 张表**（consistency_checks / diagnoses / intent_states / healing_intents / healing_history）|
+
+> 核对方式：以 `db_writer.py` 与 `assurance_mvp.py` 里实际的 `INSERT INTO` 目标为准
+> （db_writer 11 张 + assurance_mvp 1 张，去重后 12 张）。
+> **未新增任何代码里还没实现的表。**

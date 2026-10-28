@@ -212,7 +212,7 @@
 
 ### **Phase 0：契约定义（本轮要交付）** ← 现在
 - [x] `docs/database-architecture.md`（本文档）✅
-- [ ] `docs/database-schema.sql`（完整 DDL，5 个 schema + 表 + 索引；**为保障高频读优化**）
+- [ ] `docs/database-schema.sql`（完整 DDL，6 个 schema + 表 + 索引；**为保障高频读优化**）
 - [ ] `docs/access-control-matrix.md`（DB 用户 + GRANT 脚本 + 越权测试）
 - [ ] `docs/cross-module-api-contract.md`（API 契约 spec，**重点保障常用 3 条**）
 - [ ] `docs/migration-strategy.md`（Alembic/Flyway 初始化 + 版本规则）
@@ -220,7 +220,7 @@
 **验收**：主人审批；4 模块都签字认领自己的表 + 接受 API 契约。
 
 ### Phase 1：MVP（**保障模块优先**） ← 本轮也要交付
-- [ ] Colima VM 安装 PostgreSQL 16 + 初始化 5 schema + 用户/权限
+- [ ] Colima VM 安装 PostgreSQL 16 + 初始化 6 schema + 用户/权限
 - [ ] intensure 改造：ActualState + 探测结果写入 `intensure.*`
 - [ ] **保障模块 MVP 脚本**（独立的）：
   - 读 `intensure.network_state` 当前快照
@@ -351,3 +351,12 @@ CROSS JOIN intensure.network_state n;
 ---
 
 _文档创建：2026-10-08 · v0.1 · 待主人审批_
+
+---
+
+## 🕘 最近更新
+
+**2026-10-29 · 文档同步至当前实现状态**
+
+按 `docs/database-schema.sql` 实际内容修正：schema 数 **5 → 6**（新增 `assurance_mv`）、表数 **43 → 39**。
+原因：本文停留在 v3.5（2026-10-08）建库当时，之后伙伴表落地与架构调整未回写本文。

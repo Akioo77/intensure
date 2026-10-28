@@ -50,11 +50,17 @@
 
 ---
 
-## 2. 我的工作范围（v2.0 重新定义）
+## 2. 我的工作范围（v2.0 重新定义，v3.7 起扩展）
+
+> 📌 **范围沿革**：v2.0（2026-09-03）收敛为「采集 + 上报」；**v3.7（2026-10-08）起重新扩展** ——
+> 新增 `assurance_mvp.py`（一致性检查 + 根因诊断 + `intent_states` 状态轨迹 + 写库），
+> 并配套数据库（6 schema / 39 表）、alembic 迁移、DB 自动重连、历史归档定时清理、统一日志（v3.10 ~ v3.17）。
 
 > ⚠️ **范围调整说明**：v1.0 文档（2026-08-08）将本系统定义为"状态采集与数字化网络状态"，包含一致性校验、冲突检测、自愈回路等。**实际项目分工中，这些由其他同学的智能体模块（翻译/实现/保障）实现**。
 >
-> 本文档基于 `采集模块联调说明.md`（2026-09-02 版）重新定义范围，**我只做采集与上报**，不实现业务逻辑（一致性校验、冲突消解、自愈决策由其他模块负责）。
+> 本文档基于 `采集模块联调说明.md`（2026-09-02 版）重新定义范围，**核心职责是采集与上报**。
+> ⚠️ **例外（v3.7 起）**：本模块另实现了**本地 MVP 版**的一致性校验 + 根因诊断（`assurance_mvp.py`）供演示与自测；
+> **对外联调仍以对方模块为准**，本模块的 MVP 不替代对方的正式保障服务。
 
 ### 2.1 采集模块职责清单
 
@@ -65,10 +71,10 @@
 | 3 | 链路事件监听（down / up） | ✅ 已完成 |
 | 4 | 实际可达性探测（pingall / iperf / 时延测量） | ✅ 已完成 |
 | 5 | 流表 dump 与期望比对（`expected_flow_present`） | ✅ 已完成 |
-| 6 | **ActualState 组装**（符合联调说明 §4.2 字段约定） | ❌ 待做 |
-| 7 | **POST `/check` 上报**（探测后调用） | ❌ 待做 |
-| 8 | **POST `/verify` 上报**（修复后复测） | ❌ 待做 |
-| 9 | 端到端联调 Demo（注册 → 激活 → 探测 → 上报 → 故障 → 复测） | ❌ 待做 |
+| 6 | **ActualState 组装**（符合联调说明 §4.2 字段约定） | ✅ 已完成 v2.0 `actual_state_builder.py` |
+| 7 | **POST `/check` 上报**（探测后调用） | ✅ 已完成 v2.0 `reporter.py` |
+| 8 | **POST `/verify` 上报**（修复后复测） | ✅ 已完成 v2.0 `reporter.py` |
+| 9 | 端到端联调 Demo（注册 → 激活 → 探测 → 上报 → 故障 → 复测） | ✅ 已完成 v2.0 `integration_demo.py`（real/mock/skip 三模式）；**真实联调仍阻塞于对方隧道不通** |
 | 10 | 采集视角的可视化（Dashboard 加分项） | ✅ 已完成 |
 
 ### 2.2 不在本模块范围内的职责（明确边界）
@@ -77,8 +83,8 @@
 |---|---|---|
 | 意图翻译（NL → JSON） | 翻译模块（同学 B/C） | v0.1 schema 已固化 |
 | 冲突检测 / 消解 | 翻译模块（同学 B/C） | schema 中 `conflicts[]` 已含 |
-| 一致性校验 | 保障模块（同学 B/C） | Windows:8000 FastAPI |
-| 自愈决策 / 根因诊断 | 保障模块（同学 B/C） | `/verify` 端点处理 |
+| 一致性校验 | **对方保障模块**（正式） | 本模块 v3.7 起另有本地 MVP（`assurance_mvp.py`），仅供演示自测 |
+| 自愈决策 / 根因诊断 | **对方保障模块**（正式） | 本模块 v3.7 起另有本地根因诊断 MVP（`diagnose_violation`），不产出正式自愈意图 |
 | 配置生成 / 仿真 / 下发 | 实现模块（同学 B/C） | — |
 
 > 注：早期文档此处误标「同学 A = 保障模块 / 同学 C = 翻译模块」。**真实情况是同学 A = 采集**（本系统），同学 B/C 是其他智能体。
@@ -175,29 +181,40 @@
 
 ## 5. 当前交付清单（本模块 + 保留项）
 
-### 5.1 代码模块（**核心 .py 11 个**）
+### 5.1 代码模块（**非测试 .py 共 28 个** + 10 个测试文件）
 
 ```
 intensure/
-├── 拓扑层（保留）
+├── 拓扑层
 │   ├── topo_simple.py          # 4 主机 / 2 交换机线性
 │   ├── topo_multi.py           # 6 主机 / 3 交换机
 │   └── topo_mesh.py            # K4 网状 6 链路
-├── 控制器层（保留，简化）
+├── 控制器层
 │   ├── simple_switch_13.py     # 最简 L2 参考
-│   └── controller_app.py       # LLDP + PortStatus 链路事件流
-├── 采集客户端（保留）
+│   ├── controller_app.py       # LLDP + PortStatus 链路事件流
+│   └── state_server.py         # 自营 REST API（Flask，15 个端点）
+├── 采集 / 状态层
 │   ├── state_collector.py      # CLI 探测工具（手工验证用）
-│   └── live_env.py             # 常驻探测（需改造为"探测 + 上报"）
-├── 故障层（保留）
-│   ├── fault_injector.py       # 5 种故障注入
-│   └── demo_full.py            # 端到端 demo（需改造）
-├── 上报层（❌ 待做）⭐
-│   ├── actual_state_builder.py # 内部 state → ActualState 格式
-│   ├── reporter.py             # POST /check + /verify
-│   └── integration_demo.py     # 端到端联调脚本
-└── 可视化层（保留，作为加分项）
-    └── dashboard.html          # 51KB，采集视角的单文件 dashboard
+│   ├── actual_state_builder.py # 内部 state → ActualState 格式 ✅ v2.0
+│   ├── state_model.py          # 统一状态模型
+│   ├── state_history.py        # 历史快照（写 intensure.state_history 分区表）
+│   └── live_env.py             # 常驻探测 + 上报 ✅ v2.0
+├── 故障层
+│   ├── fault_injector.py       # **9 种故障注入** ✅ v3.17.0
+│   └── demo_full.py            # 端到端 demo
+├── 上报 / 联调层 ✅ v2.0
+│   ├── reporter.py             # POST /check + /verify（对方 assurance-agent）
+│   ├── integration_demo.py     # 端到端联调脚本（real/mock/skip 三模式）
+│   ├── mock_assurance_server.py# 本地 mock 保障模块（离线调试）
+│   └── assurance_bridge.py     # 跨智能体推送桥（ASSURANCE_BASE 配地址）
+├── 保障模块层 ✅ v3.7
+│   └── assurance_mvp.py        # 一致性检查 + 根因诊断 + 写库
+├── 持久化层 ✅ v3.5 ~ v3.15
+│   ├── db_writer.py            # 选择性写库（21 方法）
+│   ├── logging_setup.py        # 统一日志配置 ✅ v3.16.0
+│   └── db_maintenance/         # alembic 基线生成 + 保留期清理脚本
+└── 可视化层（加分项）
+    └── dashboard.html          # 37KB，采集视角的单文件 dashboard
 ```
 
 ### 5.2 测试覆盖（当前）
@@ -211,13 +228,32 @@ intensure/
 | LLDP 链路自动发现 | ✅ |
 | 多交换机 / 网状拓扑自适应 | ✅ |
 | 周期连通性探测 | ✅ |
+| 复杂故障类型（burst / reorder / VLAN mismatch / flow race）| ✅ v3.17.0 |
+| DB 自动重连（PG 重启后 0.91s 恢复）| ✅ v3.15.0 |
+| 历史归档定时清理（systemd timer）| ✅ v3.15.0 |
+
+**单元测试实测**（pytest 实际收集，非手工计数）：
+
+| 测试文件 | 用例数 |
+|---|---|
+| `test_db_writer.py` | 39 |
+| `test_state_model.py` | 26 |
+| `test_assurance_mvp.py` | 24 |
+| `test_ovs_logger.py` | 15 |
+| `test_state_server.py` | 11 |
+| `test_state_history.py` | 10 |
+| `test_reporter.py` | 9 |
+| `test_actual_state_builder.py` | 8 |
+| `test_graceful.py` | 4 |
+| **合计** | **146** |
 
 ### 5.3 待补测试（联调相关）
 
-- ActualState 字段格式与 §4.2 一致性测试
-- POST /check 上报样例（含 reachable=false 等异常态）
-- POST /verify 复测样例（含 reachable=true 恢复态）
-- 跨平台联调端到端：注册 → 激活 → 探测 → 上报 → 故障 → 修复 → 复测
+- [x] ActualState 字段格式与 §4.2 一致性测试 —— `test_actual_state_builder.py`（8 例）
+- [x] POST /check 上报样例（含 reachable=false 等异常态）—— `test_reporter.py`（9 例）
+- [x] POST /verify 复测样例（含 reachable=true 恢复态）—— `test_reporter.py`
+- [ ] 跨平台联调端到端：注册 → 激活 → 探测 → 上报 → 故障 → 修复 → 复测
+      （**阻塞：对方 assurance-agent 的 cloudflared 隧道当前 HTTP 000**）
 
 ### 5.4 归档目录（`legacy/`）
 
@@ -294,20 +330,24 @@ legacy/
 1. **ActualState 字段格式需联调前对齐**（§3.3）：首次跑 integration_demo.py 时需提交探测样例给同学 B/C 确认 `down_links` 格式
 2. **保障模块 IP 未定**：同学 B/C 给出 Windows 机器 IP 后才能完整联调
 3. **Ryu vs os-ken**：用 os-ken 替代 Ryu（API 兼容），如严格需 Ryu 可切回
-4. **历史缓冲**：本模块不再持久化历史（保障模块负责），采集视角的 dashboard 仅显示当前 + 近期窗口
+4. **历史缓冲**：**v3.5 起本模块自己持久化历史**（`state_history.py` → `intensure.state_history` 月分区表，
+   另有 `link_events` / `port_events` / `probe_results` 等分区表 + `retention-cleanup.timer` 每日清理）；
+   早期"只做采集、历史交给保障模块"的约定已随 v3.5 数据库落地而改变。采集视角 dashboard 仍主要显示当前 + 近期窗口
 5. **时区与编码**：跨平台联调时强制 ISO 8601 + UTF-8，避免 GBK 编码问题
 
 ---
 
 ## 9. 待办清单
 
-- [ ] 等同学 B/C 提供保障模块 IP / Swagger 文档
-- [ ] 等同学 B/C 提供各自模块的访问入口
-- [ ] 写 `actual_state_builder.py`（采集 → ActualState 格式）
-- [ ] 写 `reporter.py`（POST /check + /verify）
-- [ ] 写 `integration_demo.py`（端到端联调脚本）
-- [ ] 改造 `live_env.py` 为"探测 + 上报"模式
-- [ ] 跨平台联调一次跑通
+- [ ] 等对方（assurance-agent）提供可用访问入口 —— **当前 cloudflared 隧道 HTTP 000，不通**
+      （地址通过环境变量 `ASSURANCE_BASE` / `ASSURANCE_BASE_FALLBACK` 配置，不写死在文档里）
+- [ ] 跨平台联调一次跑通 —— 阻塞于上一项
+- [x] 写 `actual_state_builder.py`（采集 → ActualState 格式）—— v2.0
+- [x] 写 `reporter.py`（POST /check + `/verify`）—— v2.0
+- [x] 写 `integration_demo.py`（端到端联调脚本）—— v2.0
+- [x] 改造 `live_env.py` 为"探测 + 上报"模式 —— v2.0
+- [x] 补齐 `mock_assurance_server.py`（本地 mock，离线可调试）—— v2.0
+- [x] 写 `state_server.py`（自营 REST，15 个端点）—— 后续版本启用，非归档
 
 ---
 
@@ -317,3 +357,29 @@ legacy/
 🌐 保障模块 Swagger：`http://<同学 B/C 的 IP>:8000/docs`（待提供）
 
 **文档维护**：用户随时可改，同步更新。
+---
+
+## 🕘 最近更新
+
+**2026-10-29 · 文档同步至当前实现状态**
+
+以代码为准核对后修正（原因：本文停留在 v2.0 时期，部分"待做"其实早已完成）：
+
+| 位置 | 原写法 | 改为 |
+|---|---|---|
+| §2 工作范围 | v2.0 起只做「采集 + 上报」| 补上 v3.7 起重新扩展（`assurance_mvp.py` + 数据库体系）|
+| §5.1 模块树 | 「核心 .py 11 个」，上报层标 **❌ 待做** | 非测试 .py **28 个** + 10 个测试；上报层 / 保障层 / 持久化层均为已完成 |
+| §5.1 故障注入 | 5 种 | **9 种**（含 burst / reorder / VLAN mismatch / flow race）|
+| §5.1 dashboard | 51KB | **37KB** |
+| §5.2 测试覆盖 | 无量化 | 补 **146 例**逐文件实测表 |
+| §5.3 待补测试 | 4 项全未做 | 前 3 项已完成并标注对应测试文件 |
+| §8 #4 历史缓冲 | 「本模块不再持久化历史」| **v3.5 起自己持久化**（分区表 + 每日清理 timer）|
+| §9 待办清单 | 写着「写 reporter.py」「改造 live_env.py」等 | 已完成项勾选并标注版本；阻塞项换成真实原因（隧道 HTTP 000）|
+
+> ⚠️ **称谓约定**：本文 §1 用「同学 A = 状态采集 = 本系统」；
+> 而 `assurance_bridge.py` / `README.md` / 联调文档里的「A 同学」指**对方 assurance-agent（保障模块）**。
+> 两套叫法并存容易误读 —— 本文涉及对方模块处已改用**功能性称呼**（「对方 / assurance-agent」）。
+> 归属以课程组安排为准，此处不做改名。
+
+> 核对方式：以 `docs/database-schema.sql`、`fault_injector.py`、`state_server.py`、`db_writer.py`、
+> `assurance_mvp.py` 与 pytest 实际收集结果为准。**未新增任何代码里还没实现的功能。**

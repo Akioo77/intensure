@@ -88,7 +88,7 @@
 
 ### 4.1 数据库基础设施（Phase 0）
 
-✅ **5 schema + 18 base 表 + 25 月分区 + 32 索引 + 1 物化视图** = 43 张表
+✅ **6 schema + 18 base 表 + 25 月分区 + 32 索引 + 1 物化视图** = 43 张表
 ✅ **4 个模块用户**（intensure_user / translation_user / implementation_user / assurance_user）+ **RLS 行级安全**
 ✅ **访问控制矩阵**：翻译对 implementation.policies 仅 SELECT ✅（你提的核心约束）
 ✅ **保留清理函数**：`drop_old_partitions()` 已验证
@@ -208,7 +208,7 @@ DELETE FROM implementation.policies WHERE intent_id = 'test';
 ```
 de4bc94 v3.7 Phase 1.2-1.4：保障模块 MVP + seed + E2E 演示
 75b4331 v3.6 Phase 1.1：intensure 选择性写库
-efd55e2 v3.5 数据库架构 Phase 0：5 schema + 43 表 + 4 模块 GRANT + 保留策略
+efd55e2 v3.5 数据库架构 Phase 0：6 schema + 43 表 + 4 模块 GRANT + 保留策略
 5b67e98 v3.4 联调脚本与文档：demo_scripts 一键演示 + 联调手册 + 项目汇报
 1c18857 v3.3 联调增强：端口标签 s1:eth2 + OVS 详细日志接入 + safe_ping 防死锁
 022a7ab v3.2 添加 .gitignore + 从 repo 移除 __pycache__/
@@ -245,3 +245,12 @@ efd55e2 v3.5 数据库架构 Phase 0：5 schema + 43 表 + 4 模块 GRANT + 保�
 
 _汇报材料 v0.1 · 写于 2026-10-08 · Phase 1 MVP 完成_
 _详情见 `speaker_notes.md`（讲稿）和 `demo_runbook.md`（演示照本宣科）_
+
+---
+
+## 🕘 最近更新
+
+**2026-10-29 · 文档同步至当前实现状态**
+
+修正表数 **43 → 39**、schema 数 **5 → 6**。
+原因：本文数据停留在 v3.5 建库当时，伙伴 9 张表落地后未回写。

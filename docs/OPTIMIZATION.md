@@ -299,7 +299,7 @@ PG 锁等待 **0**；连接数全程 1；5s 周期实际只用 p50 395ms = 预�
 - `demo_scripts/verify_fresh_db.sh` 改走 alembic 路径，并新增「**基线 vs 规范文件漂移检查**」
 - CI 新增一步「检查基线与 schema 规范文件一致」（纯文件比对，**不需要数据库**）
 
-**验收**：`alembic upgrade head` 从零建库 → 5 个 schema 表数与现库逐一相等、
+**验收**：`alembic upgrade head` 从零建库 → 6 个 schema 表数与现库逐一相等、
 `drop_old_partitions()` 函数已建、7/7 分区表有当月分区、7/7 写入路由正常；
 `downgrade base` 干净清库（0 残留）再 `upgrade head` 正常。
 
@@ -428,3 +428,12 @@ postgres 不需要读路径 —— 和 alembic 里 `_exec_raw` 同一思路。
 
 _写于 2026-10-09 v0.1(主人要求"记下来该怎么开发")_
 _下次更新:每完成一项,把该项从原优先级移到底部"已完成"段_
+
+---
+
+## 🕘 最近更新
+
+**2026-10-29 · 文档同步至当前实现状态**
+
+修正「5 个 schema」→ **6 个 schema**（新增 `assurance_mv`）。
+原因：本文 v3.5 建库时统计为 5 个，后续新增 `assurance_mv` 未回写。

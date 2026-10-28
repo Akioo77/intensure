@@ -8,6 +8,19 @@
 
 # 跨模块 API 契约 v0.1
 
+> ⚠️ **文档状态（2026-10-29 核对）**
+>
+> 本文是**跨智能体 API 的设计稿（v0.1）**，描述的是 4 个模块之间**约定要提供**的路径，
+> **不是本仓库当前已实现的接口清单**。
+>
+> 本仓库实际提供的 HTTP 服务只有 `state_server.py`（Flask，默认端口 8080），
+> 它用的是**不带版本前缀**的自营路径（`/api/state`、`/api/history` 等，共 15 个端点），
+> **尚未实现**本文 §1 约定的 `/api/{module}/v{version}/{resource}` 形式。
+>
+> 逐条对照见 **§5.6 契约目标 vs 当前实现**。
+>
+> ⚠️ 另外：`docs/api/openapi.yaml`（文中提到的配套规范）在当前仓库中**不存在**。
+
 ## 0. 核心原则（重述你的原话）
 
 > **翻译模块可以查询"有效规则"，但不能因为生成了消解方案就把已部署规则删除。**
@@ -235,6 +248,34 @@ Host: implementation:8081
 
 ---
 
+### 5.6 契约目标 vs 当前实现（2026-10-29 核对）
+
+**本仓库（采集模块 intensure）目前实际提供的端点** —— 全部在 `state_server.py`（Flask，端口 8080）：
+
+| 当前实际路径 | 对应本文的契约目标 | 状态 |
+|---|---|---|
+| `GET /api/state` | `GET /api/intensure/v1/state/current` | ⚠️ 路径未按契约加前缀 |
+| `GET /api/history` | `GET /api/intensure/v1/state/history` | ⚠️ 同上 |
+| `GET /api/port_stats` | `GET /api/intensure/v1/port-events`（部分语义）| ⚠️ 同上 |
+| `GET /api/probe` (POST) | `POST /api/intensure/v1/probe-results` | ⚠️ 同上 |
+| `GET /api/switches` / `hosts` / `links` / `flows` / `events` | 契约未逐条定义 | 本模块自营 |
+| `GET /api/health` | `GET /api/shared/v1/health/modules` | ⚠️ 同上 |
+| `GET /api/ovs/log`（+ `/correlate`、`/stats`）| 契约未定义 | 本模块自营（v3.x 新增）|
+
+**本文定义、但本仓库未实现**（由其它模块提供，或尚未开发）：
+
+- `/api/translation/v1/*` —— 翻译模块
+- `/api/implementation/v1/*` —— 实现模块
+- `/api/assurance/v1/*` —— 保障模块
+- `/api/shared/v1/*` —— 公共模块
+- `/api/intensure/v1/*` —— **本模块的契约版本路径，尚未落地**（当前用不带前缀的 `/api/*`）
+
+> 📌 落地路径：优化清单 **P3-3「跨模块 API 版本管理」**（见 `docs/OPTIMIZATION.md`）——
+> 即把这批自营路径加上 `/api/intensure/v1` 前缀，或在网关层做路径改写。
+> 在那之前，**联调双方需按上表「当前实际路径」对齐**。
+
+---
+
 ## 6. 鉴权（Phase 1 → Phase 2）
 
 ### Phase 1（开发期）
@@ -290,3 +331,18 @@ Host: implementation:8081
 ---
 
 _文档创建：2026-10-08 · v0.1 · Phase 0 交付_
+
+---
+
+## 🕘 最近更新
+
+**2026-10-29 · 文档同步至当前实现状态**
+
+| 位置 | 改动 | 原因 |
+|---|---|---|
+| 头部 | 新增「文档状态」警示块 | 本文是**设计稿**，读者容易误以为所有路径都已实现 |
+| §5.5 后 | 新增 **§5.6 契约目标 vs 当前实现** 映射表 | 明确列出本仓库实际提供的 15 个端点，及与契约路径的差距 |
+| 头部 | 标注 `docs/api/openapi.yaml` **不存在** | 正文引用了它但仓库里没有该文件 |
+
+> 核对方式：以 `state_server.py` 实际注册的路由为准（逐一 grep 确认，共 15 个端点）。
+> **未新增任何代码里还没实现的接口。**

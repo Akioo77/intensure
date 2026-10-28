@@ -111,8 +111,8 @@ Step 11: ActualState 样例输出                            ✓ 字段格式符
 
 | 测试文件 | 通过率 | 覆盖内容 |
 |----------|--------|----------|
-| `test_actual_state_builder.py` | 21/21 ✓ | ActualState 字段映射、链路去重、OFPP_LOCAL 跳过、ISO 8601 时间 |
-| `test_reporter.py` | 24/24 ✓ | HTTP 客户端、4xx/5xx 重试、线程安全、UTF-8 编码、Chinese payload |
+| `test_actual_state_builder.py` | 8/8 ✓ | ActualState 字段映射、链路去重、OFPP_LOCAL 跳过、ISO 8601 时间 |
+| `test_reporter.py` | 9/9 ✓ | HTTP 客户端、4xx/5xx 重试、线程安全、UTF-8 编码、Chinese payload |
 
 ### 2.3 关键设计决策（避免误解）
 
@@ -311,8 +311,8 @@ Step 11: ActualState 样例输出                            ✓ 字段格式符
 
 | 文件 | 测试数 | 通过率 |
 |------|--------|--------|
-| **test_actual_state_builder.py** | 21 | 21/21 ✓ |
-| **test_reporter.py** | 24 | 24/24 ✓ |
+| **test_actual_state_builder.py** | 21 | 8/8 ✓ |
+| **test_reporter.py** | 24 | 9/9 ✓ |
 | **test_recovery.py** | 5 | 5/5 ✓ |
 | `test_osken.sh` | shell 测试 | ✓ |
 
@@ -484,8 +484,8 @@ python3 -m unittest test_recovery -v
 ```
 
 预期：
-- `test_actual_state_builder`: 21/21 ✓
-- `test_reporter`: 24/24 ✓
+- `test_actual_state_builder`: 8/8 ✓
+- `test_reporter`: 9/9 ✓
 - `test_recovery`: 5/5 ✓
 
 ### 6.6 验证我们的输出（供你/同学 C 校对）
@@ -785,3 +785,11 @@ while True:
 | v2.0 | 2026-09-03 | 与上游契约对齐 + 职责重定义 + 新增 5 个核心模块 |
 | v1.0 | 2026-08-04 ~ 09-02 | 初始开发 + 7 个 bug 修复 |
 
+---
+
+## 🕘 最近更新
+
+**2026-10-29 · 文档同步至当前实现状态**
+
+修正单元测试用例数 **21/21 → 8/8**、**24/24 → 9/9**。
+原因：以 pytest 实际收集结果为准（原数字为早期手工计数，与实际收集数不符）。
