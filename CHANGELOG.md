@@ -1,7 +1,7 @@
 # CHANGELOG — 网络意图 SDN 采集模块
 
 > 历史变更记录。所有变更都有对应 git commit 与测试验证。
-> **最新版本在最上面**(倒序)
+> **最新版本在最上面**（按版本号降序排列，非按日期）
 
 ---
 
@@ -111,74 +111,6 @@ python3 assurance_bridge.py contract
 
 本条目之外，同步更新了 README.md、docs/OPTIMIZATION.md、
 docs/cross-module-api-contract.md、INTEGRATION_HANDBOOK.md。
-
----
-
-## v3.10.2 — 2026-10-25 状态复查 + 修 3 个问题
-
-**触发**: 16 天没动（上次提交 10-09），主人问进度 → 全量复查 git / 文档 / 环境，发现问题
-
-### 🐛 Bug 修复
-
-- **`controller_app.py` · DEAD 事件空指针崩溃**（demo 实测暴露）
-  `state_change_handler` 里 `format(datapath.id, '016x')`，但 DEAD_DISPATCHER 状态下
-  `datapath.id` 可能是 `None` → `TypeError: unsupported format string passed to NoneType`,
-  整个 handler 挂掉。已加 `getattr(datapath, 'id', None)` 守卫 + 提前 return。
-  —— 这个 bug 在仓库里从 v3.0 起就存在，是 16 天没跑才第一次真正触发。
-- **`assurance_bridge.py` · 补 `ASSURANCE_BASE_FALLBACK`**
-  P3-5 原计划有 fallback 备用地址（cloudflared 换域名时不掉连），实际没实现。
-  现在优先级：显式参数 > `ASSURANCE_BASE` > `ASSURANCE_BASE_FALLBACK` > 空(no-op)。
-
-### 📝 文档更新
-
-- **`docs/OPTIMIZATION.md`**：v0.1 → v0.2。P0-1 / P0-5 / P1-4 / P3-5 实际早已完成但没记账，
-  现在移入「✅ 已完成」段并补提交号；待办数 20 → 16，计数表同步更新。
-- **`README.md`**：补「联调环境变量」表 —— `ASSURANCE_URL`（live_env/reporter 读）
-  vs `ASSURANCE_BASE`（assurance_bridge 读）vs `ASSURANCE_BASE_FALLBACK` 三者关系与用途。
-
-### 📊 统计
-
-- 4 文件改动（2 代码 + 2 文档）
-- 修 2 个真 bug + 补 4 项记账 + 补 1 段环境变量文档
-
----
-
-## v3.10.3 - 2026-10-25 伙伴 assurance_schema.sql 落地准备 + 2 个 bug 修复
-
-**触发**: 伙伴(A 同学)回传数据库对接文档的反馈，要求在 PG 实例上执行他的 `assurance_schema.sql`
-
-### 🐛 Bug 修复
-
-- **`controller_app.py` · DEAD 事件空指针崩溃**（demo 实测暴露）
-  `state_change_handler` 里 `format(datapath.id, '016x')`，但 DEAD_DISPATCHER 状态下
-  `datapath.id` 可能是 `None` → `TypeError: unsupported format string passed to NoneType`，
-  整个 handler 挂掉。已加 `getattr(datapath, 'id', None)` 守卫 + 提前 return。
-  —— 这个 bug 在仓库里从 v3.0 起就存在，是 16 天没跑才第一次真正触发。
-- **`assurance_bridge.py` · 补 `ASSURANCE_BASE_FALLBACK`**
-  P3-5 原计划有 fallback 备用地址（cloudflared 换域名时不掉连），实际没实现。
-  现在优先级：显式参数 > `ASSURANCE_BASE` > `ASSURANCE_BASE_FALLBACK` > 空(no-op)。
-
-### 🔒 新增：伙伴 schema 落地工具
-
-- **`demo_scripts/apply_partner_schema.py`** —— 安全落地伙伴的 `assurance_schema.sql`：
-  - 三道闸：危险语句拦截 / 重写后校验 / 冲突未确认拒绝落地
-  - dry-run 在独立 schema + 独立事务里跑，结束必删，真库零影响
-  - 自动输出冲突表清单 + **列级差异**（谁多哪些列、谁缺哪些列）
-  - 已用模拟脚本实测：9 新表 + 2 硬冲突，检测准确
-
-### 📝 文档
-
-- **`docs/partner_schema_review.md`**（新建）——给伙伴的回复：
-  密码确认、2 个硬冲突（`healing_intents` / `healing_history`）、4 组语义重叠、3 个待确认问题
-- **`docs/OPTIMIZATION.md`**：v0.1 → v0.2。P0-1 / P0-5 / P1-4 / P3-5 实际早已完成但没记账，
-  现在移入「✅ 已完成」段并补提交号；待办数 20 → 16，计数表同步更新。
-- **`README.md`**：补「联调环境变量」表 —— `ASSURANCE_URL`（live_env/reporter 读）
-  vs `ASSURANCE_BASE`（assurance_bridge 读）vs `ASSURANCE_BASE_FALLBACK` 三者关系与用途。
-
-### 📊 统计
-
-- 6 文件改动（2 代码 + 1 工具 + 3 文档）
-- 修 2 个真 bug + 建 1 个安全落地工具 + 补 4 项记账 + 写 1 份对伙伴的回复
 
 ---
 
@@ -711,6 +643,74 @@ healing_id 对应我方 healing_intent_id。
 
 - 7 文件改动（2 新代码 + 3 改代码 + 2 文档）
 - 单元测试 17 -> 21 个，全绿
+
+---
+
+## v3.10.3 - 2026-10-25 伙伴 assurance_schema.sql 落地准备 + 2 个 bug 修复
+
+**触发**: 伙伴(A 同学)回传数据库对接文档的反馈，要求在 PG 实例上执行他的 `assurance_schema.sql`
+
+### 🐛 Bug 修复
+
+- **`controller_app.py` · DEAD 事件空指针崩溃**（demo 实测暴露）
+  `state_change_handler` 里 `format(datapath.id, '016x')`，但 DEAD_DISPATCHER 状态下
+  `datapath.id` 可能是 `None` → `TypeError: unsupported format string passed to NoneType`，
+  整个 handler 挂掉。已加 `getattr(datapath, 'id', None)` 守卫 + 提前 return。
+  —— 这个 bug 在仓库里从 v3.0 起就存在，是 16 天没跑才第一次真正触发。
+- **`assurance_bridge.py` · 补 `ASSURANCE_BASE_FALLBACK`**
+  P3-5 原计划有 fallback 备用地址（cloudflared 换域名时不掉连），实际没实现。
+  现在优先级：显式参数 > `ASSURANCE_BASE` > `ASSURANCE_BASE_FALLBACK` > 空(no-op)。
+
+### 🔒 新增：伙伴 schema 落地工具
+
+- **`demo_scripts/apply_partner_schema.py`** —— 安全落地伙伴的 `assurance_schema.sql`：
+  - 三道闸：危险语句拦截 / 重写后校验 / 冲突未确认拒绝落地
+  - dry-run 在独立 schema + 独立事务里跑，结束必删，真库零影响
+  - 自动输出冲突表清单 + **列级差异**（谁多哪些列、谁缺哪些列）
+  - 已用模拟脚本实测：9 新表 + 2 硬冲突，检测准确
+
+### 📝 文档
+
+- **`docs/partner_schema_review.md`**（新建）——给伙伴的回复：
+  密码确认、2 个硬冲突（`healing_intents` / `healing_history`）、4 组语义重叠、3 个待确认问题
+- **`docs/OPTIMIZATION.md`**：v0.1 → v0.2。P0-1 / P0-5 / P1-4 / P3-5 实际早已完成但没记账，
+  现在移入「✅ 已完成」段并补提交号；待办数 20 → 16，计数表同步更新。
+- **`README.md`**：补「联调环境变量」表 —— `ASSURANCE_URL`（live_env/reporter 读）
+  vs `ASSURANCE_BASE`（assurance_bridge 读）vs `ASSURANCE_BASE_FALLBACK` 三者关系与用途。
+
+### 📊 统计
+
+- 6 文件改动（2 代码 + 1 工具 + 3 文档）
+- 修 2 个真 bug + 建 1 个安全落地工具 + 补 4 项记账 + 写 1 份对伙伴的回复
+
+---
+
+## v3.10.2 — 2026-10-25 状态复查 + 修 3 个问题
+
+**触发**: 16 天没动（上次提交 10-09），主人问进度 → 全量复查 git / 文档 / 环境，发现问题
+
+### 🐛 Bug 修复
+
+- **`controller_app.py` · DEAD 事件空指针崩溃**（demo 实测暴露）
+  `state_change_handler` 里 `format(datapath.id, '016x')`，但 DEAD_DISPATCHER 状态下
+  `datapath.id` 可能是 `None` → `TypeError: unsupported format string passed to NoneType`,
+  整个 handler 挂掉。已加 `getattr(datapath, 'id', None)` 守卫 + 提前 return。
+  —— 这个 bug 在仓库里从 v3.0 起就存在，是 16 天没跑才第一次真正触发。
+- **`assurance_bridge.py` · 补 `ASSURANCE_BASE_FALLBACK`**
+  P3-5 原计划有 fallback 备用地址（cloudflared 换域名时不掉连），实际没实现。
+  现在优先级：显式参数 > `ASSURANCE_BASE` > `ASSURANCE_BASE_FALLBACK` > 空(no-op)。
+
+### 📝 文档更新
+
+- **`docs/OPTIMIZATION.md`**：v0.1 → v0.2。P0-1 / P0-5 / P1-4 / P3-5 实际早已完成但没记账，
+  现在移入「✅ 已完成」段并补提交号；待办数 20 → 16，计数表同步更新。
+- **`README.md`**：补「联调环境变量」表 —— `ASSURANCE_URL`（live_env/reporter 读）
+  vs `ASSURANCE_BASE`（assurance_bridge 读）vs `ASSURANCE_BASE_FALLBACK` 三者关系与用途。
+
+### 📊 统计
+
+- 4 文件改动（2 代码 + 2 文档）
+- 修 2 个真 bug + 补 4 项记账 + 补 1 段环境变量文档
 
 ---
 
