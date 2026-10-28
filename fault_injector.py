@@ -14,6 +14,12 @@
 """
 from typing import Optional
 
+# ---- 日志（P1-2: 统一用 logging, 不再用 print）----
+import logging  # noqa: E402
+
+
+logger = logging.getLogger(__name__)
+
 
 class FaultInjector:
     """基于 Mininet Net 对象的故障注入器.
@@ -140,7 +146,7 @@ class FaultInjector:
         return None
 
     def _log(self, msg: str):
-        print(f"  💥 fault: {msg}")
+        logger.info(f"  💥 fault: {msg}")
 
     @property
     def active_faults(self) -> list:
@@ -149,6 +155,6 @@ class FaultInjector:
 
 # ============ CLI: 不依赖 Mininet 的快速测试 ============
 if __name__ == '__main__':
-    print("FaultInjector 是 Mininet 上下文中的辅助类.")
-    print("用法: from fault_injector import FaultInjector; fi = FaultInjector(net)")
-    print("      fi.link_down('s1', 's2')")
+    logger.info("FaultInjector 是 Mininet 上下文中的辅助类.")
+    logger.info("用法: from fault_injector import FaultInjector; fi = FaultInjector(net)")
+    logger.info("      fi.link_down('s1', 's2')")

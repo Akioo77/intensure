@@ -27,6 +27,13 @@ sys.path.insert(0, PROJECT_DIR)
 from db_writer import get_assurance_writer, DSN_ASSURANCE  # noqa: E402
 from graceful import install_graceful_shutdown  # noqa: E402
 
+# ---- 日志（P1-2: 统一用 logging, 不再用 print）----
+import logging  # noqa: E402
+
+from logging_setup import configure_logging  # noqa: E402
+
+logger = logging.getLogger(__name__)
+
 # === 配置 ===
 CHECK_INTERVAL = float(os.environ.get('ASSURANCE_INTERVAL', '5'))
 CHECK_TYPE = os.environ.get('ASSURANCE_CHECK_TYPE', 'reachability')
@@ -62,7 +69,7 @@ def update_intent_state(intent_id: str, status: str):
             """, (intent_id, status))
         return True
     except Exception as e:
-        print(f'[WARN] update_intent_state failed: {e}', flush=True)
+        logger.warning(f'[WARN] update_intent_state failed: {e}')
         return False
 
 
@@ -352,7 +359,7 @@ def run_one_cycle():
     # 1. 读当前网络状态（intensure 采集的）
     state_row = w.query_one('SELECT payload FROM intensure.network_state LIMIT 1')
     if not state_row:
-        print('[WARN] network_state 还没数据', flush=True)
+        logger.warning('[WARN] network_state 还没数据')
         return None
     actual_state = state_row['payload'] or {}
 
@@ -431,15 +438,17 @@ def run_one_cycle():
 
 
 def main():
-    print('=' * 60)
-    print('🛡️  保障模块 MVP v1 (Phase 1)')
-    print('=' * 60)
-    print(f'   check_interval: {CHECK_INTERVAL}s')
-    print(f'   DSN: {DSN_ASSURANCE}')
+
+    configure_logging()   # P1-2: 统一日志配置（stderr + 可选文件）
+    logger.info('=' * 60)
+    logger.info('🛡️  保障模块 MVP v1 (Phase 1)')
+    logger.info('=' * 60)
+    logger.info(f'   check_interval: {CHECK_INTERVAL}s')
+    logger.info(f'   DSN: {DSN_ASSURANCE}')
     mode_desc = ('写 assurance.diagnoses（本地 mock 模式）' if WRITE_DIAGNOSES
                  else '不写（联调模式，诊断由伙伴 diagnosis_results 负责）')
-    print(f'   诊断表: {mode_desc}')
-    print()
+    logger.info(f'   诊断表: {mode_desc}')
+    logger.info("")
 
     # P0-3 优雅退出: 收到 SIGTERM/SIGINT 先关 DB 连接再退, 避免写一半
     install_graceful_shutdown(
@@ -467,16 +476,14 @@ def main():
                     f"devs={x['affected_devices']})"
                     for x in v
                 ])
-                print(f'CYCLE_{cycle:04d} policies={result["policies_checked"]} '
+                logger.info(f'CYCLE_{cycle:04d} policies={result["policies_checked"]} '
                       f'VIOLATIONS={len(v)} [{vsummary}] '
-                      f'took={int((time.time()-t0)*1000)}ms',
-                      flush=True)
+                      f'took={int((time.time()-t0)*1000)}ms')
             else:
-                print(f'CYCLE_{cycle:04d} policies={result["policies_checked"]} '
-                      f'violations=0 took={int((time.time()-t0)*1000)}ms',
-                      flush=True)
+                logger.info(f'CYCLE_{cycle:04d} policies={result["policies_checked"]} '
+                      f'violations=0 took={int((time.time()-t0)*1000)}ms')
         except Exception as e:
-            print(f'CYCLE_{cycle:04d} ERROR: {e}', flush=True)
+            logger.error(f'CYCLE_{cycle:04d} ERROR: {e}')
 
         # 心跳（Phase 1 不启用，环境变量 INTENSURE_HEARTBEAT=1 启用）
         if os.environ.get('INTENSURE_HEARTBEAT') == '1':
@@ -498,7 +505,7 @@ def main():
                         """, (VERSION,))
                     last_heartbeat = now
                 except Exception as e:
-                    print(f'  WARN: heartbeat failed: {e}', flush=True)
+                    logger.warning(f'  WARN: heartbeat failed: {e}')
 
         time.sleep(CHECK_INTERVAL)
 
@@ -507,5 +514,5 @@ if __name__ == '__main__':
     try:
         main()
     except KeyboardInterrupt:
-        print('\nCtrl+C, exiting...', flush=True)
+        logger.info('\nCtrl+C, exiting...')
         sys.exit(0)

@@ -12,6 +12,13 @@ eventlet.monkey_patch()  # 必须在所有 socket 之前
 import os
 import sys
 
+# ---- 日志（P1-2: 统一用 logging, 不再用 print）----
+import logging  # noqa: E402
+
+from logging_setup import configure_logging  # noqa: E402
+
+logger = logging.getLogger(__name__)
+
 PROJECT_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, PROJECT_DIR)
 
@@ -27,7 +34,7 @@ def start_http_server(host='0.0.0.0', port=8080):
         app.run(host=host, port=port, debug=False, use_reloader=False,
                 threaded=True)
     except Exception as e:
-        print(f"❌ HTTP server crashed: {e}", file=sys.stderr)
+        logger.error(f"❌ HTTP server crashed: {e}", file=sys.stderr)
 
 
 def start_controller():
@@ -38,16 +45,18 @@ def start_controller():
 
 
 def main():
-    print("=" * 60)
-    print("🚀 SDN 状态采集控制器 + REST API")
-    print("=" * 60)
+
+    configure_logging()   # P1-2: 统一日志配置（stderr + 可选文件）
+    logger.info("=" * 60)
+    logger.info("🚀 SDN 状态采集控制器 + REST API")
+    logger.info("=" * 60)
 
     # 1. 清旧状态
     if os.path.exists(STATE_FILE):
         os.remove(STATE_FILE)
 
     # 2. 起 HTTP server (green thread)
-    print("\n🌐 启动 REST API (port 8080)...")
+    logger.info("\n🌐 启动 REST API (port 8080)...")
     eventlet.spawn(start_http_server, '0.0.0.0', 8080)
     eventlet.sleep(2)  # 等 Flask 起来
 
@@ -56,9 +65,9 @@ def main():
     import json
     try:
         with urllib.request.urlopen('http://127.0.0.1:8080/api/health', timeout=3) as r:
-            print(f"   健康检查: {json.loads(r.read())}")
+            logger.info(f"   健康检查: {json.loads(r.read())}")
     except Exception as e:
-        print(f"   ⚠ 健康检查失败: {e}")
+        logger.error(f"   ⚠ 健康检查失败: {e}")
 
     # 3.5 启动 OVS 详细日志采集（独立模块，不影响主流程）
     #     - 启动失败也不阻塞控制器
@@ -66,23 +75,23 @@ def main():
     try:
         from ovs_logger import start_global
         if start_global():
-            print("   OVS 详细日志: ✅ 已启动 (查询: GET /api/ovs/log)")
+            logger.info("   OVS 详细日志: ✅ 已启动 (查询: GET /api/ovs/log)")
         else:
-            print("   OVS 详细日志: ⚠ 启动失败（不影响主流程）")
+            logger.error("   OVS 详细日志: ⚠ 启动失败（不影响主流程）")
     except ImportError:
-        print("   OVS 详细日志: ⚠ ovs_logger 模块未找到（跳过）")
+        logger.info("   OVS 详细日志: ⚠ ovs_logger 模块未找到（跳过）")
     except Exception as e:
-        print(f"   OVS 详细日志: ⚠ 启动异常: {e}（不影响主流程）")
+        logger.error(f"   OVS 详细日志: ⚠ 启动异常: {e}（不影响主流程）")
 
     # 4. 跑控制器 (主线程, 阻塞)
-    print("\n🎮 启动 os-ken 控制器 (controller_app)...")
-    print("   OpenFlow: 6633 / 6653")
-    print("   REST API: http://localhost:8080/api/...")
-    print()
+    logger.info("\n🎮 启动 os-ken 控制器 (controller_app)...")
+    logger.info("   OpenFlow: 6633 / 6653")
+    logger.info("   REST API: http://localhost:8080/api/...")
+    logger.info("")
     try:
         start_controller()
     except KeyboardInterrupt:
-        print("\n\n⚠ 收到 Ctrl+C, 退出...")
+        logger.info("\n\n⚠ 收到 Ctrl+C, 退出...")
     except SystemExit:
         pass
     finally:
@@ -91,7 +100,7 @@ def main():
             from ovs_logger import stop_global
             stop_global()
         except Exception as e:
-            print(f"⚠ OVSLogger 关闭异常: {e}", file=sys.stderr)
+            logger.error(f"⚠ OVSLogger 关闭异常: {e}", file=sys.stderr)
 
 
 if __name__ == '__main__':

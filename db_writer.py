@@ -17,6 +17,12 @@ import time
 import threading
 from typing import Optional, Dict, Tuple
 
+# ---- 日志（P1-2: 统一用 logging, 不再用 print）----
+import logging  # noqa: E402
+
+
+logger = logging.getLogger(__name__)
+
 try:
     import psycopg2
     from psycopg2.extras import Json
@@ -163,20 +169,19 @@ class DBWriter:
                 if attempt < CONNECT_MAX_ATTEMPTS - 1:
                     delay = CONNECT_BACKOFF_BASE * (2 ** attempt)
                     if DEBUG:
-                        print(f'[DBWriter] reconnecting in {delay:.1f}s '
-                              f'(attempt {attempt + 1}/{CONNECT_MAX_ATTEMPTS}): {e}',
-                              flush=True)
+                        logger.info(f'[DBWriter] reconnecting in {delay:.1f}s '
+                              f'(attempt {attempt + 1}/{CONNECT_MAX_ATTEMPTS}): {e}')
                     time.sleep(delay)
                     continue
                 self.stats['errors'] += 1
                 if DEBUG:
-                    print(f'[DBWriter] connection error: {e}', flush=True)
+                    logger.debug(f'[DBWriter] connection error: {e}')
                 raise
             except Exception as e:
                 # 不是连接问题 -> 不重连
                 self.stats['errors'] += 1
                 if DEBUG:
-                    print(f'[DBWriter] connection error: {e}', flush=True)
+                    logger.debug(f'[DBWriter] connection error: {e}')
                 raise
 
         self.stats['errors'] += 1
@@ -214,7 +219,7 @@ class DBWriter:
         except Exception as e:
             self.stats['errors'] += 1
             if DEBUG:
-                print(f'[DBWriter] query error: {e}', flush=True)
+                logger.debug(f'[DBWriter] query error: {e}')
             return []
 
     def query_one(self, sql, params=None):
@@ -243,7 +248,7 @@ class DBWriter:
         except Exception as e:
             self.stats['errors'] += 1
             if DEBUG:
-                print(f'[DBWriter] write_network_state error: {e}', flush=True)
+                logger.debug(f'[DBWriter] write_network_state error: {e}')
             return False
 
     # ---------- state_history (选择性写：30s 节流 + 变化触发) ----------
@@ -280,7 +285,7 @@ class DBWriter:
         except Exception as e:
             self.stats['errors'] += 1
             if DEBUG:
-                print(f'[DBWriter] write_state_history error: {e}', flush=True)
+                logger.debug(f'[DBWriter] write_state_history error: {e}')
             return False
 
     # ---------- port_events / link_events (变化时才调进来) ----------
@@ -303,7 +308,7 @@ class DBWriter:
         except Exception as e:
             self.stats['errors'] += 1
             if DEBUG:
-                print(f'[DBWriter] write_port_event error: {e}', flush=True)
+                logger.debug(f'[DBWriter] write_port_event error: {e}')
             return False
 
     def write_link_event(self, src_dpid: str, src_port: int,
@@ -323,7 +328,7 @@ class DBWriter:
         except Exception as e:
             self.stats['errors'] += 1
             if DEBUG:
-                print(f'[DBWriter] write_link_event error: {e}', flush=True)
+                logger.debug(f'[DBWriter] write_link_event error: {e}')
             return False
 
     # ---------- probe_results (选择性：异常才写) ----------
@@ -384,7 +389,7 @@ class DBWriter:
         except Exception as e:
             self.stats['errors'] += 1
             if DEBUG:
-                print(f'[DBWriter] write_probe_result error: {e}', flush=True)
+                logger.debug(f'[DBWriter] write_probe_result error: {e}')
             return False
 
     def write_probe_with_decision(self, src_host: str, dst_host: str,
@@ -463,7 +468,7 @@ class DBWriter:
         except Exception as e:
             self.stats['errors'] += 1
             if DEBUG:
-                print(f'[DBWriter] write_consistency_check error: {e}', flush=True)
+                logger.debug(f'[DBWriter] write_consistency_check error: {e}')
             return False
 
     # ---------- 诊断 / 自愈（直接写） ----------
@@ -488,7 +493,7 @@ class DBWriter:
         except Exception as e:
             self.stats['errors'] += 1
             if DEBUG:
-                print(f'[DBWriter] write_diagnosis error: {e}', flush=True)
+                logger.debug(f'[DBWriter] write_diagnosis error: {e}')
             return None
 
     def write_healing_intent(self, intent_id: str, diagnosis_id: Optional[str],
@@ -536,7 +541,7 @@ class DBWriter:
         except Exception as e:
             self.stats['errors'] += 1
             if DEBUG:
-                print(f'[DBWriter] write_healing_intent error: {e}', flush=True)
+                logger.debug(f'[DBWriter] write_healing_intent error: {e}')
             return None
 
     def write_healing_history(self, healing_intent_id: str, intent_id: str,
@@ -571,7 +576,7 @@ class DBWriter:
         except Exception as e:
             self.stats['errors'] += 1
             if DEBUG:
-                print(f'[DBWriter] write_healing_history error: {e}', flush=True)
+                logger.debug(f'[DBWriter] write_healing_history error: {e}')
             return False
 
     # ---------- 审计 ----------
@@ -593,7 +598,7 @@ class DBWriter:
         except Exception as e:
             self.stats['errors'] += 1
             if DEBUG:
-                print(f'[DBWriter] write_audit error: {e}', flush=True)
+                logger.debug(f'[DBWriter] write_audit error: {e}')
             return False
 
     # ---------- 心跳 ----------
@@ -618,7 +623,7 @@ class DBWriter:
         except Exception as e:
             self.stats['errors'] += 1
             if DEBUG:
-                print(f'[DBWriter] write_heartbeat error: {e}', flush=True)
+                logger.debug(f'[DBWriter] write_heartbeat error: {e}')
             return False
 
     def get_stats(self) -> dict:
@@ -665,25 +670,25 @@ def write_heartbeat(status: str = 'healthy', version: Optional[str] = None):
 if __name__ == '__main__':
     # CLI 自测（快速验证连接）
     w = get_writer()
-    print('--- DBWriter self-test ---')
+    logger.debug('--- DBWriter self-test ---')
     ok = w.write_network_state({'test': True, 'ts': time.time()})
-    print(f'write_network_state: {ok}')
+    logger.debug(f'write_network_state: {ok}')
     ok = w.write_audit(
         'intensure', 'system', 'test_action', severity='INFO', payload={'test': True}
     )
-    print(f'write_audit: {ok}')
+    logger.debug(f'write_audit: {ok}')
     ok = w.write_heartbeat(status='healthy', version='3.5')
-    print(f'write_heartbeat: {ok}')
-    print('stats:', w.get_stats())
+    logger.debug(f'write_heartbeat: {ok}')
+    logger.debug('stats:', w.get_stats())
 
     # 保障模块读测试
-    print()
-    print('--- Assurance writer read test ---')
+    logger.debug("")
+    logger.debug('--- Assurance writer read test ---')
     aw = get_assurance_writer()
     ns = aw.query_one('SELECT version, captured_at FROM intensure.network_state LIMIT 1')
-    print(f'network_state read: {ns}')
+    logger.debug(f'network_state read: {ns}')
     policies = aw.query(
         'SELECT intent_id, intent_type FROM implementation.policies WHERE status=%s LIMIT 3',
         ('active',)
     )
-    print(f'active policies: {len(policies)}')
+    logger.debug(f'active policies: {len(policies)}')

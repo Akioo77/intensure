@@ -50,7 +50,8 @@ BEGIN
         -- 提取起始日期
         part_date := (regexp_matches(part.bounds,
             'FROM \(''([0-9]{4}-[0-9]{2}-[0-9]{2})', 'g'))[1]::DATE;
-        part_end  := (regexp_matches(part.bounds, 'TO \(''([0-9]{4}-[0-9]{2}-[0-9]{2})', 'g'))[1]::DATE;
+        part_end := (regexp_matches(part.bounds,
+            'TO \(''([0-9]{4}-[0-9]{2}-[0-9]{2})', 'g'))[1]::DATE;
 
         -- ⚠️ 必须用「结束日」判断，不能用「起始日」。
         -- 用起始日会把**当前月**的分区删掉 —— 例如 state_history 保留 7 天时，
@@ -61,7 +62,8 @@ BEGIN
         -- 正确语义：只有当分区**整个区间**都早于 cutoff 才删。
         IF part_end IS NOT NULL AND part_end <= cutoff_date THEN
             EXECUTE format('DROP TABLE IF EXISTS %s', part.partition_name);
-            RAISE NOTICE 'Dropped: % (range % to %, cutoff=%)', part.partition_name, part_date, part_end, cutoff_date;
+            RAISE NOTICE 'Dropped: % (range % to %, cutoff=%)',
+                part.partition_name, part_date, part_end, cutoff_date;
             dropped_count := dropped_count + 1;
         END IF;
     END LOOP;
@@ -140,5 +142,7 @@ VACUUM ANALYZE;
 -- 使用建议：
 -- 1) 每周一次：psql -d intensure_dev -f db_maintenance/retention_cleanup.sql
 -- 2) crontab -e 加：
---    0 3 * * 0  psql -d intensure_dev -f /path/to/retention_cleanup.sql >/var/log/pg-retention.log 2>&1
--- 3) 监控脚本可查 SELECT count(*) FROM partman.part_config WHERE retention IS NOT NULL
+--    0 3 * * 0  psql -d intensure_dev \
+--        -f /path/to/retention_cleanup.sql >/var/log/pg-retention.log 2>&1
+-- 3) 监控脚本可查
+--    SELECT count(*) FROM partman.part_config WHERE retention IS NOT NULL

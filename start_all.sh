@@ -49,6 +49,9 @@ if [ ! -d "$PROJECT_DIR" ]; then
 fi
 cd "$PROJECT_DIR"
 
+# 落文件日志（P1-2）—— 演示时排障能查历史
+export INTENSURE_LOG_FILE=/var/log/intensure/intensure.log
+
 # ============ 0. 前置清理 ============
 step "0/4 清理旧会话"
 tmux kill-session -t "$SESSION" 2>/dev/null || true

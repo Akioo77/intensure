@@ -29,6 +29,12 @@ import threading
 from typing import Optional
 from collections import deque
 
+# ---- 日志（P1-2: 统一用 logging, 不再用 print）----
+import logging  # noqa: E402
+
+
+logger = logging.getLogger(__name__)
+
 
 # === P0-2 修复（2026-10-09）：User-Agent + 绕代理 ===
 # 9-19 联调发现 Cloudflare 静默丢无 UA 的 POST；VM 内 http_proxy 走 Clash 代理也会丢
@@ -296,9 +302,9 @@ class AssuranceReporter:
 # ============================================================
 
 if __name__ == '__main__':
-    print('AssuranceReporter CLI')
-    print('用法: 在其他模块里 from reporter import AssuranceReporter')
-    print('示例:')
-    print('  r = AssuranceReporter("http://127.0.0.1:8000/api/v1/assurance")')
-    print('  resp = r.check("REQ-001-CI-001", {"intent_id": "REQ-001-CI-001", ...})')
-    print('  print(resp)')
+    logger.info('AssuranceReporter CLI')
+    logger.info('用法: 在其他模块里 from reporter import AssuranceReporter')
+    logger.info('示例:')
+    logger.info('  r = AssuranceReporter("http://127.0.0.1:8000/api/v1/assurance")')
+    logger.info('  resp = r.check("REQ-001-CI-001", {"intent_id": "REQ-001-CI-001", ...})')
+    logger.info('  print(resp)')

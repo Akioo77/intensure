@@ -77,6 +77,48 @@
 
 ---
 
+## v3.16.0 - 2026-10-28 P1-2 日志统一：75 处 print → logging
+
+**触发**: 主人「继续做计划内的」-> P1-2（代码库里 1 个文件用 logging、23 个用 print，
+演示时输出噪声巨大且无法按级别过滤）。
+
+### ✨ 新增 `logging_setup.py`
+
+统一配置：级别 / 格式 / 文件 handler / **幂等**（重复调用不叠加 handler）。
+环境变量 `INTENSURE_LOG_FILE` 指向的路径会启用 file handler（不设则不写文件，
+测试/CI 不污染 /var/log）。
+
+### 🔁 改造 7 个模块，75 处 print
+
+`controller_app` / `live_env` / `assurance_mvp` / `db_writer` / `run_all` /
+`reporter` / `state_server` / `fault_injector`
+
+**输出走 stderr** —— demo 脚本全是 `cmd 2>&1 | tee xxx.log`，合并流所以照样拿得到，
+不会因为改造日志而破坏演示脚本。
+
+级别自动判定：❌/ERROR → error，⚠️/WARN → warning，`if DEBUG:` 块内 → debug，其余 info。
+
+**CLI 工具故意不改造**（`demo.py` / `demo_full.py` / `verify_live.py` /
+`seed_policies.py`）—— 它们的 stdout 就是对外接口，换成 logging 反而破坏使用方式。
+
+### 🐛 自己踩的坑（已被测出来）
+
+自动插入 `configure_logging()` 时**没换行**，把后面那行代码吞进了注释 ——
+`setLogLevel('warning')`、`logger.info('=' * 60)` 各 1 处被注释掉。
+是 ruff 报「setLogLevel 未使用」才暴露出来的 —— **这正是加 ruff 闸的价值**。
+
+### ✅ 验收
+
+- ruff 全绿、单元测试 **135 passed**
+- **完整 demo 8/8 全绿、EXIT=0**（最关键 —— 改了输出路由）
+- 日志文件实测落盘正常（`/var/log/intensure/intensure.log`）
+
+### 📋 状态
+
+优化清单 v1.0：**已完成 15 / 待办 5** —— **P0 与 P1 全部完成**。
+
+---
+
 ## v3.15.0 - 2026-10-28 P2-4 DB 自动重连 + P2-5 历史归档定时清理
 
 **触发**: 主人说「先继续做计划内的，不急着联调」。

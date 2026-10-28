@@ -1,18 +1,18 @@
 # intensure 优化清单(2026-10-09 整理)
 
 > **目的**:盘点 intensure 项目当前可改进的地方,按优先级排好,标注**做什么 + 怎么开发 + 工作量**。
-> **状态**:v0.9(2026-10-28 更新)——**P0 全部完成**；P1-1 测试、P1-3 风格、P1-5 启动脚本、P2-1 压测、**P2-4 DB 重连**、**P2-5 历史归档**、P3-1 alembic 也已完成。共 14 项已完成，剩余 6 项待办。
+> **状态**:v1.0(2026-10-28 更新)——**P0 与 P1 全部完成**；P2-1 压测、P2-4 重连、P2-5 归档、P3-1 alembic 也已完成。共 15 项已完成，剩余 5 项待办。
 > **边界**:**只关心 intensure 这边**——翻译组 / 冲突消解组 / A 同学 assurance-agent 的内部设计不归我们管。
 > **不抢活**:我们能催/建议,但不能越界做。
 
 ---
 
-## 🎯 优先级总览(6 项待办 / 14 项已完成)
+## 🎯 优先级总览(5 项待办 / 15 项已完成)
 
 | 优先级 | 项数 | 类别 |
 |------|------|------|
 | 🔴 P0(基础缺失,必须补) | **0** | 全部完成 ✅ |
-| 🟡 P1(质量/可靠性) | 1 | 日志统一 |
+| 🟡 P1(质量/可靠性) | 0 | 全部完成 ✅ |
 | 🟢 P2(性能/扩展) | 2 | dashboard / 故障类型 |
 | 🔵 P3(完善) | 3 | Docker / observability |
 
@@ -40,18 +40,6 @@
 
 ---
 
-### P1-2 · 日志一致性(1 个 logging vs 23 个 print)
-**问题**:代码库里只有 1 个文件用 `logging` 模块,23 个用 `print()`——演示时输出噪声巨大,没法按级别过滤。
-
-**怎么开发**:
-1. 全模块统一用 `logging.getLogger(__name__)`
-2. `run_all.py` / `live_env.py` 启动时配置 root logger(`level=INFO`)
-3. 把 `print(f'CYCLE_2550 ...')` 改成 `logger.info('CYCLE %d ...', 2550)`
-4. 加 file handler(`/var/log/intensure/intensure.log`)
-5. 删除 demo_scripts 里的 `tee /tmp/live.log` 那套(改 logger 接管)
-
-**工作量**:2-3 天
-**价值**:🟡 中(日常不影响,排障时救命)
 
 ---
 
@@ -373,6 +361,29 @@ postgres 不需要读路径 —— 和 alembic 里 `_exec_raw` 同一思路。
 
 ---
 
+### ✅ P1-2 · 日志一致性(1 个 logging vs 23 个 print)
+
+**完成情况**: 统一用 `logging`，7 个模块的 **75 处 print** 全部改造。
+- 新增 `logging_setup.py`：统一配置（级别 / 格式 / 文件 handler / 幂等）
+- 改造模块：`controller_app` / `live_env` / `assurance_mvp` / `db_writer` / 
+  `run_all` / `reporter` / `state_server` / `fault_injector`
+- **输出走 stderr** —— demo 脚本全是 `cmd 2>&1 | tee xxx.log`，合并流所以照样拿得到，
+  不会因为改造日志而破坏演示脚本
+- 级别自动判定：❌/ERROR → error，⚠️/WARN → warning，`if DEBUG:` 块内 → debug，其余 info
+- **文件 handler**：设 `INTENSURE_LOG_FILE` 即落盘（`start_all.sh` 已设成 
+  `/var/log/intensure/intensure.log`）；不设则不写文件，测试/CI 不污染 /var/log
+
+**CLI 工具故意不改造**（`demo.py` / `demo_full.py` / `verify_live.py` / `seed_policies.py`）——
+它们的 stdout 就是对外接口，换成 logging 反而破坏使用方式。
+
+**验收**：ruff 全绿、135 单测通过、**完整 demo 8/8 全绿 EXIT=0**、日志文件实测落盘正常。
+
+**提交**: `待提交（2026-10-28）`
+
+
+
+---
+
 ---
 
 ## 📋 工作量汇总
@@ -380,10 +391,10 @@ postgres 不需要读路径 —— 和 alembic 里 `_exec_raw` 同一思路。
 | 类别 | 项数 | 估计总工作量 |
 |------|------|-------------|
 | 🔴 P0 | 0 | 0 天 ✅ |
-| 🟡 P1 | 1 | 2-3 天 |
+| 🟡 P1 | 0 | 0 天 ✅ |
 | 🟢 P2 | 2 | 5-6 天 |
 | 🔵 P3 | 3 | 6-7 天 |
-| **合计** | **6** | **~9-11 工作日** |
+| **合计** | **5** | **~7-9 工作日** |
 
 ---
 

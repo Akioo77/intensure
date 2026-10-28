@@ -19,6 +19,13 @@ import state_history
 from flask import Flask, jsonify, request, send_from_directory
 from flask_cors import CORS
 
+# ---- 日志（P1-2: 统一用 logging, 不再用 print）----
+import logging  # noqa: E402
+
+from logging_setup import configure_logging  # noqa: E402
+
+logger = logging.getLogger(__name__)
+
 # 共享状态: 优先用内存（与控制器同进程），否则读文件
 CONTROLLER_STATE = None  # 由外部注入
 STATE_FILE = '/tmp/network_state.json'
@@ -288,8 +295,9 @@ def main():
     # 独立运行时从文件恢复历史
     state_history.load()
 
-    print(f"🌐 State server listening on http://{args.host}:{args.port}")
-    print(f"   Reading from: {STATE_FILE}")
+    logger.info(f"🌐 State server listening on http://{args.host}:{args.port}")
+    logger.info(f"   Reading from: {STATE_FILE}")
+    configure_logging()   # P1-2: 统一日志配置
     app.run(host=args.host, port=args.port, debug=False, use_reloader=False)
 
 

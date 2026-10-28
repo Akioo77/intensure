@@ -32,6 +32,13 @@ from actual_state_builder import ActualStateBuilder
 from reporter import AssuranceReporter
 from graceful import install_graceful_shutdown
 
+# ---- 日志（P1-2: 统一用 logging, 不再用 print）----
+import logging  # noqa: E402
+
+from logging_setup import configure_logging  # noqa: E402
+
+logger = logging.getLogger(__name__)
+
 
 # ============ 环境变量 / 配置 ============
 ASSURANCE_URL = os.environ.get(
@@ -113,6 +120,8 @@ def check_flow_present(state):
 # ============ 主流程 ============
 
 def main():
+
+    configure_logging()   # P1-2: 统一日志配置（stderr + 可选文件）
     setLogLevel('warning')
     info_lines = []
     info_lines.append('LIVE_ENV_STARTED (v2.0 联调版)')
@@ -150,12 +159,12 @@ def main():
     except Exception as e:
         info_lines.append(f'BASELINE_DELAY_FAILED: {e}')
 
-    print('\n'.join(info_lines), flush=True)
+    logger.info('\n'.join(info_lines))
 
     # 初次探测（让 L2 学习 + 流表安装）；带超时保护，避免卡死
     time.sleep(3)
     loss, _ = safe_ping(net.get('h1'), '10.0.0.4', count=3, timeout_s=8)
-    print(f'INITIAL_PINGALL: {loss}% loss', flush=True)
+    logger.info(f'INITIAL_PINGALL: {loss}% loss')
 
     cycle = 0
     while True:
@@ -194,7 +203,7 @@ def main():
                     latency_ms=latency_ms,
                 )
             except Exception as e:
-                print(f'  WARN: db probe write failed: {e}', flush=True)
+                logger.warning(f'  WARN: db probe write failed: {e}')
 
             # 上报 connectivity 历史到本地 controller（供 dashboard 「自愈前后对比」面板使用）
             try:
@@ -221,26 +230,24 @@ def main():
                 status = resp['status_code']
                 err = resp['error']
                 body_status = (resp['body'] or {}).get('status', '?')
-                print(f'CYCLE_{cycle:04d} reachable={reachable} '
+                logger.info(f'CYCLE_{cycle:04d} reachable={reachable} '
                       f'latency={latency_ms}ms loss={loss_pct}% '
                       f'flow={flow_present} '
                       f'POST→HTTP {status} body.status={body_status} '
-                      f'took={int((time.time()-t0)*1000)}ms',
-                      flush=True)
+                      f'took={int((time.time()-t0)*1000)}ms')
                 if err:
-                    print(f'  WARN: {err}', flush=True)
+                    logger.warning(f'  WARN: {err}')
             else:
                 # disable 模式：只打印 ActualState
-                print(f'CYCLE_{cycle:04d} reachable={reachable} '
+                logger.info(f'CYCLE_{cycle:04d} reachable={reachable} '
                       f'latency={latency_ms}ms loss={loss_pct}% '
-                      f'flow={flow_present} (REPORT_MODE=disable, no POST)',
-                      flush=True)
+                      f'flow={flow_present} (REPORT_MODE=disable, no POST)')
 
             # 触发跨交换机流量
             net.get('h1').cmd('ping -c 2 -W 1 10.0.0.4 > /dev/null 2>&1')
             net.get('h2').cmd('ping -c 2 -W 1 10.0.0.3 > /dev/null 2>&1')
         except Exception as e:
-            print(f'CYCLE_{cycle:04d} ERROR: {e}', flush=True)
+            logger.error(f'CYCLE_{cycle:04d} ERROR: {e}')
 
         time.sleep(PROBE_INTERVAL)
 
@@ -249,5 +256,5 @@ if __name__ == '__main__':
     try:
         main()
     except KeyboardInterrupt:
-        print('\nCtrl+C, exiting...', flush=True)
+        logger.info('\nCtrl+C, exiting...')
         sys.exit(0)
