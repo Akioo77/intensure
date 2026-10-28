@@ -7,8 +7,10 @@
   POST /verify            → 复测，返回 RECOVERED/FAILED
   GET  /record/{id}       → 查询意图当前状态
   GET  /docs              → 提示（不是真的 Swagger）
+  GET  /api/health        → 健康检查（带 version 字段，v3.18.0 契约版本协商用）
 
 启动: python3 mock_assurance_server.py --port 8000
+      python3 mock_assurance_server.py --version 0.9.0   # 模拟版本不兼容，验证降级
 """
 import argparse
 import json
@@ -23,6 +25,9 @@ INTENTS_LOCK = threading.Lock()
 
 # 路径前缀（让 mock 端点跟真实保障模块一致）
 PATH_PREFIXES = ['/api/v1/assurance', '/api/v1', '/api']
+
+# 模拟的对方版本（v3.18.0：用于演示契约版本协商）
+MOCK_VERSION = '0.4.0'
 
 
 def strip_prefix(path: str) -> str:
@@ -78,10 +83,12 @@ class MockHandler(BaseHTTPRequestHandler):
                     'POST /api/v1/assurance/check',
                     'POST /api/v1/assurance/verify',
                     'GET  /api/v1/assurance/record/{intent_id}',
+                    'GET  /api/health',
                 ],
             })
         elif path == '/' or path == '/health':
             self._send_json(200, {'status': 'ok', 'mock': True,
+                                  'version': MOCK_VERSION,
                                   'intents_count': len(INTENTS_DB)})
         else:
             self._send_json(404, {'error': 'not found', 'path': self.path})
@@ -259,13 +266,20 @@ class MockHandler(BaseHTTPRequestHandler):
 
 
 def main():
+    global MOCK_VERSION
+
     parser = argparse.ArgumentParser(description='Mock 保障模块（本地调试用）')
     parser.add_argument('--port', type=int, default=8000)
     parser.add_argument('--host', default='127.0.0.1')
+    parser.add_argument('--version', default=MOCK_VERSION,
+                        help='模拟的对方版本号（用于验证契约版本协商）')
     args = parser.parse_args()
+
+    MOCK_VERSION = args.version
 
     server = ThreadingHTTPServer((args.host, args.port), MockHandler)
     print(f'Mock 保障模块启动: http://{args.host}:{args.port}', flush=True)
+    print(f'  - 模拟对方版本: {MOCK_VERSION}', flush=True)
     print('  - POST /api/v1/assurance/register-request  注册意图', flush=True)
     print('  - POST /api/v1/assurance/activate          激活意图', flush=True)
     print('  - POST /api/v1/assurance/check             上报 ActualState', flush=True)
