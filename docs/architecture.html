@@ -1,0 +1,252 @@
+<!doctype html>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>意图驱动网络管理系统 · 架构与跨智能体连接图</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #f8fafc;
+    --fg: #172033;
+    --muted: #5b6475;
+    --line: #64748b;
+    --neutral: #e2e8f0;
+    --input: #bfdbfe;
+    --process: #c7d2fe;
+    --storage: #99f6e4;
+    --external: #fde68a;
+    --risk: #fecaca;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0f172a;
+      --fg: #e5e7eb;
+      --muted: #a3adbd;
+      --line: #94a3b8;
+      --neutral: #334155;
+      --input: #1d4ed8;
+      --process: #4338ca;
+      --storage: #0f766e;
+      --external: #92400e;
+      --risk: #991b1b;
+    }
+  }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--fg);
+    font:
+      14px/1.4 ui-sans-serif,
+      system-ui,
+      -apple-system,
+      BlinkMacSystemFont,
+      "Segoe UI",
+      sans-serif;
+  }
+  main {
+    max-width: 1460px;
+    margin: 24px auto;
+    padding: 0 20px;
+  }
+  svg {
+    width: 100%;
+    height: auto;
+    display: block;
+  }
+  .title { font-size: 22px; font-weight: 650; fill: var(--fg); }
+  .subtitle { font-size: 13px; fill: var(--muted); }
+  .zone { font-size: 12px; font-weight: 650; fill: var(--muted); letter-spacing: 0.08em; }
+  .box-title { font-size: 14px; font-weight: 650; fill: var(--fg); }
+  .box-sub { font-size: 11.5px; fill: var(--muted); }
+  .conn-label { font-size: 11px; font-weight: 600; fill: var(--muted); }
+  .conn-label-risk { font-size: 11px; font-weight: 600; fill: #b91c1c; }
+  .conn-label-db { font-size: 11px; font-weight: 600; fill: #b45309; }
+  @media (prefers-color-scheme: dark) {
+    .conn-label-risk { fill: #fca5a5; }
+    .conn-label-db { fill: #fbbf24; }
+  }
+  .legend-text { font-size: 12px; fill: var(--fg); }
+  .note-text { font-size: 11.5px; fill: var(--muted); }
+  .note-head { font-size: 12.5px; font-weight: 650; fill: var(--fg); }
+  .risk-head { font-size: 12.5px; font-weight: 650; fill: #b91c1c; }
+  @media (prefers-color-scheme: dark) { .risk-head { fill: #fca5a5; } }
+</style>
+<main>
+  <svg viewBox="0 0 1400 1010" role="img" aria-label="意图驱动网络管理系统架构与跨智能体连接图">
+    <defs>
+      <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M 0 0 L 10 5 L 0 10 z" fill="#64748b" />
+      </marker>
+      <marker id="arrow-ok" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M 0 0 L 10 5 L 0 10 z" fill="#0f766e" />
+      </marker>
+      <marker id="arrow-db" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M 0 0 L 10 5 L 0 10 z" fill="#b45309" />
+      </marker>
+      <marker id="arrow-risk" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M 0 0 L 10 5 L 0 10 z" fill="#b91c1c" />
+      </marker>
+    </defs>
+
+    <text class="title" x="30" y="40">意图驱动网络管理系统 · 架构与跨智能体连接图</text>
+    <text class="subtitle" x="30" y="64">intensure 采集层在整条链路里的位置 —— 以及它到底和谁有连接（依据代码实测，2026-10-29 / v3.19.0）</text>
+
+    <!-- ============ 连接线（先画，压在盒子下面） ============ -->
+
+    <!-- 流水线：用户 → 翻译 → 实现 → 网络 -->
+    <path d="M 190 145 L 228 145" fill="none" stroke="#64748b" stroke-width="1.6" marker-end="url(#arrow)" />
+    <path d="M 420 145 L 458 145" fill="none" stroke="#64748b" stroke-width="1.6" marker-end="url(#arrow)" />
+    <path d="M 650 145 L 688 145" fill="none" stroke="#64748b" stroke-width="1.6" marker-end="url(#arrow)" />
+
+    <!-- 实现智能体 ⛔ 无 HTTP 直连 → 绕右侧通道进共享库 -->
+    <path d="M 555 180 L 555 215 L 935 215 L 935 638" fill="none" stroke="#b45309" stroke-width="1.6" stroke-dasharray="7 5" marker-end="url(#arrow-db)" />
+
+    <!-- 翻译智能体 ❌ 完全无连接 → 落到红色说明块 -->
+    <path d="M 325 180 L 325 214" fill="none" stroke="#b91c1c" stroke-width="1.6" stroke-dasharray="2 5" marker-end="url(#arrow-risk)" />
+
+    <!-- 网络 → 采集层 -->
+    <path d="M 700 180 L 700 254" fill="none" stroke="#64748b" stroke-width="1.6" marker-end="url(#arrow)" />
+
+    <!-- 采集层 → 保障智能体 ✅ HTTP 直连 -->
+    <path d="M 860 330 L 1008 330" fill="none" stroke="#0f766e" stroke-width="2.2" marker-end="url(#arrow-ok)" />
+
+    <!-- 采集层 → 共享 PostgreSQL（写） -->
+    <path d="M 400 602 L 400 638" fill="none" stroke="#64748b" stroke-width="1.6" marker-end="url(#arrow)" />
+
+    <!-- ============ 区域标题 ============ -->
+    <text class="zone" x="30" y="98">A · 意图流水线（同事负责）</text>
+    <text class="zone" x="30" y="250">B · ★ 采集层 intensure（本项目）</text>
+    <text class="zone" x="30" y="630">C · 共享 PostgreSQL（6 schema / 39 表）</text>
+
+    <!-- ============ A 区：流水线 ============ -->
+    <rect x="30" y="110" width="160" height="70" rx="10" fill="var(--input)" stroke="#2563eb" stroke-width="1.4" />
+    <text class="box-title" x="46" y="140">用户意图</text>
+    <text class="box-sub" x="46" y="160">自然语言 · 业务诉求</text>
+
+    <rect x="230" y="110" width="190" height="70" rx="10" fill="var(--external)" stroke="#b45309" stroke-width="1.4" />
+    <text class="box-title" x="246" y="140">意图翻译智能体</text>
+    <text class="box-sub" x="246" y="160">NL → 结构化 JSON · 冲突检测</text>
+
+    <rect x="460" y="110" width="190" height="70" rx="10" fill="var(--external)" stroke="#b45309" stroke-width="1.4" />
+    <text class="box-title" x="476" y="140">意图实现智能体</text>
+    <text class="box-sub" x="476" y="160">JSON → 配置 → 仿真 → 下发/回滚</text>
+
+    <rect x="690" y="110" width="180" height="70" rx="10" fill="var(--process)" stroke="#4f46e5" stroke-width="1.4" />
+    <text class="box-title" x="706" y="140">网络（实验床）</text>
+    <text class="box-sub" x="706" y="160">Mininet + Open vSwitch</text>
+
+    <!-- 实现智能体通道标签 -->
+    <text class="conn-label-db" x="566" y="196">⛔ 无 HTTP 直连 · 仅共享库读 implementation.policies</text>
+
+    <!-- 网络→采集层标签 -->
+    <text class="conn-label" x="710" y="236">OpenFlow / LLDP 采集</text>
+
+    <!-- 翻译 ❌ 说明块 -->
+    <rect x="60" y="186" width="410" height="46" rx="9" fill="var(--risk)" stroke="#b91c1c" stroke-width="1.5" />
+    <text class="conn-label-risk" x="76" y="206">❌ 完全无连接：translation.* 表与权限已预留，</text>
+    <text class="conn-label-risk" x="76" y="223">但代码里没有任何读写</text>
+
+    <!-- ============ B 区：采集层 ============ -->
+    <rect x="30" y="256" width="830" height="346" rx="14" fill="var(--process)" fill-opacity="0.2" stroke="#4f46e5" stroke-width="2" />
+    <text class="box-title" x="52" y="286">★ 采集层 intensure（本项目）</text>
+    <text class="box-sub" x="52" y="305">macOS 宿主机 + Colima Ubuntu 24.04 VM · os-ken 2.8.1 + Mininet 2.3.0 · 4 个 tmux 窗口</text>
+
+    <rect x="56" y="322" width="176" height="86" rx="10" fill="var(--neutral)" stroke="#64748b" stroke-width="1.3" />
+    <text class="box-title" x="72" y="350">os-ken 控制器</text>
+    <text class="box-sub" x="72" y="370">OpenFlow 1.3 · 6653</text>
+    <text class="box-sub" x="72" y="388">LLDP 自动发现拓扑</text>
+
+    <rect x="252" y="322" width="186" height="86" rx="10" fill="var(--neutral)" stroke="#64748b" stroke-width="1.3" />
+    <text class="box-title" x="268" y="350">state_server REST</text>
+    <text class="box-sub" x="268" y="370">18 端点 · 8080</text>
+    <text class="box-sub" x="268" y="388">/metrics · /api/health</text>
+
+    <rect x="458" y="322" width="176" height="86" rx="10" fill="var(--neutral)" stroke="#64748b" stroke-width="1.3" />
+    <text class="box-title" x="474" y="350">fault_api</text>
+    <text class="box-sub" x="474" y="370">9 种故障注入 · v3.19.0</text>
+    <text class="box-sub" x="474" y="388">POST /api/v1/test/inject-fault</text>
+
+    <rect x="654" y="322" width="176" height="86" rx="10" fill="var(--storage)" stroke="#0f766e" stroke-width="1.4" />
+    <text class="box-title" x="670" y="350">reporter + bridge</text>
+    <text class="box-sub" x="670" y="370">ActualState 组装与上报</text>
+    <text class="box-sub" x="670" y="388">契约版本协商</text>
+
+    <rect x="56" y="430" width="778" height="150" rx="10" fill="var(--neutral)" fill-opacity="0.5" stroke="#64748b" stroke-width="1.2" stroke-dasharray="5 4" />
+    <text class="note-head" x="72" y="456">边界声明（写在代码里，不是口头约定）</text>
+    <text class="note-text" x="72" y="480">· 只 POST 不读 GET：所有「当前状态」由保障模块管理，采集层不维护</text>
+    <text class="note-text" x="72" y="502">· 职责分离：采集只做「把故障 / 状态打进去」；一致性判定与根因诊断由 assurance_mvp.py 负责</text>
+    <text class="note-text" x="72" y="524">· 数据库账号分离：intensure_user / assurance_user / implementation_user / translation_user 各自最小权限</text>
+    <text class="note-text" x="72" y="546">· 对外只暴露 v3.19.0 的 18 个端点；不主动 GET 别人的接口</text>
+    <text class="note-text" x="72" y="568">· 故障注入只归我们，且用 mode=test 标注，与生产模块解耦</text>
+
+    <!-- 写库标签 -->
+    <text class="conn-label" x="412" y="626">写：intensure.* / assurance.*</text>
+
+    <!-- 保障智能体 -->
+    <rect x="1010" y="280" width="290" height="166" rx="10" fill="var(--external)" stroke="#b45309" stroke-width="1.6" />
+    <text class="box-title" x="1026" y="308">意图保障智能体</text>
+    <text class="box-sub" x="1026" y="328">同学 A（assurance-agent）</text>
+    <text class="box-sub" x="1026" y="350">一致性检查 · 根因诊断 · 自愈决策</text>
+    <text class="box-sub" x="1026" y="374">状态机 REGISTERED → ACTIVE → VIOLATED</text>
+    <text class="box-sub" x="1026" y="390">→ DIAGNOSING → HEALING → RECOVERED</text>
+    <line x1="1026" y1="404" x2="1284" y2="404" stroke="#b45309" stroke-width="1" stroke-opacity="0.4" />
+    <text class="box-sub" x="1026" y="424">我们调它（唯一 HTTP 外联）：</text>
+    <text class="box-sub" x="1026" y="440">POST /api/v1/assurance/check + /verify</text>
+
+    <!-- 直连标签 -->
+    <text class="conn-label" x="872" y="312">✅ HTTP 直连</text>
+
+    <!-- ============ C 区：共享库 ============ -->
+    <rect x="30" y="640" width="930" height="210" rx="12" fill="var(--storage)" fill-opacity="0.3" stroke="#0f766e" stroke-width="1.6" />
+    <text class="box-title" x="52" y="670">共享 PostgreSQL · intensure_dev</text>
+    <text class="box-sub" x="52" y="688">6 schema / 39 表 · 15 个月分区 · alembic 管理（新建库 = 现有库，已用 verify_fresh_db.sh 验证）· 同学 A 的保障模块也读写这套库</text>
+
+    <rect x="52" y="706" width="280" height="122" rx="9" fill="var(--neutral)" stroke="#64748b" stroke-width="1.2" />
+    <text class="box-title" x="68" y="732">intensure.* + assurance.*</text>
+    <text class="box-sub" x="68" y="752">我们写：state_history /</text>
+    <text class="box-sub" x="68" y="768">consistency_checks / diagnoses /</text>
+    <text class="box-sub" x="68" y="784">intent_states</text>
+    <text class="box-sub" x="68" y="810">✅ 实测写入正常（3 分钟内 +36 条）</text>
+
+    <rect x="348" y="706" width="280" height="122" rx="9" fill="var(--neutral)" stroke="#64748b" stroke-width="1.2" />
+    <text class="box-title" x="364" y="732">implementation.*</text>
+    <text class="box-sub" x="364" y="752">我们只读 policies（assurance_user</text>
+    <text class="box-sub" x="364" y="768">只有 SELECT 权限）</text>
+    <text class="box-sub" x="364" y="784">写入由实现模块负责</text>
+    <text class="box-sub" x="364" y="810">⛔ 不是 HTTP 直连，是库级耦合</text>
+
+    <rect x="644" y="706" width="280" height="122" rx="9" fill="var(--risk)" stroke="#b91c1c" stroke-width="1.3" />
+    <text class="box-title" x="660" y="732">translation.*</text>
+    <text class="box-sub" x="660" y="752">表与权限都建好了</text>
+    <text class="box-sub" x="660" y="768">但代码里没人读写</text>
+    <text class="box-sub" x="660" y="784">→ 翻译组的接口还没接进来</text>
+    <text class="box-sub" x="660" y="810">❌ 目前等于「空仓」</text>
+
+    <!-- ============ 缺口提示 ============ -->
+    <rect x="1010" y="680" width="360" height="170" rx="12" fill="var(--risk)" stroke="#b91c1c" stroke-width="1.8" />
+    <text class="risk-head" x="1028" y="708">⚠️ 待解决：契约路径不匹配</text>
+    <text class="note-text" x="1028" y="730">跨模块契约 §4.1 要求我们暴露：</text>
+    <text class="box-sub" x="1044" y="748">GET /api/intensure/v1/state/current</text>
+    <text class="note-text" x="1028" y="770">我们实际暴露（state_server.py）：</text>
+    <text class="box-sub" x="1044" y="788">GET /api/state</text>
+    <text class="note-text" x="1028" y="810">若同学 A 按契约调 → 404。</text>
+    <text class="note-text" x="1028" y="830">同一契约里还有 4 个端点路径待对齐</text>
+    <text class="note-text" x="1028" y="846">（history / port-events / link-events / probe-results）</text>
+
+    <!-- ============ 图例 ============ -->
+    <rect x="30" y="880" width="1340" height="110" rx="12" fill="var(--neutral)" fill-opacity="0.4" stroke="#64748b" stroke-width="1.2" />
+
+    <text class="note-head" x="52" y="906">图例</text>
+
+    <path d="M 120 932 L 200 932" fill="none" stroke="#0f766e" stroke-width="2.2" marker-end="url(#arrow-ok)" />
+    <text class="legend-text" x="212" y="937">HTTP 直连（代码里真实存在）</text>
+
+    <path d="M 470 932 L 550 932" fill="none" stroke="#b45309" stroke-width="1.6" stroke-dasharray="7 5" marker-end="url(#arrow-db)" />
+    <text class="legend-text" x="562" y="937">共享数据库耦合（不是 HTTP）</text>
+
+    <path d="M 860 932 L 940 932" fill="none" stroke="#b91c1c" stroke-width="1.6" stroke-dasharray="2 5" marker-end="url(#arrow-risk)" />
+    <text class="legend-text" x="952" y="937">无连接（❌）</text>
+
+    <text class="note-text" x="52" y="966">本图依据代码实测生成：连接关系来自 assurance_bridge.py / reporter.py 的真实 base_url 与 db_writer.py、assurance_mvp.py 的真实 SQL 查询，不是设计意图的臆测。</text>
+    <text class="note-text" x="52" y="982">灰底框 = 本项目内部组件；黄底框 = 同学负责的智能体；绿底 = 共享数据库；红底 = 缺口或风险。</text>
+  </svg>
+</main>
