@@ -15,6 +15,8 @@ source "$SCRIPT_DIR/lib/ui.sh"
 source "$SCRIPT_DIR/.env" 2>/dev/null || { ui_err ".env 不存在，先跑 01"; exit 1; }
 
 FAULT_TYPE="${1:-link_down}"
+# 故障打在哪（交换机端口）。可传第二个参数覆盖。
+FAULT_TARGET="${2:-${FAULT_TARGET:-s1-eth2}}"
 
 ui_title "Step 4: 故障注入 ($FAULT_TYPE)"
 
@@ -54,16 +56,34 @@ read -p "  选择 (默认 1): " CHOICE
 CHOICE="${CHOICE:-1}"
 
 if [[ "$CHOICE" == "2" ]]; then
-  INJ=$(curl -s -X POST --noproxy '*' http://127.0.0.1:18080/api/v1/test/inject-fault \
-    -H "Content-Type: application/json" \
-    -d "{\"fault_type\": \"$FAULT_TYPE\", \"mode\": \"test\"}" 2>&1) || INJ=""
-  if [[ -n "$INJ" ]] && ! echo "$INJ" | grep -q "404\|Not Found\|detail"; then
-    ui_ok "intensure 故障注入成功"
-    echo "$INJ" | head -c 300
-    echo ""
-  else
-    ui_warn "intensure /api/v1/test/inject-fault 不可用"
+  # 端口自适应：宿主机跑脚本 → 18080（隧道）；VM 内跑 → 8080（直连）
+  BASE=""
+  for cand in "${INTENSURE_API:-}" http://127.0.0.1:18080 http://127.0.0.1:8080; do
+    [[ -z "$cand" ]] && continue
+    if curl -s -m 2 --noproxy '*' -o /dev/null "${cand}/api/health" 2>/dev/null; then
+      BASE="$cand"; break
+    fi
+  done
+  if [[ -z "$BASE" ]]; then
+    ui_warn "找不到 intensure API（试过 18080 / 8080）"
     ui_step "回退到仅构造 ActualState"
+  else
+    INJ=$(curl -s -m 30 --noproxy '*' -w '\n%{http_code}' -X POST \
+      "${BASE}/api/v1/test/inject-fault" \
+      -H "Content-Type: application/json" \
+      -d "{\"fault_type\": \"$FAULT_TYPE\", \"target\": \"$FAULT_TARGET\", \"mode\": \"test\"}" 2>&1)
+    CODE=$(printf '%s' "$INJ" | tail -1)
+    BODY=$(printf '%s' "$INJ" | sed '$d')
+    if [[ "$CODE" == "200" ]]; then
+      ui_ok "intensure 故障注入成功（$BASE → $FAULT_TARGET）"
+      echo "$BODY" | head -c 300
+      echo ""
+    else
+      ui_warn "intensure 注入失败（HTTP $CODE）"
+      echo "$BODY" | head -c 200
+      echo ""
+      ui_step "回退到仅构造 ActualState"
+    fi
   fi
 fi
 

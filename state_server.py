@@ -16,6 +16,8 @@ import time
 
 import state_history
 
+import fault_api  # noqa: E402  (v3.19.0 故障注入测试接口)
+
 import metrics  # noqa: E402  (v3.18.0 可观测性)
 
 from flask import Flask, Response, g, jsonify, request, send_from_directory
@@ -210,6 +212,71 @@ def api_probe():
     })
     state_history.dump()
     return jsonify({'status': 'ok', 'recorded': True})
+
+
+# ============================================================
+# 故障注入（测试接口，与生产模块解耦）
+# ============================================================
+
+@app.route('/api/v1/test/inject-fault', methods=['POST'])
+def api_inject_fault():
+    """注入故障（测试接口）。
+
+    body: {"fault_type": "link_down", "target": "s1-eth1",
+           "params": {...}, "mode": "test"}
+
+    fault_type 支持 9 种 + clear：
+      link_down / link_up / delay / loss / rate_limit / burst /
+      reorder / vlan_mismatch / flow_race / clear
+    别名（演示脚本用的业务语义名）：
+      high_latency→delay, packet_loss→loss, flow_missing→flow_race
+
+    target 两种写法：
+      - 具体接口名（'s1-eth1'）
+      - 交换机名（'s1'）→ 该交换机所有端口；params.port 可指定单个端口
+
+    ⚠️ 边界：本接口只负责「把故障打进去」。
+       一致性判定 / 根因诊断 / 写 assurance.* 表由 assurance_mvp.py 负责。
+    """
+    data = request.get_json(force=True, silent=True) or {}
+    fault_type = data.get('fault_type')
+    target = data.get('target', '')
+    params = data.get('params') or {}
+    mode = data.get('mode', 'test')
+
+    try:
+        result = fault_api.FAULT_API.inject(fault_type, target, params, mode)
+    except fault_api.FaultInjectionError as e:
+        logger.warning(f'fault injection failed: {e}')
+        metrics.FAULT_INJECTIONS_TOTAL.inc({
+            'fault_type': str(fault_type), 'result': 'error'})
+        return jsonify({'status': 'error', 'error': str(e),
+                        'fault_type': fault_type, 'target': target}), 400
+    except Exception as e:  # noqa: BLE001 — 不能让一个测试接口打挂整个服务
+        logger.exception(f'fault injection crashed: {e}')
+        metrics.FAULT_INJECTIONS_TOTAL.inc({
+            'fault_type': str(fault_type), 'result': 'crash'})
+        return jsonify({'status': 'error', 'error': str(e)}), 500
+
+    metrics.FAULT_INJECTIONS_TOTAL.inc({
+        'fault_type': str(result.get('fault_type', fault_type)), 'result': 'ok'})
+    return jsonify({'status': 'ok', 'mode': mode, **result})
+
+
+@app.route('/api/v1/test/faults', methods=['GET', 'DELETE'])
+def api_list_faults():
+    """当前活跃故障列表（GET）/ 清理故障（DELETE）。
+
+    DELETE 可带 ?target=s1 只清该交换机；不带则全网清理。
+    """
+    if request.method == 'DELETE':
+        try:
+            result = fault_api.FAULT_API.clear_all(request.args.get('target', ''))
+        except fault_api.FaultInjectionError as e:
+            return jsonify({'status': 'error', 'error': str(e)}), 400
+        return jsonify({'status': 'ok', **result})
+    return jsonify({'status': 'ok',
+                    'active_faults': fault_api.FAULT_API.active_faults()})
 
 
 # ============================================================

@@ -286,7 +286,7 @@ Host: implementation:8081
 
 | 项 | 我方（intensure）| 对方（assurance-agent）|
 |---|---|---|
-| `/api/health` 返回 | `{"status":"ok","time":...,"source":...,"version":"3.18.0"}` | **没有 `version` 字段** |
+| `/api/health` 返回 | `{"status":"ok","time":...,"source":...,"version":"3.19.0"}` | **没有 `version` 字段** |
 | 版本信息来源 | `metrics.PROJECT_VERSION` 常量 | —— |
 
 > ⚠️ 也就是说：**「对方是哪个版本」目前无法从接口直接得知**。

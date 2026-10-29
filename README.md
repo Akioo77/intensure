@@ -53,20 +53,22 @@
 | **复杂故障类型**（burst / reorder / vlan_mismatch / flow_race）| ✅ v3.17.0 (2026-10-28) |
 | **可观测性**（`metrics.py` 纯标准库 Prometheus 注册表 + `GET /metrics` + 上报/自营 REST 埋点）| ✅ v3.18.0 (2026-10-29) |
 | **契约版本管理**（`assurance_bridge.py` 版本协商 6 态 + 60s TTL + 严格模式开关）| ✅ v3.18.0 (2026-10-29) |
+| **故障注入 REST 接口**（`POST /api/v1/test/inject-fault` + `GET/DELETE /api/v1/test/faults`，9 种故障全覆盖）| ✅ v3.19.0 (2026-10-29) |
 
 ### 🎯 下一步（我们主动要做）
 
 | 任务 | 优先级 | 备注 |
 |---|---|---|
 | 三方联调真实数据完整闭环（intensure → A 同学 service）| 🟡 P1 | assurance_bridge 已接，**当前卡在 A 同学 cloudflared 隧道不通（HTTP 000）** |
-| 修复 `reporter.py` 频率 + DNS 老 bug（10-19 联调发现）| 🟡 P1 | 老 bug 100% 失败 |
 | Dashboard 单文件 SPA 拆分（可维护性）| 🟢 P2 | 优化清单 P2-2 |
 | Docker 化 | 🟢 P3 | 优化清单 P3-2，见 `docs/OPTIMIZATION.md` |
 | Dashboard 增强（历史回放 / 跳数对比）| 🟢 P2 | 演示后看反馈再加 |
 | IPv6 / BGP 支持（如项目要求）| 🔵 P3 | 长期 |
 
 > ✅ 已从本表移出（已完成，见上方完成状态）：性能压测（v3.13.0）、复杂故障类型扩展（v3.17.0）、
-> **跨模块 API 版本管理（v3.18.0）**、**Metrics / Observability（v3.18.0）**。
+> **跨模块 API 版本管理（v3.18.0）**、**Metrics / Observability（v3.18.0）**、
+> **`reporter.py` 频率 + DNS 老 bug（v3.10 已修：绕代理 + 默认 UA）**、
+> **故障注入 REST 接口（v3.19.0）**。
 
 > **我们不做的**（边界）：翻译组 / 冲突消解组 / A 同学 assurance-agent 内部 / 协调三组（那是组长的活）
 
@@ -319,7 +321,7 @@ intensure/
 ├── 控制器层
 │   ├── simple_switch_13.py     # 最简 L2
 │   ├── controller_app.py       # 链路事件采集（LLDP + PortStatus）
-│   └── state_server.py         # 自营 REST API（Flask，16 端点，含 /metrics）✅ v3.18.0
+│   └── state_server.py         # 自营 REST API（Flask，18 端点，含 /metrics）✅ v3.19.0
 ├── 采集层
 │   ├── state_model.py          # 内部数据抽象（供 ActualStateBuilder 读）
 │   ├── state_collector.py      # CLI 工具（手工验证）

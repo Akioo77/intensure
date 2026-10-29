@@ -181,7 +181,7 @@
 |---|---|---|
 | A 同学 cloudflared tunnel 稳定性 | A 同学 | 域名 NXDOMAIN 时无法联调 |
 | 真实联调实战 | 我们 | 等 tunnel 稳定后立即跑 `01-08` |
-| 故障注入 REST 接口 `POST /api/v1/test/inject-fault` | 我们 | intensure 还没实现（脚本已 fallback 到 VM 手动执行）|
+| 故障注入 REST 接口 `POST /api/v1/test/inject-fault` | 我们 | ✅ v3.19.0 已实现（9 种故障 + 幂等清理）|
 
 ### 2.3 待办（按优先级）
 
@@ -197,7 +197,7 @@
 - [x] **CHANGELOG.md 更新** ✅ 已到 v3.18（OVS logger / 联调脚本 / 契约对齐 / 可观测性均有条目）
 - [ ] **架构图** ❌ 仍未产出（仓库内暂无 diagram 文件）
 - [ ] **PPT 准备**（如老师要求幻灯片，create-pptx + Apple 风）
-- [ ] **故障注入 REST 路由** ❌ 仍未实现（`state_server.py` 当前无 `inject-fault` 路由；注入走 `fault_cli.sh`）
+- [x] **故障注入 REST 路由** ✅ v3.19.0（2026-10-29）—— `state_server.py` 新增 `POST /api/v1/test/inject-fault` + `GET/DELETE /api/v1/test/faults`，9 种故障全覆盖；`demo_scripts/04_inject_fault.sh` 已接上
 - [x] **跨智能体对接文档 v2** ✅ 2026-10-29 —— `docs/cross-module-api-contract.md` 已补「契约目标 vs 当前实现」映射表
 
 #### 🟢 P2（演示后优化）

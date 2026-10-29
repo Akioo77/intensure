@@ -9,6 +9,78 @@
 ---
 
 
+## v3.19.0 - 2026-10-29 故障注入 REST 接口
+
+**触发**：联调手册里一直挂着一项「故障注入 REST 接口 ❌ 仍未实现」——
+`demo_scripts/04_inject_fault.sh` 一直在调一个 404 的端点，只能 fallback 到
+`sudo ./fault_cli.sh` 手动执行。演示时这一步很脆。
+
+### 🆕 `POST /api/v1/test/inject-fault` + `GET/DELETE /api/v1/test/faults`
+
+**新增 `fault_api.py`**（~340 行，不依赖 Mininet `net` 对象）
+
+为什么不用现成的 `fault_injector.FaultInjector`：它需要 Mininet 的 `net` 对象
+（**Mininet 进程内**才有），而 `state_server.py` 是**独立进程**，拿不到 net。
+所以改用底层命令（`ip link` / `tc qdisc` / `ovs-ofctl` / `ovs-vsctl`）实现，
+语义与已实测验证过的 `fault_cli.sh` 一致。
+
+**支持 9 种故障全覆盖** + `clear`：
+
+| 类型 | 实现 | 参数 |
+|---|---|---|
+| `link_down` / `link_up` | `ip link` + `ovs-ofctl mod-port` | — |
+| `delay` | `tc netem delay` | `delay_ms`, `jitter_ms` |
+| `loss` | `tc netem loss` | `percent` |
+| `rate_limit` | `tc tbf` | `rate_mbps`, `burst_kb` |
+| `burst` | `tc netem rate+limit` | `rate_mbps`, `limit_kb` |
+| `reorder` | `tc netem delay+reorder+gap` | `gap_percent`, `gap_packets` |
+| `vlan_mismatch` | `ovs-vsctl set port tag=` | `vlan_id` |
+| `flow_race` | 并发 `ovs-ofctl` 改流表 | `rounds` |
+
+**别名**：演示脚本用的业务语义名也能用 ——
+`high_latency`→`delay`、`packet_loss`→`loss`、`flow_missing`→`flow_race`。
+
+**target 两种写法**：具体接口名（`s1-eth1`）或交换机名（`s1`，`params.port` 可限单个端口）。
+
+### 🔧 实测踩出来的 3 个 bug
+
+1. **tc 复合参数必须拆成独立 argv 元素**
+   写 `f'rate {rate}mbit'` 会把整串当成**一个**参数，
+   tc 报 `unknown parameter "rate 1.0mbit"`。
+   → 改成 `['rate', f'{_num(rate)}mbit']`，并加 `_num()` 把 `1.0` 格式化成 `1`
+   （tc 不认 `1.0mbit`）。
+2. **清理必须幂等**：`tc qdisc del` 在「本来就没有 qdisc」时报
+   `Cannot delete qdisc with handle of zero` —— 这是**正常**状态，
+   不能让整个清理失败 → 清理类命令用 `check=False`。
+3. **字典当列表迭代**：`_all_switch_ports()` 返回 `{sw: [ports]}`，
+   直接迭代拿到的是 switch **名**（`'s1'`）而不是端口 →
+   全量清理只清了 1 个「假接口」。→ 加 `_all_interfaces()` 扁平平铺。
+
+### 🧪 新增 `test_fault_api.py`（12 例）
+
+覆盖别名映射、接口解析、argv 拆分、幂等清理、全量清理、
+「未知类型 / 不存在接口 → 抛错（路由层转 400）」。
+所有特权命令全 mock —— **测试不该真的动网络**。
+
+单测还抓出一个设计问题：`_all_interfaces()` 里硬编码 `FaultApi._all_switch_ports()`
+（类级调用）绕过了实例覆盖、没法 mock → 改成 `self._all_switch_ports()`。
+
+### 📡 可观测性
+
+新增 Prometheus 计数器 `intensure_fault_injections_total{type,result}`。
+
+### 📜 文档
+
+- `INTEGRATION_HANDBOOK.md`：联调待办「故障注入 REST 接口」标记完成
+- `README.md`：完成状态表加 v3.19.0；**修正一条过期待办** ——
+  「`reporter.py` 频率 + DNS 老 bug（100% 失败）」实际 **v3.10 已修**
+  （`ProxyHandler({})` 绕代理 + 默认 UA），优化清单 P0-2 也早就标了完成
+- `demo_scripts/04_inject_fault.sh`：接上真端点（补 `target` 参数 +
+  端口自适应 18080/8080 + 按 HTTP 状态码判定成功失败）
+
+---
+
+
 ## v3.18.0 - 2026-10-29 P3-4 可观测性 + P3-3 契约版本管理
 
 **触发**: 优化清单剩余 4 项中的 P3-3 / P3-4 —— 演示和联调需要能回答两个问题：

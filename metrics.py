@@ -25,7 +25,7 @@ import time
 from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
 # 与 CHANGELOG v3.18.0 对齐（build_info 指标用）
-PROJECT_VERSION = '3.18.0'
+PROJECT_VERSION = '3.19.0'
 
 # 直方图默认桶（秒）——覆盖 1ms ~ 30s，够上报/探测量级用
 DEFAULT_BUCKETS: Tuple[float, ...] = (
@@ -296,6 +296,11 @@ HTTP_REQUESTS_TOTAL = counter(
     'intensure_http_requests_total', '自营 REST 接口请求总数', ['method', 'endpoint', 'status'])
 HTTP_DURATION = histogram(
     'intensure_http_request_duration_seconds', '自营 REST 接口耗时（秒）', ['endpoint'])
+
+# 故障注入测试接口用
+FAULT_INJECTIONS_TOTAL = counter(
+    'intensure_fault_injections_total', '故障注入次数（按类型与结果分类）',
+    ['fault_type', 'result'])
 
 # 契约版本（P3-3）用
 CONTRACT_STATE = gauge(

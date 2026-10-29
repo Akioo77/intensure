@@ -95,4 +95,5 @@ jobs:
             test_state_model.py \
             test_metrics.py \
             test_contract_version.py \
+            test_fault_api.py \
             -v
