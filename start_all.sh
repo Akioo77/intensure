@@ -1,4 +1,8 @@
 #!/bin/bash
+# 本地地址不走代理：VM 的 /etc/environment 设了 http_proxy 但没设 no_proxy，
+# 连 127.0.0.1 都会被代理劫持 → curl 返回 502/空 → 健康检查假失败。
+export no_proxy="${no_proxy:-127.0.0.1,localhost,::1}"
+export NO_PROXY="${NO_PROXY:-127.0.0.1,localhost,::1}"
 # start_all.sh - 一键启动 intensure 全部组件（演示现场用）
 #
 # 用法:
@@ -82,10 +86,10 @@ step "2/4 启动 REST API（8080）"
 tmux new-window -t "$SESSION" -n api -c "$PROJECT_DIR" \
     "python3 state_server.py --port 8080 2>&1 | tee /tmp/state_server.log"
 sleep 3
-if curl -s -m 5 http://127.0.0.1:8080/api/health 2>/dev/null | grep -q '"ok"\|"status"'; then
+if curl -s -m 5 --noproxy '*' http://127.0.0.1:8080/api/health 2>/dev/null | grep -q '"ok"\|"status"'; then
     ok "REST API 已响应 /api/health"
 else
-    RESP=$(curl -s -m 5 http://127.0.0.1:8080/api/health 2>&1 | head -c 120)
+    RESP=$(curl -s -m 5 --noproxy '*' http://127.0.0.1:8080/api/health 2>&1 | head -c 120)
     if [ -n "$RESP" ]; then
         warn "API 有响应但内容异常: $RESP"
     else

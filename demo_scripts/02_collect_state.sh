@@ -2,6 +2,10 @@
 # 02_collect_state.sh - 用 intensure 采集 ActualState
 # 这个步骤演示：intensure 是"状态采集层"，产出 ActualState 给 assurance-agent
 set -uo pipefail
+# 本地地址不走代理：VM 的 /etc/environment 设了 http_proxy 但没设 no_proxy，
+# 连 127.0.0.1 都会被代理劫持 → curl 返回 502/空 → 健康检查假失败。
+export no_proxy="${no_proxy:-127.0.0.1,localhost,::1}"
+export NO_PROXY="${NO_PROXY:-127.0.0.1,localhost,::1}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "$SCRIPT_DIR/lib/ui.sh"
 
@@ -17,7 +21,7 @@ echo ""
 
 # 模拟：从 intensure 拉取当前网络状态
 ui_section "GET http://localhost:18080/api/state"
-RESP=$(curl -s -m 3 http://127.0.0.1:18080/api/state 2>&1) || RESP=""
+RESP=$(curl -s -m 3 --noproxy '*' http://127.0.0.1:18080/api/state 2>&1) || RESP=""
 
 if echo "$RESP" | grep -q '"switches"\|"links"'; then
   ui_ok "intensure 状态数据获取成功"

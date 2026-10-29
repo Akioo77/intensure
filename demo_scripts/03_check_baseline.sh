@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 # 03_check_baseline.sh - 基线检查：把 ActualState 推给 assurance-agent
 set -uo pipefail
+# 本地地址不走代理：VM 的 /etc/environment 设了 http_proxy 但没设 no_proxy，
+# 连 127.0.0.1 都会被代理劫持 → curl 返回 502/空 → 健康检查假失败。
+export no_proxy="${no_proxy:-127.0.0.1,localhost,::1}"
+export NO_PROXY="${NO_PROXY:-127.0.0.1,localhost,::1}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "$SCRIPT_DIR/lib/ui.sh"
 

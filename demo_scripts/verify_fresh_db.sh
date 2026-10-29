@@ -1,4 +1,8 @@
 #!/bin/bash
+# 本地地址不走代理：VM 的 /etc/environment 设了 http_proxy 但没设 no_proxy，
+# 连 127.0.0.1 都会被代理劫持 → curl 返回 502/空 → 健康检查假失败。
+export no_proxy="${no_proxy:-127.0.0.1,localhost,::1}"
+export NO_PROXY="${NO_PROXY:-127.0.0.1,localhost,::1}"
 # verify_fresh_db.sh —— 验证「新建库 = 现有库」这条承诺真的成立
 #
 # 现在走 **alembic** 这条规范路径（而不是直接套 SQL 文件），

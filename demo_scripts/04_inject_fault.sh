@@ -5,6 +5,10 @@
 # - packet_loss: 丢包
 # - flow_missing: 策略漂移
 set -uo pipefail
+# 本地地址不走代理：VM 的 /etc/environment 设了 http_proxy 但没设 no_proxy，
+# 连 127.0.0.1 都会被代理劫持 → curl 返回 502/空 → 健康检查假失败。
+export no_proxy="${no_proxy:-127.0.0.1,localhost,::1}"
+export NO_PROXY="${NO_PROXY:-127.0.0.1,localhost,::1}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "$SCRIPT_DIR/lib/ui.sh"
 
@@ -50,7 +54,7 @@ read -p "  选择 (默认 1): " CHOICE
 CHOICE="${CHOICE:-1}"
 
 if [[ "$CHOICE" == "2" ]]; then
-  INJ=$(curl -s -X POST http://127.0.0.1:18080/api/v1/test/inject-fault \
+  INJ=$(curl -s -X POST --noproxy '*' http://127.0.0.1:18080/api/v1/test/inject-fault \
     -H "Content-Type: application/json" \
     -d "{\"fault_type\": \"$FAULT_TYPE\", \"mode\": \"test\"}" 2>&1) || INJ=""
   if [[ -n "$INJ" ]] && ! echo "$INJ" | grep -q "404\|Not Found\|detail"; then

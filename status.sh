@@ -6,6 +6,10 @@
 # 演示前跑一次，确认该起的都起了、DB 有数据。
 
 set -uo pipefail
+# 本地地址不走代理：VM 的 /etc/environment 设了 http_proxy 但没设 no_proxy，
+# 连 127.0.0.1 都会被代理劫持 → curl 返回 502/空 → 健康检查假失败。
+export no_proxy="${no_proxy:-127.0.0.1,localhost,::1}"
+export NO_PROXY="${NO_PROXY:-127.0.0.1,localhost,::1}"
 
 PROJECT_DIR="/home/sunxiaoxuan.guest/intensure"
 SESSION="intensure"
@@ -79,7 +83,7 @@ check_port() {
 check_port 6653 "OpenFlow (os-ken)"
 check_port 8080 "REST API"
 
-HEALTH=$(curl -s -m 5 http://127.0.0.1:8080/api/health 2>/dev/null)
+HEALTH=$(curl -s -m 5 --noproxy '*' http://127.0.0.1:8080/api/health 2>/dev/null)
 if [ -n "$HEALTH" ]; then
     ok "/api/health 响应: $(echo "$HEALTH" | head -c 100)"
 else

@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 # 00_pre_check.sh - 联调预检（5 项：VM / 隧道 / intensure / assurance-agent / Mininet）
 set -uo pipefail
+# 本地地址不走代理：VM 的 /etc/environment 设了 http_proxy 但没设 no_proxy，
+# 连 127.0.0.1 都会被代理劫持 → curl 返回 502/空 → 健康检查假失败。
+export no_proxy="${no_proxy:-127.0.0.1,localhost,::1}"
+export NO_PROXY="${NO_PROXY:-127.0.0.1,localhost,::1}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "$SCRIPT_DIR/lib/ui.sh"
 
@@ -43,7 +47,7 @@ fi
 
 # 3. intensure 本地服务
 ui_section "[3/5] intensure 本地服务"
-RESP=$(curl -s -m 3 http://127.0.0.1:18080/api/state 2>&1 || echo "FAIL")
+RESP=$(curl -s -m 3 --noproxy '*' http://127.0.0.1:18080/api/state 2>&1 || echo "FAIL")
 HTTP=$(echo "$RESP" | head -c 20)
 if echo "$RESP" | grep -q '"switches"\|"hosts"\|"links"'; then
   ui_ok "intensure 服务正常响应"

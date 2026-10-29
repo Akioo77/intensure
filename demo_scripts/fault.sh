@@ -1,4 +1,8 @@
 #!/bin/bash
+# 本地地址不走代理：VM 的 /etc/environment 设了 http_proxy 但没设 no_proxy，
+# 连 127.0.0.1 都会被代理劫持 → curl 返回 502/空 → 健康检查假失败。
+export no_proxy="${no_proxy:-127.0.0.1,localhost,::1}"
+export NO_PROXY="${NO_PROXY:-127.0.0.1,localhost,::1}"
 # fault.sh - 演示用故障注入包装（Mac 侧，一条命令搞定）
 #
 # 用法（在 Mac 终端跑）:
