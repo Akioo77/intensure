@@ -195,7 +195,7 @@
 #### 🟡 P1（演示加分项）
 
 - [x] **CHANGELOG.md 更新** ✅ 已到 v3.18（OVS logger / 联调脚本 / 契约对齐 / 可观测性均有条目）
-- [ ] **架构图** ❌ 仍未产出（仓库内暂无 diagram 文件）
+- [x] **架构图** ✅ 2026-10-29 —— `docs/architecture.html`（单文件 HTML + 内联 SVG）+ `docs/architecture.png`。图中区分三种连接线型：**实线 = HTTP 直连**、**虚线 = 共享数据库耦合**、**点线 = 无连接**，并标出「契约路径不匹配」缺口
 - [ ] **PPT 准备**（如老师要求幻灯片，create-pptx + Apple 风）
 - [x] **故障注入 REST 路由** ✅ v3.19.0（2026-10-29）—— `state_server.py` 新增 `POST /api/v1/test/inject-fault` + `GET/DELETE /api/v1/test/faults`，9 种故障全覆盖；`demo_scripts/04_inject_fault.sh` 已接上
 - [x] **跨智能体对接文档 v2** ✅ 2026-10-29 —— `docs/cross-module-api-contract.md` 已补「契约目标 vs 当前实现」映射表
