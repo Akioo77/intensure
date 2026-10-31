@@ -360,6 +360,7 @@ intensure/
 │   ├── STATE_MODEL.md          # 统一状态模型
 │   ├── CHANGELOG.md            # 版本历史（v1.0 ~ v3.20）
 │   └── docs/                   # 优化清单 / 架构 / 契约 / 汇报材料
+│       └── DEVELOPMENT_LOG.md  # ⭐ 开发进度 / 待办 / 交接（先看这个）
 └── legacy/                     # 历史探索材料（不接入主流程）
     ├── intent_registry.py / conflict_detector.py / conflict_resolver.py
     ├── healing_engine.py / healing_intent_generator.py
