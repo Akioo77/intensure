@@ -26,8 +26,22 @@ intensure 是意图驱动网络管理系统的**采集层**（Mininet + OVS + os
 | 代码风格 | `ruff check .` 全过 | 规则 E/W/F，E402 豁免（见 §8） |
 | Python 代码量 | 12212 行（根目录 *.py） | `wc -l *.py` |
 | 提交总数 | 55 个（含本文档 commit） | `git log --oneline \| wc -l` |
-| 数据库 | **6 schema / 32 张逻辑表 / 21 个月分区** | `docs/database-schema.sql` 逐表比对，与现库完全一致 |
+| 数据库 | **6 schema / 25 张逻辑表**（物理表 53 张，其中 75 个是分区子表）| 实测口径见下方脚注 |
 | 对外接口方向 | **只 POST 不读 GET** | 见 §6 边界 |
+
+> **关于「表数量」的口径**（这里最容易各说各话，老师问起来要能答）：
+> - **逻辑表 25 张** —— 不含分区子表的普通表（`pg_class.relispartition = false`）
+> - **物理表 53 张** —— 逻辑表 + 所有分区子表（`pg_tables` 的总数）
+> - **分区子表 75 个** —— 历史累积：v3.14.0 之前是硬编码月份（2026_08/09/10…），
+>   v3.14.0 起改为「当前月 + 0..2」动态创建，所以**只增不减**
+> - 仓库里流传的「39 表」是早期某个时点的物理表数，**已过期**（见 §7）
+>
+> 自己核一下（VM 内）：
+> ```bash
+> sudo -u postgres psql -d intensure_dev -t -A -c "SELECT schemaname, count(*) \
+>   FROM pg_tables WHERE schemaname NOT IN ('pg_catalog','information_schema') \
+>   GROUP BY schemaname ORDER BY 1;"
+> ```
 
 ---
 
@@ -66,8 +80,10 @@ intensure 是意图驱动网络管理系统的**采集层**（Mininet + OVS + os
 ### 3.1 环境（重要：代码在 macOS，跑在 VM 里）
 
 ```
-宿主机：macOS + Colima（/usr/local/bin/colima —— **实测在默认 PATH 里**，干净 login shell 也能找到；
-      极少数工具环境里找不到时再 `export PATH="/usr/local/bin:$PATH"` 兜底）
+宿主机：macOS + Colima（/usr/local/bin/colima —— 登录 shell 的默认 PATH 里就有，
+      实测 `bash -lc 'which colima'` 能找到；**但非登录 shell 不一定**：
+      某些工具/IDE/agent 的 shell PATH 里没有 /usr/local/bin，
+      这时先 `export PATH="/usr/local/bin:$PATH"` 再跑）
 VM：Ubuntu 24.04 / Python 3.12.3 / pytest 9.1.1 / ruff 0.6.9   ← 权威测试环境
 仓库（宿主机）：/Users/sunxiaoxuan/workspace/projects/intensure
 仓库（VM 内） ：/home/sunxiaoxuan.guest/intensure
@@ -227,7 +243,7 @@ curl -s --noproxy '*' http://127.0.0.1:8080/metrics | head   # 看指标
 | CI 测试列表是显式枚举 | 中 | 新增测试文件必须手工加进 `ci.yml`，忘了就不会跑（已踩坑 2 次） |
 | `dashboard.html` 单文件 1600+ 行 | 低 | 可维护性问题，见 §4.2 |
 | `docs/architecture.png` 需手工重新生成 | 低 | 改 `docs/architecture.html` 后要重新截图 PNG（headless Chrome，`--window-size=1460,1060`）|
-| **`39 表 / 15 个月分区` 这个旧数全库还有 6 处没改** | 中 | 本文已订正为 **32 张逻辑表 / 21 个月分区**（7 张分区父表 × 当前月+0..2 动态分区），但下面 4 个文件还写着旧数：`README.md`（3 处，L15/L43/L491）、`REQUIREMENTS.md`（1 处，L57）、`docs/architecture.html`（2 处，L121/L204）。**改 `architecture.html` 后要连带重截 PNG**。下次同步文档时一并清掉 |
+| **`39 表 / 15 个月分区` 这个旧数全库还有 6 处没改** | 中 | 已按实测订正为 **25 张逻辑表 / 53 张物理表（75 个分区子表）**（见 §1 脚注），但下面 4 个文件还写着旧数：`README.md`（3 处，L15/L43/L491）、`REQUIREMENTS.md`（1 处，L57）、`docs/architecture.html`（2 处，L121/L204）。**改 `architecture.html` 后要连带重截 PNG**。下次同步文档时一并清掉 |
 | `docs/speaker_notes.md` 里有 2 条问答内容已过期 | 低 | Q4 说「自愈的触发和执行留给 Phase 2」（我们已有 `assurance_mvp` 自愈）、Q6 说「稳定时 60 秒写一次心跳」（心跳 v3.9 起默认关）。**讲稿本身是现成的，但这两条要改** |
 
 ---
@@ -256,7 +272,8 @@ curl -s --noproxy '*' http://127.0.0.1:8080/metrics | head   # 看指标
 
 ### 8.3 环境陷阱清单
 
-1. `colima` 在 `/usr/local/bin/colima`，**默认 PATH 里就有**（实测干净 login shell 也能找到）；
+1. `colima` 在 `/usr/local/bin/colima`：登录 shell 默认 PATH 里有，**非登录 shell 可能没有**
+   （agent 的 bash 工具就是这种，所以脚本里跑 colima 前先 export PATH）；
    只有个别工具环境找不到时才需要 `export PATH="/usr/local/bin:$PATH"`
 2. VM 里**没有 git** —— 版本管理一律在宿主机做
 3. VM 的 `/etc/environment` 设了 `http_proxy` 但没设 `no_proxy` → 本地地址被劫持 →
