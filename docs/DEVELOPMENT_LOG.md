@@ -25,8 +25,8 @@ intensure 是意图驱动网络管理系统的**采集层**（Mininet + OVS + os
 | CI 跑的测试文件 | **13 个** | `.github/workflows/ci.yml` |
 | 代码风格 | `ruff check .` 全过 | 规则 E/W/F，E402 豁免（见 §8） |
 | Python 代码量 | 12212 行（根目录 *.py） | `wc -l *.py` |
-| 提交总数 | 54 个（v1.0 至今） | `git log --oneline \| wc -l` |
-| 数据库 | 6 schema / 39 表 / 15 个月分区 | `docs/database-architecture.md` |
+| 提交总数 | 55 个（含本文档 commit） | `git log --oneline \| wc -l` |
+| 数据库 | **6 schema / 32 张逻辑表 / 21 个月分区** | `docs/database-schema.sql` 逐表比对，与现库完全一致 |
 | 对外接口方向 | **只 POST 不读 GET** | 见 §6 边界 |
 
 ---
@@ -37,11 +37,16 @@ intensure 是意图驱动网络管理系统的**采集层**（Mininet + OVS + os
 
 | 版本 | 日期 | 做了什么 |
 |---|---|---|
+| v1.0 ~ v2.0 | 08-04 ~ 09-03 | 初始开发 → 重构为「与上游契约对齐」。**这两版只在 `CHANGELOG.md` 里有，git 仓库是从 v3.0 开始的**，所以 git log 里查不到 |
 | v3.0 | 09-03 | 范围收敛为「采集 + 上报」；dashboard 自愈前后对比面板 |
-| v3.5 | 10-08 | 数据库架构 Phase 0：6 schema / 39 表 + 分区 + GRANT + 保留策略 |
+| v3.1 ~ v3.2 | 09-03/04 | 清理作者署名（改团队中性表述）；加 `.gitignore`、移出 `__pycache__` |
+| v3.3 ~ v3.4 | 10-08 | 端口标签 `s1:eth2` + OVS 详细日志接入 + `safe_ping` 防死锁；联调脚本与文档（`demo_scripts` + 联调手册 + 项目汇报） |
+| v3.5 | 10-08 | 数据库架构 Phase 0：6 schema + 分区 + GRANT + 保留策略 |
 | v3.6 | 10-08 | `db_writer.py` 选择性写库（异常才写、变化才写、30s 节流） |
 | v3.7 | 10-08 | `assurance_mvp.py`：一致性检查 + 根因诊断 + `intent_states` 状态轨迹 |
 | v3.8 ~ v3.9 | 10-08 | 一键 E2E 演示脚本；心跳默认关（生产才开） |
+| v3.10 ~ v3.10.1 | 10-09 | 补全 30 天工作记录、清理过期描述；修测试暴露的小问题 |
+| P0-1 / P0-5 / P1-4 / P3-5 | 10-09 | **基础工程一批**：`requirements.txt` + `requirements-dev.txt`、**GitHub Actions CI workflow**、修 `our_tables_and_methods` 描述矛盾、移除 `assurance_bridge.py` 里硬编码的 cloudflared URL |
 | v3.10.2 ~ v3.10.4 | 10-25 | 伙伴 `assurance_schema.sql` 落地准备；graceful shutdown |
 | v3.11.x | 10-26 | 测试覆盖 +131 例；ruff 接入 CI 防退化；一键启动脚本 |
 | v3.12.x | 10-26 | 落地伙伴 9 张无冲突保障表；诊断表写入开关（职责分离） |
@@ -61,8 +66,9 @@ intensure 是意图驱动网络管理系统的**采集层**（Mininet + OVS + os
 ### 3.1 环境（重要：代码在 macOS，跑在 VM 里）
 
 ```
-宿主机：macOS + Colima（/usr/local/bin/colima，注意不在默认 PATH 里）
-VM：Ubuntu 24.04 / Python 3.12.3 / pytest 9.1.1 / ruff 0.6.9
+宿主机：macOS + Colima（/usr/local/bin/colima —— **实测在默认 PATH 里**，干净 login shell 也能找到；
+      极少数工具环境里找不到时再 `export PATH="/usr/local/bin:$PATH"` 兜底）
+VM：Ubuntu 24.04 / Python 3.12.3 / pytest 9.1.1 / ruff 0.6.9   ← 权威测试环境
 仓库（宿主机）：/Users/sunxiaoxuan/workspace/projects/intensure
 仓库（VM 内） ：/home/sunxiaoxuan.guest/intensure
 ```
@@ -82,7 +88,6 @@ rsync -az --exclude '.git' --exclude '__pycache__' \
 ### 3.2 跑测试 / lint（改动后必做）
 
 ```bash
-export PATH="/usr/local/bin:$PATH"
 colima ssh -- bash -lc 'cd /home/sunxiaoxuan.guest/intensure && ruff check . && \
   python3 -m pytest test_actual_state_builder.py test_reporter.py test_graceful.py \
   test_db_writer.py test_assurance_mvp.py test_state_server.py test_state_history.py \
@@ -103,6 +108,36 @@ bash stop_all.sh                               # 优雅停止（数据保留）
 curl -s --noproxy '*' http://127.0.0.1:8080/metrics | head   # 看指标
 ```
 
+### 3.4 演示时按什么顺序敲哪条命令
+
+> **完整版在 `demo_scripts/README.md` §「演示流程全景」**（含状态机轨迹 + 每步产物）。
+> 下表是速查版 —— 命令在 VM 里的 `/home/sunxiaoxuan.guest/intensure` 下执行。
+
+| 顺序 | 命令 | 干什么 | 关键产物 |
+|---|---|---|---|
+| 0 | `bash start_all.sh` | 起 4 组件（controller / api / mininet / assurance）| — |
+| 1 | `bash status.sh` | 5 段体检（进程 / tmux / 端口 / DB / 汇总）| — |
+| 2 | `bash demo_scripts/00_pre_check.sh` | 联调预检 5 项（VM / 隧道 / intensure / assurance-agent / Mininet）| `.pre_check.json` |
+| 3 | `bash demo_scripts/01_register_intent.sh` | 注册 + activate 演示意图 | `expected_state` |
+| 4 | `bash demo_scripts/02_collect_state.sh` | 采集 ActualState | `.actual_state.json` |
+| 5 | `bash demo_scripts/03_check_baseline.sh` | 基线检查：推给 assurance → `ACTIVE` | 健康基线 |
+| 6 | `bash demo_scripts/04_inject_fault.sh` | 注入故障（`link_down` / `high_latency` / `packet_loss` / `flow_missing`）| `.fault_state.json` |
+| 7 | `bash demo_scripts/05_check_violated.sh` | 推送故障状态 → 触发 `VIOLATED` | `violations[]` |
+| 8 | `bash demo_scripts/06_diagnose.sh` | 根因诊断 | `root_causes[]` |
+| 9 | `bash demo_scripts/07_heal.sh` | 自愈（生成 healing_intent + guard_checks 评估）| healing_intent |
+| 10 | `bash demo_scripts/08_verify_recovered.sh` | 验证恢复 → `RECOVERED` | healing_verdict |
+| 11 | `bash demo_scripts/99_reset.sh` | 演示后清理（清环境状态 + 删临时文件）| — |
+
+**两个一键版**（省事，但正式演示别用 —— 看不出每步在干什么）：
+
+| 命令 | 用途 | 前提 |
+|---|---|---|
+| `bash demo_scripts/demo_all.sh` | 全链路 9 步一键（`--auto` 不暂停 / `--skip=00` 跳预检 / `--fault=<类型>` 指定故障）| 需要对方服务可达 |
+| `bash demo_scripts/demo_db_pipeline.sh` | 数据库闭环 8 步（启动 → 基线 → 注入 → 验证 → 恢复 → 验证 → 清理）| **不需要对方**，纯本地，最适合演示前自检 |
+
+> ⚠️ `demo_all.sh` 依赖对方的 assurance-agent 服务；对方隧道不通（当前状态）时，
+> **用 `demo_db_pipeline.sh` 也能完整演示我们的采集 → 判定 → 诊断 → 自愈能力**。
+
 ---
 
 ## 4. 待办清单（2026-10-31）
@@ -112,8 +147,8 @@ curl -s --noproxy '*' http://127.0.0.1:8080/metrics | head   # 看指标
 | 事项 | 归属 | 说明 |
 |---|---|---|
 | **跑通 1 次真实联调** | **外部阻塞** | 卡在保障模块的 cloudflared 隧道不通（HTTP 000）。路径/契约已对齐，只剩这一个变量 |
-| 演示讲稿（15-20 分钟完整剧本） | 待做 | 含每步讲什么 / 看什么 / 解释什么 |
-| Q&A 预案（15-20 个老师可能问的问题） | 待做 | `docs/speaker_notes.md` 有零散素材，未成体系 |
+| ~~演示讲稿~~（15-20 分钟完整剧本） | ✅ **已完成** | `docs/speaker_notes.md`（299 行）：开场 30 秒 + 11 个分段带时间标注的逐句话术 + 汇报完成 30 秒 + 应急方案，**合计约 29 分钟**，已超过 15-20 分钟的目标 |
+| Q&A 预案（15-20 个老师可能问的问题） | 🟡 **部分完成** | 素材其实成型了：`docs/speaker_notes.md` 有 **Q1–Q8 完整答案**（不是占位），`demo_scripts/README.md` 另有 5 个问题。**去重后约 10-13 题**，离 15-20 还差 3-7 题，且没有按「老师真会问什么」排过序 |
 
 ### 4.2 🟡 我们自己能做（不依赖外部）
 
@@ -191,7 +226,9 @@ curl -s --noproxy '*' http://127.0.0.1:8080/metrics | head   # 看指标
 | `migrations/versions/0002_retention_function.py` 与生成器模板漂移 | 低 | 该文件被手工排版过，`gen_baseline.py` 重新生成会产生 diff（语义相同，只差换行）。CI 只校验 `0001_baseline.py` 所以没发现。**改 schema 时注意别把无关 diff 带进去** |
 | CI 测试列表是显式枚举 | 中 | 新增测试文件必须手工加进 `ci.yml`，忘了就不会跑（已踩坑 2 次） |
 | `dashboard.html` 单文件 1600+ 行 | 低 | 可维护性问题，见 §4.2 |
-| `docs/architecture.png` 需手工重新生成 | 低 | 改 `docs/architecture.html` 后要重新截图 PNG |
+| `docs/architecture.png` 需手工重新生成 | 低 | 改 `docs/architecture.html` 后要重新截图 PNG（headless Chrome，`--window-size=1460,1060`）|
+| **`39 表 / 15 个月分区` 这个旧数全库还有 6 处没改** | 中 | 本文已订正为 **32 张逻辑表 / 21 个月分区**（7 张分区父表 × 当前月+0..2 动态分区），但下面 4 个文件还写着旧数：`README.md`（3 处，L15/L43/L491）、`REQUIREMENTS.md`（1 处，L57）、`docs/architecture.html`（2 处，L121/L204）。**改 `architecture.html` 后要连带重截 PNG**。下次同步文档时一并清掉 |
+| `docs/speaker_notes.md` 里有 2 条问答内容已过期 | 低 | Q4 说「自愈的触发和执行留给 Phase 2」（我们已有 `assurance_mvp` 自愈）、Q6 说「稳定时 60 秒写一次心跳」（心跳 v3.9 起默认关）。**讲稿本身是现成的，但这两条要改** |
 
 ---
 
@@ -219,13 +256,33 @@ curl -s --noproxy '*' http://127.0.0.1:8080/metrics | head   # 看指标
 
 ### 8.3 环境陷阱清单
 
-1. `colima` 不在默认 PATH —— 要 `export PATH="/usr/local/bin:$PATH"`
+1. `colima` 在 `/usr/local/bin/colima`，**默认 PATH 里就有**（实测干净 login shell 也能找到）；
+   只有个别工具环境找不到时才需要 `export PATH="/usr/local/bin:$PATH"`
 2. VM 里**没有 git** —— 版本管理一律在宿主机做
 3. VM 的 `/etc/environment` 设了 `http_proxy` 但没设 `no_proxy` → 本地地址被劫持 →
    脚本里已加 `export no_proxy` + `curl --noproxy '*'`（v3.19.0 修的，别删）
-4. macOS 自带 python 是 3.9，**项目要 3.12** —— 一律在 VM 里跑测试
+4. **macOS 上没有 `python` 这个命令**（只有 `python3`）；`/usr/bin/python3` 是系统自带的 **3.9.6**，
+   但 PATH 里 `python3` 优先命中 `/usr/local/bin/python3` = **3.14.8**。
+   VM 里的 **3.12.3** 是权威环境；**Mac 上也能跑** —— 用 `~/tools/testenv/bin/pytest`（3.14.8）实测 196 例全绿。
+   但 `pip install --user` 会被 PEP 668 拒（externally-managed-environment），**别在 Mac 上临时装包**
 5. `eventlet.monkey_patch()` 必须在 `import os_ken` 之前 → ruff 的 **E402 不能开**
 6. `rsync --delete` 会删掉 alembic 旧 revision → multiple heads
+
+### 8.4 后加的坑（v3.18 ~ v3.19，README 踩坑清单里还没有）
+
+7. **`tc` 的复合参数必须拆成独立 argv** —— `f'rate {x}mbit'` 会被 tc 当成未知参数
+   （`unknown parameter "rate 1.0mbit"`），要写成 `['rate', f'{x}mbit']`（v3.19.0）
+8. **`tc qdisc del` 在「本来就没 qdisc」时报错是正常状态** —— 清理逻辑必须幂等，
+   不能把 `Cannot delete qdisc with handle of zero` 当失败（v3.19.0）
+9. **别把 dict 当 list 迭代** —— `_all_switch_ports()` 返回 `{sw: [ports]}`，
+   直接迭代拿到的是交换机名而不是端口，全量清理会只清掉 1 个假接口（v3.19.0）
+10. **别在实例方法里硬编码类级调用** —— `FaultApi._all_switch_ports()` 会绕过实例覆盖，
+    单测没法 mock；改用 `self.` 调用（v3.19.0 单测抓出来的设计问题）
+11. **VM 的 `http_proxy` 会劫持本地 curl** —— `/etc/environment` 设了 `http_proxy` 却没设 `no_proxy`，
+    连 `127.0.0.1:8080` 都走代理 → 返回 502 → 健康检查误判「服务没起来」→ 启动脚本提前退出。
+    脚本里已加 `export no_proxy` + `curl --noproxy '*'`，**别删**（v3.19.0）
+12. **启动脚本的就绪探测别太早** —— `sleep 3` 后就 curl，Flask 还没 ready 会误判；
+    看到「服务没起来」先去看 `/tmp/state_server.log`，别急着改代码（v3.19.0）
 
 ---
 
@@ -242,5 +299,7 @@ curl -s --noproxy '*' http://127.0.0.1:8080/metrics | head   # 看指标
 | `docs/our_tables_and_methods.md` | 我们写哪些表、读不读别人的表 |
 | `docs/ALEMBIC_WORKFLOW.md` | 改 schema 的唯一正确流程 |
 | `docs/demo_runbook.md` / `demo_scripts/演示手册.md` | 演示现场怎么操作 |
-| `docs/speaker_notes.md` | 汇报问答素材（尚未成体系，见 §4.1） |
+| `docs/speaker_notes.md` | **汇报讲稿 + Q&A 素材**（约 29 分钟逐句话术 + Q1–Q8 完整答案，见 §4.1）|
+| `docs/demo_runbook.md` / `demo_scripts/演示手册.md` | 演示现场怎么操作（8 分钟流程 + 应急方案）|
+| `demo_scripts/README.md` | 9 个联调脚本的流程全景 + 演讲稿速查 + 老师可能问的 5 个问题 |
 | `docs/DEVELOPMENT_LOG.md` | **本文**：进度、待办、交接 |
