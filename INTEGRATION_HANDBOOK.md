@@ -28,6 +28,7 @@
   - [4.1 演示前怎么查](#41-演示前怎么查)
   - [4.2 两个环境变量](#42-两个环境变量)
   - [4.3 对方升级版本时怎么办](#43-对方升级版本时怎么办)
+- [5. 对方该调哪套路径](#5-对方该调哪套路径-v3200)
 
 ---
 
@@ -391,6 +392,78 @@ ASSURANCE_BASE=https://对方新地址 python3 assurance_bridge.py contract
 ```bash
 curl -s http://127.0.0.1:8080/metrics | grep assurance_contract
 ```
+
+---
+
+## 5. 对方该调哪套路径（v3.20.0）
+
+> **一句话**：**对方（意图保障模块）按契约文档调 `/api/intensure/v1/*`**；
+> 旧的 `/api/*` 是**我们内部联调和演示脚本在用的**，两套并存、互不影响。
+
+### 5.1 为什么有两套
+
+之前契约要求 `/api/intensure/v1/state/current`，我们实际只暴露 `/api/state` ——
+**对方按契约调会全部 404**（这个缺口之前标在 `docs/architecture.html` 的红框里）。
+
+v3.20.0 的做法**不是改路径**（改了会打断现有联调 —— dashboard、演示脚本、
+对方已经写好的调用全在用 `/api/*`），而是**并行提供**：
+
+| | 契约路径 | 旧路径 |
+|---|---|---|
+| 前缀 | `/api/intensure/v1/*` | `/api/*` |
+| 谁在用 | **对方按契约文档调用** | 我们自己的联调 / dashboard / 演示脚本 |
+| 状态 | ✅ v3.20.0 新增 | ✅ 一路保留，行为**没变** |
+
+### 5.2 对照表
+
+| 契约路径（对方调这个）| 旧路径（我们内部用）|
+|---|---|
+| `GET /api/intensure/v1/state/current` | `GET /api/state` |
+| `GET /api/intensure/v1/state/history` | `GET /api/history` |
+| `GET /api/intensure/v1/port-events` | `GET /api/port_stats` |
+| `GET /api/intensure/v1/link-events` | `GET /api/links` |
+| `POST /api/intensure/v1/probe-results` | `POST /api/probe` |
+
+### 5.3 ⚠️ 两套返回结构**不一样**
+
+对方按契约调，不要拿旧路径的响应格式去解析：
+
+| 差异点 | 旧路径（内部）| 契约路径 |
+|---|---|---|
+| `switches` | **dict**（按 dpid 键）| **list**（按 dpid 排序）|
+| `version` | 无 | **有** —— 乐观锁，取 `meta.update_count`，靠它判断采集是否在更新 |
+| `captured_at` | 无 | **有** —— UTC ISO 8601 带 `Z` |
+| `down_ports` / `down_links` | 无 | **有** —— 我们算好给对方直接用，格式 `"s1:eth3"` / `"s1:eth3-s2:eth3"` |
+| `ports[].speed_mbps` | 无此字段 | **有** —— `curr_speed`(kbps) ÷ 1000 |
+
+### 5.4 对方要注意的两个点
+
+1. **采集没起来时返回 424，不是 200**：
+   ```json
+   {"error": {"code": "DEPENDENCY_NOT_READY",
+              "message": "采集尚未初始化（还没有交换机被发现）",
+              "module": "intensure"}}
+   ```
+   对方要**重试**而不是当成错误放弃。
+2. **统一错误体**是 `{"error": {"code": "...", "message": "..."}}`（契约 §3）。
+
+### 5.5 实际请求 / 响应样例
+
+`docs/cross-module-api-contract.md` **§5.8** 有 5 个端点的完整样例
+（**VM 实测抓取**，不是照代码编的）。
+
+### 5.6 演示时怎么验
+
+```bash
+# 契约路径（对方视角）
+curl -s --noproxy '*' http://127.0.0.1:8080/api/intensure/v1/state/current | head -c 300
+# 旧路径（我们自己的，仍在用）
+curl -s --noproxy '*' http://127.0.0.1:8080/api/state | head -c 300
+```
+
+> ⚠️ `--noproxy '*'` 不能省 —— VM 的 `/etc/environment` 设了 `http_proxy` 但没设 `no_proxy`，
+> 连 `127.0.0.1` 都会被代理劫持 → curl 返回 502/空 → 健康检查假失败。
+> 详见 §4 与 `demo_scripts/` 各脚本顶部的注释。
 
 ---
 

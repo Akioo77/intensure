@@ -68,6 +68,9 @@
   .note-text { font-size: 11.5px; fill: var(--muted); }
   .note-head { font-size: 12.5px; font-weight: 650; fill: var(--fg); }
   .risk-head { font-size: 12.5px; font-weight: 650; fill: #b91c1c; }
+  .ok-head { font-size: 12.5px; font-weight: 650; fill: #0f766e; }
+  @media (prefers-color-scheme: dark) { .ok-head { fill: #5eead4; } }
+  .ok-box { fill: var(--storage); stroke: #0f766e; }
   @media (prefers-color-scheme: dark) { .risk-head { fill: #fca5a5; } }
 </style>
 <main>
@@ -88,7 +91,7 @@
     </defs>
 
     <text class="title" x="30" y="40">意图驱动网络管理系统 · 架构与跨智能体连接图</text>
-    <text class="subtitle" x="30" y="64">intensure 采集层在整条链路里的位置 —— 以及它到底和谁有连接（依据代码实测，2026-10-29 / v3.19.0）</text>
+    <text class="subtitle" x="30" y="64">intensure 采集层在整条链路里的位置 —— 以及它到底和谁有连接（依据代码实测，2026-10-31 / v3.20.0）</text>
 
     <!-- ============ 连接线（先画，压在盒子下面） ============ -->
 
@@ -157,7 +160,7 @@
 
     <rect x="252" y="322" width="186" height="86" rx="10" fill="var(--neutral)" stroke="#64748b" stroke-width="1.3" />
     <text class="box-title" x="268" y="350">state_server REST</text>
-    <text class="box-sub" x="268" y="370">18 端点 · 8080</text>
+    <text class="box-sub" x="268" y="370">23 端点 · 8080（含契约端点）</text>
     <text class="box-sub" x="268" y="388">/metrics · /api/health</text>
 
     <rect x="458" y="322" width="176" height="86" rx="10" fill="var(--neutral)" stroke="#64748b" stroke-width="1.3" />
@@ -175,7 +178,7 @@
     <text class="note-text" x="72" y="480">· 只 POST 不读 GET：所有「当前状态」由保障模块管理，采集层不维护</text>
     <text class="note-text" x="72" y="502">· 职责分离：采集只做「把故障 / 状态打进去」；一致性判定与根因诊断由 assurance_mvp.py 负责</text>
     <text class="note-text" x="72" y="524">· 数据库账号分离：intensure_user / assurance_user / implementation_user / translation_user 各自最小权限</text>
-    <text class="note-text" x="72" y="546">· 对外只暴露 v3.19.0 的 18 个端点；不主动 GET 别人的接口</text>
+    <text class="note-text" x="72" y="546">· 对外只暴露 v3.20.0 的 23 个端点；不主动 GET 别人的接口</text>
     <text class="note-text" x="72" y="568">· 故障注入只归我们，且用 mode=test 标注，与生产模块解耦</text>
 
     <!-- 写库标签 -->
@@ -221,16 +224,16 @@
     <text class="box-sub" x="660" y="784">→ 翻译组的接口还没接进来</text>
     <text class="box-sub" x="660" y="810">❌ 目前等于「空仓」</text>
 
-    <!-- ============ 缺口提示 ============ -->
-    <rect x="1010" y="680" width="360" height="170" rx="12" fill="var(--risk)" stroke="#b91c1c" stroke-width="1.8" />
-    <text class="risk-head" x="1028" y="708">⚠️ 待解决：契约路径不匹配</text>
-    <text class="note-text" x="1028" y="730">跨模块契约 §4.1 要求我们暴露：</text>
+    <!-- ============ 已解决（v3.20.0） ============ -->
+    <rect x="1010" y="680" width="360" height="170" rx="12" class="ok-box" stroke-width="1.8" />
+    <text class="ok-head" x="1028" y="708">✅ 已解决：契约路径不匹配</text>
+    <text class="note-text" x="1028" y="730">v3.20.0 起契约路径已全部落地：</text>
     <text class="box-sub" x="1044" y="748">GET /api/intensure/v1/state/current</text>
-    <text class="note-text" x="1028" y="770">我们实际暴露（state_server.py）：</text>
-    <text class="box-sub" x="1044" y="788">GET /api/state</text>
-    <text class="note-text" x="1028" y="810">若同学 A 按契约调 → 404。</text>
-    <text class="note-text" x="1028" y="830">同一契约里还有 4 个端点路径待对齐</text>
-    <text class="note-text" x="1028" y="846">（history / port-events / link-events / probe-results）</text>
+    <text class="note-text" x="1028" y="770">另有 4 个端点同样已落地：</text>
+    <text class="box-sub" x="1044" y="788">history / port-events / link-events / probe-results</text>
+    <text class="note-text" x="1028" y="810">做法 = 并行提供：契约路径给对方调，</text>
+    <text class="note-text" x="1028" y="830">旧路径 /api/* 全部保留、行为不变</text>
+    <text class="note-text" x="1028" y="846">（旧路径给我们自己的联调和演示脚本用）</text>
 
     <!-- ============ 图例 ============ -->
     <rect x="30" y="880" width="1340" height="110" rx="12" fill="var(--neutral)" fill-opacity="0.4" stroke="#64748b" stroke-width="1.2" />
@@ -247,6 +250,6 @@
     <text class="legend-text" x="952" y="937">无连接（❌）</text>
 
     <text class="note-text" x="52" y="966">本图依据代码实测生成：连接关系来自 assurance_bridge.py / reporter.py 的真实 base_url 与 db_writer.py、assurance_mvp.py 的真实 SQL 查询，不是设计意图的臆测。</text>
-    <text class="note-text" x="52" y="982">灰底框 = 本项目内部组件；黄底框 = 同学负责的智能体；绿底 = 共享数据库；红底 = 缺口或风险。</text>
+    <text class="note-text" x="52" y="982">灰底框 = 本项目内部组件；黄底框 = 同学负责的智能体；绿底 = 共享数据库；红底 = 缺口或风险；青绿边框 = 已解决项。</text>
   </svg>
 </main>

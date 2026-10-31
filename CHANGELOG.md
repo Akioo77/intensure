@@ -9,6 +9,56 @@
 ---
 
 
+## v3.20.0 - 2026-10-31 落地 /api/intensure/v1/* 契约端点
+
+**触发**：架构图（`docs/architecture.html`）里那个红框「⚠️ 待解决：契约路径不匹配」
+—— 契约要求我们暴露 `/api/intensure/v1/state/current`，我们实际暴露 `/api/state`，
+**对方按契约调 → 全部 404**。
+
+### 新增
+
+**`contract_api.py`（238 行）—— 显式转换层（纯函数）**
+
+不是换个 URL 直接透传 —— 内部 state 是「我们自己写的数据结构」，契约要的是
+「对方要看的结构」，两者不是一回事：
+
+- `switches`：内部是 dict（按 dpid 键）→ 契约要 **list**
+- `version`：用 `meta.update_count` 当**乐观锁**（对方靠它判断采集是否在更新）
+- `captured_at`：UTC ISO 8601 带 `Z`（毫秒精度）
+- `down_ports` / `down_links`：复用 `ActualStateBuilder` 的 `"s1:eth2"` 可读格式
+- `speed_mbps` = OpenFlow `curr_speed`(kbps) ÷ 1000
+- `OFPP_LOCAL`（`0xfffffffe`）端口剔除 —— 它永远 LINK_DOWN、没有线缆
+- 不读网络、不发请求、不依赖 Flask
+
+**`state_server.py` 新增 5 个契约端点**
+
+| 端点 | Query / Body | 备注 |
+|---|---|---|
+| `GET /api/intensure/v1/state/current` | — | 未初始化返回 **424 DEPENDENCY_NOT_READY**（不是 200 空快照）|
+| `GET /api/intensure/v1/state/history` | `?since=&until=&limit=` | summary 历史 |
+| `GET /api/intensure/v1/port-events` | `?dpid=&since=&limit=` | 端口 up/down + 交换机连接事件 |
+| `GET /api/intensure/v1/link-events` | `?since=&limit=` | LLDP 链路发现/丢失 + 交换机连接事件 |
+| `POST /api/intensure/v1/probe-results` | `{"reachable":[],"unreachable":[],"loss_pct":0,"latency_ms":0}` | 写入 state_history |
+
+**旧路径全部保留、行为不变** —— `/api/state` / `/api/links` / `/api/health` 等一个没动。
+做法是**并行提供**：契约路径给对方按文档调，旧路径留给现有联调、dashboard、演示脚本。
+
+### 测试
+
+- 新增 `test_contract_api.py`（**17 例**），CI pytest 列表补到 **13 个文件**
+- **测试总数 179 → 196**，本地 **196 passed**，`ruff check` 全过
+
+### 📝 文档
+
+- `docs/cross-module-api-contract.md`：§5.6 表格改成「契约路径 + 旧路径」双列，
+  5 个 ⚠️ 改为 ✅ v3.20.0 已落地；新增 **§5.8**（5 个端点的实际请求/响应，VM 实测抓取）
+- `README.md`：完成状态表补 v3.19.0 / v3.20.0；「对外接口」章节加契约端点表
+- `INTEGRATION_HANDBOOK.md`：新增一节说明对方应该调哪套路径
+- `docs/architecture.html` + `.png`：红框改为「✅ 已解决」
+
+---
+
+
 ## v3.19.0 - 2026-10-29 故障注入 REST 接口
 
 **触发**：联调手册里一直挂着一项「故障注入 REST 接口 ❌ 仍未实现」——

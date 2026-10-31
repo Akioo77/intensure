@@ -18,7 +18,7 @@
 
 ## ✅ 完成状态
 
-### ✅ 已完成（v1.0 ~ v3.18, 2026-08-04 ~ 2026-10-29）
+### ✅ 已完成（v1.0 ~ v3.20, 2026-08-04 ~ 2026-10-31）
 
 | 任务 | 状态 |
 |---|---|
@@ -53,6 +53,7 @@
 | **复杂故障类型**（burst / reorder / vlan_mismatch / flow_race）| ✅ v3.17.0 (2026-10-28) |
 | **可观测性**（`metrics.py` 纯标准库 Prometheus 注册表 + `GET /metrics` + 上报/自营 REST 埋点）| ✅ v3.18.0 (2026-10-29) |
 | **契约版本管理**（`assurance_bridge.py` 版本协商 6 态 + 60s TTL + 严格模式开关）| ✅ v3.18.0 (2026-10-29) |
+| **契约端点落地**（`/api/intensure/v1/*` 5 个端点 + `contract_api.py` 转换层，旧路径保留）| ✅ v3.20.0 (2026-10-31) |
 | **故障注入 REST 接口**（`POST /api/v1/test/inject-fault` + `GET/DELETE /api/v1/test/faults`，9 种故障全覆盖）| ✅ v3.19.0 (2026-10-29) |
 
 ### 🎯 下一步（我们主动要做）
@@ -310,7 +311,7 @@ colima stop
 
 ---
 
-## 📂 文件清单（截至 v3.18）
+## 📂 文件清单（截至 v3.20）
 
 ```
 intensure/
@@ -321,7 +322,7 @@ intensure/
 ├── 控制器层
 │   ├── simple_switch_13.py     # 最简 L2
 │   ├── controller_app.py       # 链路事件采集（LLDP + PortStatus）
-│   └── state_server.py         # 自营 REST API（Flask，18 端点，含 /metrics）✅ v3.19.0
+│   └── state_server.py         # 自营 REST API（Flask，23 端点，含 /metrics + 契约端点）✅ v3.20.0
 ├── 采集层
 │   ├── state_model.py          # 内部数据抽象（供 ActualStateBuilder 读）
 │   ├── state_collector.py      # CLI 工具（手工验证）
@@ -336,7 +337,8 @@ intensure/
 │   ├── reporter.py             # POST /check + /verify（对方 assurance-agent）
 │   ├── integration_demo.py     # 端到端联调（real/mock/skip）
 │   ├── mock_assurance_server.py# 本地 mock 保障模块
-│   └── assurance_bridge.py     # 跨智能体推送桥（ASSURANCE_BASE）+ 契约版本协商 ✅ v3.18.0
+│   ├── assurance_bridge.py     # 跨智能体推送桥（ASSURANCE_BASE）+ 契约版本协商 ✅ v3.18.0
+│   └── contract_api.py         # 契约格式转换层（内部 state → /api/intensure/v1/*）✅ v3.20.0
 ├── 保障模块层 ✅ v3.7
 │   ├── assurance_mvp.py        # 一致性检查 + 根因诊断 + 写库
 │   └── graceful.py             # 优雅降级
@@ -356,7 +358,7 @@ intensure/
 │   ├── README.md               # 本文件
 │   ├── REQUIREMENTS.md         # 职责 + 联调契约背景
 │   ├── STATE_MODEL.md          # 统一状态模型
-│   ├── CHANGELOG.md            # 版本历史（v1.0 ~ v3.18）
+│   ├── CHANGELOG.md            # 版本历史（v1.0 ~ v3.20）
 │   └── docs/                   # 优化清单 / 架构 / 契约 / 汇报材料
 └── legacy/                     # 历史探索材料（不接入主流程）
     ├── intent_registry.py / conflict_detector.py / conflict_resolver.py
@@ -391,7 +393,26 @@ intensure/
 `intensure_http_request_duration_seconds`）、契约状态与构建信息
 （`intensure_assurance_contract` / `intensure_build_info`）。
 
-顺带一提：`GET /api/health` 现在带 `version` 字段（当前 `3.18.0`）。
+顺带一提：`GET /api/health` 带 `version` 字段（当前报 `3.19.0`）。
+
+### 📡 跨模块契约端点（v3.20.0 新增）
+
+**对方（意图保障模块）按契约文档调用的是这一套。** 做法是**并行提供 + 保留旧路径**：
+旧的 `/api/*` 全部保留、行为不变（dashboard、演示脚本、现有联调都在用）。
+
+| 契约路径（v3.20.0 新增）| 旧路径（保留，行为不变）| 说明 |
+|---|---|---|
+| `GET /api/intensure/v1/state/current` | `GET /api/state` | 当前状态快照。未初始化时返回 **424 DEPENDENCY_NOT_READY** |
+| `GET /api/intensure/v1/state/history` | `GET /api/history` | 历史摘要，`?since=&until=&limit=` |
+| `GET /api/intensure/v1/port-events` | `GET /api/port_stats` | 端口事件流，`?dpid=&since=&limit=` |
+| `GET /api/intensure/v1/link-events` | `GET /api/links` | 链路事件流，`?since=&limit=` |
+| `POST /api/intensure/v1/probe-results` | `POST /api/probe` | 探测结果上报 |
+
+> **两套返回结构不同**：契约路径多一层显式转换（`contract_api.py`）——
+> 内部 `switches` 是 dict，契约要的是 **list**；契约还带 `version`（乐观锁，取 `meta.update_count`）、
+> `down_ports` / `down_links`（`"s1:eth3"` 这种可读格式，我们算好给对方直接用）。
+>
+> 实际请求 / 响应样例见 `docs/cross-module-api-contract.md` §5.8（VM 实测抓取）。
 
 ---
 

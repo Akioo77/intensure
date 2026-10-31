@@ -193,7 +193,7 @@ intensure/
 ├── 控制器层
 │   ├── simple_switch_13.py     # 最简 L2 参考
 │   ├── controller_app.py       # LLDP + PortStatus 链路事件流
-│   └── state_server.py         # 自营 REST API（Flask，18 个端点，含 /metrics）✅ v3.19.0
+│   └── state_server.py         # 自营 REST API（Flask，23 个端点，含 /metrics + 契约端点）✅ v3.20.0
 ├── 采集 / 状态层
 │   ├── state_collector.py      # CLI 探测工具（手工验证用）
 │   ├── actual_state_builder.py # 内部 state → ActualState 格式 ✅ v2.0
@@ -247,8 +247,10 @@ intensure/
 | `test_actual_state_builder.py` | 8 |
 | `test_graceful.py` | 4 |
 | `test_contract_version.py` | 11 |
+| `test_contract_api.py` | 17 |
+| `test_fault_api.py` | 12 |
 | `test_metrics.py` | 10 |
-| **合计** | **167** |
+| **合计** | **196** |
 
 ### 5.3 待补测试（联调相关）
 

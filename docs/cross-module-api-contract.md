@@ -248,20 +248,31 @@ Host: implementation:8081
 
 ---
 
-### 5.6 契约目标 vs 当前实现（2026-10-29 核对）
+### 5.6 契约目标 vs 当前实现（v3.20.0 · 2026-10-31 核对）
 
-**本仓库（采集模块 intensure）目前实际提供的端点** —— 全部在 `state_server.py`（Flask，端口 8080）：
+**v3.20.0 起，契约路径已全部落地** —— 做法是**并行提供 + 保留旧路径**：
 
-| 当前实际路径 | 对应本文的契约目标 | 状态 |
+- **契约路径**（`/api/intensure/v1/*`）：**对方按本文档调用的那套**，格式遵循本文 §4.1 / §5.1
+- **旧路径**（`/api/*`）：**现有联调、dashboard、演示脚本在用的那套**，**全部保留、行为不变**
+
+两套指向同一份底层状态，但**返回结构不同** —— 契约路径多一层显式转换
+（内部 state 的 `switches` 是 dict，契约要的是 list；契约还要 `version` 乐观锁、
+`down_ports` / `down_links`）。转换层是 `contract_api.py`（纯函数，不依赖 Flask）。
+
+**本仓库（采集模块 intensure）提供的端点** —— 全部在 `state_server.py`（Flask，端口 8080）：
+
+| 契约路径（v3.20.0 新增） | 旧路径（保留，行为不变）| 状态 |
 |---|---|---|
-| `GET /api/state` | `GET /api/intensure/v1/state/current` | ⚠️ 路径未按契约加前缀 |
-| `GET /api/history` | `GET /api/intensure/v1/state/history` | ⚠️ 同上 |
-| `GET /api/port_stats` | `GET /api/intensure/v1/port-events`（部分语义）| ⚠️ 同上 |
-| `GET /api/probe` (POST) | `POST /api/intensure/v1/probe-results` | ⚠️ 同上 |
-| `GET /api/switches` / `hosts` / `links` / `flows` / `events` | 契约未逐条定义 | 本模块自营 |
-| `GET /api/health` | `GET /api/shared/v1/health/modules` | ⚠️ 同上 |
-| `GET /api/ovs/log`（+ `/correlate`、`/stats`）| 契约未定义 | 本模块自营（v3.x 新增）|
-| `GET /metrics` | 契约未定义 | 本模块自营（**v3.18.0 新增**）—— Prometheus 文本格式 version 0.0.4 |
+| `GET /api/intensure/v1/state/current` | `GET /api/state` | ✅ v3.20.0 已落地 |
+| `GET /api/intensure/v1/state/history` | `GET /api/history` | ✅ v3.20.0 已落地 |
+| `GET /api/intensure/v1/port-events` | `GET /api/port_stats` | ✅ v3.20.0 已落地 |
+| `GET /api/intensure/v1/link-events` | `GET /api/links` | ✅ v3.20.0 已落地 |
+| `POST /api/intensure/v1/probe-results` | `POST /api/probe` | ✅ v3.20.0 已落地 |
+| `GET /api/health` | — | 本模块自营（`version` 字段当前报 `3.19.0`）|
+| `GET /api/switches` / `hosts` / `flows` / `events` / `validate` | 同左 | 本模块自营（契约未逐条定义）|
+| `GET /api/ovs/log`（+ `/correlate`、`/stats`）| — | 本模块自营（v3.x 新增）|
+| `GET /metrics` | — | 本模块自营（v3.18.0 新增）—— Prometheus 文本格式 version 0.0.4 |
+| `POST /api/v1/test/inject-fault` / `GET·DELETE /api/v1/test/faults` | — | 本模块自营（v3.19.0 新增）—— 故障注入测试接口 |
 
 **本文定义、但本仓库未实现**（由其它模块提供，或尚未开发）：
 
@@ -269,14 +280,12 @@ Host: implementation:8081
 - `/api/implementation/v1/*` —— 实现模块
 - `/api/assurance/v1/*` —— 保障模块
 - `/api/shared/v1/*` —— 公共模块
-- `/api/intensure/v1/*` —— **本模块的契约版本路径，尚未落地**（当前用不带前缀的 `/api/*`）
 
-> 📌 落地路径：把这批自营路径加上 `/api/intensure/v1` 前缀，或在网关层做路径改写。
-> 在那之前，**联调双方需按上表「当前实际路径」对齐**。
+> ✅ **v3.20.0 说明**：之前这里挂着的「`/api/intensure/v1/*` 尚未落地」缺口已解决。
+> 架构图 `docs/architecture.html` 里那个红框「⚠️ 待解决：契约路径不匹配」也已改成「✅ 已解决」。
 >
-> ⚠️ **v3.18.0 说明**：优化清单里的 P3-3「跨模块 API 版本管理」已于 2026-10-29 完成，
-> 但**完成的是「版本协商」而不是「路径改前缀」**——因为改前缀会破坏现有联调。
-> 具体做法见下面 §5.7。
+> ⚠️ **注意**：`/api/shared/v1/health/modules`（公共健康检查）**本模块仍未提供** ——
+> 对方要跨模块健康信息的话，目前得分别调各模块。
 
 ### 5.7 对方版本字段 与 契约版本协商（v3.18.0 · 2026-10-29）
 
@@ -346,6 +355,126 @@ ASSURANCE_BASE=https://对方地址 python3 assurance_bridge.py contract
 契约状态同时以 gauge `intensure_assurance_contract`（按 `state` 标签）暴露在
 `GET /metrics` 里，方便外部监控发现「状态不是 ok」。
 
+### 5.8 契约端点的实际请求 / 响应（v3.20.0 · 2026-10-31）
+
+以下响应体是**在 Colima VM 里实测抓取的**（不是照着代码编的），供对方对接时对照。
+
+#### 5.8.1 `GET /api/intensure/v1/state/current`
+
+采集还没初始化时（还没发现任何交换机）返回 **424**，不是 200 空快照：
+
+```json
+{
+  "error": {
+    "code": "DEPENDENCY_NOT_READY",
+    "message": "采集尚未初始化（还没有交换机被发现）",
+    "module": "intensure"
+  }
+}
+```
+
+正常时返回 **200**：
+
+```json
+{
+  "captured_at": "2026-10-31T03:57:55.445Z",
+  "version": 42,
+  "switches": [
+    {
+      "dpid": "0000000000000001",
+      "ports": [
+        {"port_no": 4, "name": "s1-eth4", "state": 4, "speed_mbps": 10000}
+      ]
+    }
+  ],
+  "links": [],
+  "flows": {"0000000000000001": [ ... ]},
+  "down_ports": [],
+  "down_links": []
+}
+```
+
+字段说明：
+
+| 字段 | 说明 |
+|---|---|
+| `captured_at` | UTC ISO 8601，毫秒精度，带 `Z` |
+| `version` | **乐观锁**版本号 = 内部 `meta.update_count`，单调递增。对方拿它判断「采集是否在更新」|
+| `switches` | **list**（不是内部那个 dict）。按 dpid 排序；`ports` 里已剔除 OpenFlow 本地管理端口 `OFPP_LOCAL`（`0xfffffffe`）|
+| `ports[].speed_mbps` | `curr_speed`(kbps) ÷ 1000 换算成 Mbps |
+| `ports[].state` | OpenFlow 端口状态原值（`1`=DOWN，`4`=UP）|
+| `links` | 成对 list：`[{"a": {"dpid","port_no","name"}, "b": {...}, "last_seen": ts}]`，每条链路只出现一次（已去重）|
+| `flows` | `{dpid: [...]}` 原样透传 |
+| `down_ports` | **我们算好给对方直接用**，格式 `"s1:eth3"`（复用 `ActualStateBuilder` 的可读格式）|
+| `down_links` | 同上，格式 `"s1:eth3-s2:eth3"` |
+
+#### 5.8.2 `GET /api/intensure/v1/state/history`
+
+Query：`since`（float 秒）、`until`（float 秒）、`limit`（int，默认 100，取**最近** limit 条）
+
+```json
+[
+  {"time": 1792939864.4778283, "switches": 1, "hosts": 4, "ports_down": 0,
+   "flows": 1, "rx_bytes": 3048, "tx_bytes": 5764}
+]
+```
+
+#### 5.8.3 `GET /api/intensure/v1/port-events`
+
+Query：`dpid`（可选，只看某台交换机）、`since`（float 秒）、`limit`（int，默认 200）
+
+```json
+[
+  {"dpid": null, "time": 1792939851.4486253, "type": "switch_disconnected"},
+  {"dpid": "0000000000000001", "time": 1792939854.3715162, "type": "switch_connected"}
+]
+```
+
+事件类型：`port_link_status`（端口 up/down 翻转）+ `switch_connected` / `switch_disconnected`
+（交换机连接事件会改变端口可达性，一并给出）。
+
+#### 5.8.4 `GET /api/intensure/v1/link-events`
+
+Query：`since`（float 秒）、`limit`（int，默认 200）
+
+```json
+[
+  {"dpid": null, "time": 1792939851.4486253, "type": "switch_disconnected"},
+  {"dpid": "0000000000000001", "time": 1792939854.3715162, "type": "switch_connected"}
+]
+```
+
+事件类型：`link_discovered` / `link_lost`（LLDP）+ `switch_connected` / `switch_disconnected`。
+
+#### 5.8.5 `POST /api/intensure/v1/probe-results`
+
+请求体：
+
+```json
+{
+  "reachable": ["10.0.0.1"],
+  "unreachable": [],
+  "loss_pct": 0,
+  "latency_ms": 3.2
+}
+```
+
+响应：
+
+```json
+{"status": "ok", "recorded": true, "reachable": 1, "unreachable": 0}
+```
+
+写入 `state_history` 的 connectivity 记录并落盘。
+
+#### 5.8.6 统一错误体
+
+契约 §3 定义的统一错误格式（`contract_api.build_error()`）：
+
+```json
+{"error": {"code": "<CODE>", "message": "<描述>", ...额外字段}}
+```
+
 ---
 
 ## 6. 鉴权（Phase 1 → Phase 2）
@@ -407,6 +536,15 @@ _文档创建：2026-10-08 · v0.1 · Phase 0 交付_
 ---
 
 ## 🕘 最近更新
+
+**2026-10-31 · v3.20.0 契约端点落地**
+
+| 位置 | 改动 | 原因 |
+|---|---|---|
+| §5.6 | 表格改成「契约路径 + 旧路径」双列，5 个 ⚠️ 改为 ✅ v3.20.0 已落地 | 契约路径已实现，同时说明**旧路径保留、行为不变** |
+| §5.6 | 删掉「`/api/intensure/v1/*` 尚未落地」 | 缺口已解决 |
+| §5.6 | 补一行说明 `/api/shared/v1/health/modules` 仍未提供 | 避免对方误以为所有契约路径都齐了 |
+| **§5.8（新增）** | 5 个端点的实际请求 / 响应（VM 实测抓取）| 原文只有路径名，没有形状，对方无法直接对接 |
 
 **2026-10-29 · v3.18.0 契约版本协商**
 
