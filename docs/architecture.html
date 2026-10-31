@@ -91,7 +91,7 @@
     </defs>
 
     <text class="title" x="30" y="40">意图驱动网络管理系统 · 架构与跨智能体连接图</text>
-    <text class="subtitle" x="30" y="64">intensure 采集层在整条链路里的位置 —— 以及它到底和谁有连接（依据代码实测，2026-10-31 / v3.20.0）</text>
+    <text class="subtitle" x="30" y="64">intensure 采集层在整条链路里的位置 —— 以及它到底和谁有连接（依据代码实测，2026-10-31 / v3.21.0）</text>
 
     <!-- ============ 连接线（先画，压在盒子下面） ============ -->
 
@@ -151,7 +151,7 @@
     <!-- ============ B 区：采集层 ============ -->
     <rect x="30" y="256" width="830" height="346" rx="14" fill="var(--process)" fill-opacity="0.2" stroke="#4f46e5" stroke-width="2" />
     <text class="box-title" x="52" y="286">★ 采集层 intensure（本项目）</text>
-    <text class="box-sub" x="52" y="305">macOS 宿主机 + Colima Ubuntu 24.04 VM · os-ken 2.8.1 + Mininet 2.3.0 · 4 个 tmux 窗口</text>
+    <text class="box-sub" x="52" y="305">macOS 宿主机 + Colima Ubuntu 24.04 VM · os-ken 2.8.1 + Mininet 2.3.0 · 4 个 tmux 窗口 · 环境由 env.json 描述</text>
 
     <rect x="56" y="322" width="176" height="86" rx="10" fill="var(--neutral)" stroke="#64748b" stroke-width="1.3" />
     <text class="box-title" x="72" y="350">os-ken 控制器</text>
@@ -160,8 +160,8 @@
 
     <rect x="252" y="322" width="186" height="86" rx="10" fill="var(--neutral)" stroke="#64748b" stroke-width="1.3" />
     <text class="box-title" x="268" y="350">state_server REST</text>
-    <text class="box-sub" x="268" y="370">23 端点 · 8080（含契约端点）</text>
-    <text class="box-sub" x="268" y="388">/metrics · /api/health</text>
+    <text class="box-sub" x="268" y="370">24 端点 · 8080（含契约端点）</text>
+    <text class="box-sub" x="268" y="388">/api/capabilities · /metrics</text>
 
     <rect x="458" y="322" width="176" height="86" rx="10" fill="var(--neutral)" stroke="#64748b" stroke-width="1.3" />
     <text class="box-title" x="474" y="350">fault_api</text>
@@ -173,13 +173,17 @@
     <text class="box-sub" x="670" y="370">ActualState 组装与上报</text>
     <text class="box-sub" x="670" y="388">契约版本协商</text>
 
-    <rect x="56" y="430" width="778" height="150" rx="10" fill="var(--neutral)" fill-opacity="0.5" stroke="#64748b" stroke-width="1.2" stroke-dasharray="5 4" />
-    <text class="note-head" x="72" y="456">边界声明（写在代码里，不是口头约定）</text>
-    <text class="note-text" x="72" y="480">· 只 POST 不读 GET：所有「当前状态」由保障模块管理，采集层不维护</text>
-    <text class="note-text" x="72" y="502">· 职责分离：采集只做「把故障 / 状态打进去」；一致性判定与根因诊断由 assurance_mvp.py 负责</text>
-    <text class="note-text" x="72" y="524">· 数据库账号分离：intensure_user / assurance_user / implementation_user / translation_user 各自最小权限</text>
-    <text class="note-text" x="72" y="546">· 对外只暴露 v3.20.0 的 23 个端点；不主动 GET 别人的接口</text>
-    <text class="note-text" x="72" y="568">· 故障注入只归我们，且用 mode=test 标注，与生产模块解耦</text>
+    <rect x="56" y="416" width="778" height="46" rx="10" fill="var(--storage)" stroke="#0f766e" stroke-width="1.5" />
+    <text class="box-title" x="72" y="444">环境配置 + 能力自检（v3.21.0）</text>
+    <text class="box-sub" x="300" y="444">env.json 换环境（不改代码） · env_doctor.py 体检 · GET /api/capabilities · 只读模式</text>
+
+    <rect x="56" y="470" width="778" height="110" rx="10" fill="var(--neutral)" fill-opacity="0.5" stroke="#64748b" stroke-width="1.2" stroke-dasharray="5 4" />
+    <text class="note-head" x="72" y="492">边界声明（写在代码里，不是口头约定）</text>
+    <text class="note-text" x="72" y="512">· 只 POST 不读 GET：所有「当前状态」由保障模块管理，采集层不维护</text>
+    <text class="note-text" x="72" y="530">· 职责分离：采集只做「把故障 / 状态打进去」；一致性判定与根因诊断由 assurance_mvp.py 负责</text>
+    <text class="note-text" x="72" y="548">· 数据库账号分离：intensure_user / assurance_user / implementation_user / translation_user 各自最小权限</text>
+    <text class="note-text" x="72" y="566">· 对外只暴露 v3.21.0 的 24 个端点；不主动 GET 别人的接口</text>
+    <text class="note-text" x="72" y="584">· 故障注入只归我们（mode=test 标注）；接真实网络时开只读模式，写端点一律 403</text>
 
     <!-- 写库标签 -->
     <text class="conn-label" x="412" y="626">写：intensure.* / assurance.*</text>

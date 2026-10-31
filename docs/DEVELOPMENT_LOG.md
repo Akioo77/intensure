@@ -1,6 +1,6 @@
 # 开发进度与交接文档（intensure 采集模块）
 
-> 最后更新：**2026-10-31**（对应代码版本 v3.20.0）
+> 最后更新：**2026-10-31**（对应代码版本 v3.21.0）
 > 维护方式：每次做完一轮开发就更新「开发进度」与「待办清单」两节，**以代码实际状态为准**，不写没实现的东西。
 > 本文回答三个问题：现在做到哪了 / 接下来做什么 / 别人怎么接手。
 
@@ -18,12 +18,13 @@ intensure 是意图驱动网络管理系统的**采集层**（Mininet + OVS + os
 
 | 指标 | 数值 | 怎么核的 |
 |---|---|---|
-| 代码版本 | v3.20.0 | `git describe --tags` |
-| 自营 REST 端点 | **23 个** | `grep -c "^@app.route" state_server.py` |
+| 代码版本 | v3.21.0 | `git describe --tags` |
+| 自营 REST 端点 | **24 个** | `grep -c "^@app.route" state_server.py` |
 | 其中跨模块契约端点 | 5 个 | `/api/intensure/v1/*`（v3.20.0 新增） |
-| 单元测试 | **196 例全绿** | VM 内 `pytest` |
-| CI 跑的测试文件 | **13 个** | `.github/workflows/ci.yml` |
+| 单元测试 | **211 例全绿** | VM 内 `pytest` |
+| CI 跑的测试文件 | **14 个** | `.github/workflows/ci.yml` |
 | 代码风格 | `ruff check .` 全过 | 规则 E/W/F，E402 豁免（见 §8） |
+| 环境配置 | `env.json` / `env.yaml`，`$INTENSURE_ENV_FILE` 覆盖 | v3.21.0 起环境差异在配置里，不在代码里 |
 | Python 代码量 | 12212 行（根目录 *.py） | `wc -l *.py` |
 | 提交总数 | 55 个（含本文档 commit） | `git log --oneline \| wc -l` |
 | 数据库 | **6 schema / 25 张逻辑表**（物理表 53 张，其中 75 个是分区子表）| 实测口径见下方脚注 |
@@ -72,6 +73,7 @@ intensure 是意图驱动网络管理系统的**采集层**（Mininet + OVS + os
 | **v3.18.0** | 10-29 | **可观测性**（`metrics.py` 纯标准库 Prometheus + `GET /metrics`）+ **契约版本协商**（6 态状态机，版本冲突自动降级不上报） |
 | **v3.19.0** | 10-29 | **故障注入 REST 接口**（9 种故障 + 幂等清理，演示脚本接上真端点）+ 修 `http_proxy` 劫持导致健康检查假失败 |
 | **v3.20.0** | 10-31 | **落地 `/api/intensure/v1/*` 跨模块契约端点**（5 个，旧路径全部保留不破坏现有联调） |
+| **v3.21.0** | 10-31 | **环境配置化 + 能力自检 + 只读模式**（`env_config.py` / `capabilities.py` / `env_doctor.py` / `env.json`；`GET /api/capabilities`）。顺带修 2 个真 bug：状态文件写不进去被静默吞、Python 侧 urllib 也被代理劫持 |
 
 ---
 
@@ -156,6 +158,21 @@ curl -s --noproxy '*' http://127.0.0.1:8080/metrics | head   # 看指标
 
 ---
 
+### 3.5 环境体检（v3.21.0 新增，换环境先跑这个）
+
+```bash
+python3 env_doctor.py            # 人看的报告
+python3 env_doctor.py --json     # 机器可读（给脚本用）
+```
+
+**退出码**：`0` = 关键项全通过（可能有告警）｜`1` = 有 error 级失败 ｜`2` = 采集层没跑起来，连状态都拿不到。
+
+它会检查：状态新鲜度、环境配置是否加载、只读模式、交换机数、主机数、交换机间链路数、
+拓扑发现方式、探测驱动、故障注入可用性、契约版本。
+
+> 💡 换环境（换 Mininet / 接真实网络）之前先跑一遍 —— **不用试错**。
+> 同样的信息也能从 `GET /api/capabilities` 直接拿到（JSON）。
+
 ## 4. 待办清单（2026-10-31）
 
 ### 4.1 🔴 演示前必做（阻塞级）
@@ -173,9 +190,10 @@ curl -s --noproxy '*' http://127.0.0.1:8080/metrics | head   # 看指标
 | Dashboard 单文件 SPA 拆分 | 3-5 天 | 1600+ 行 HTML/JS/CSS 混在一起。**演示是加分项，拆错会伤演示**，建议演示后再做 |
 | Docker 化 | 3 天 | `Dockerfile` + compose（intensure / postgres / dashboard 三服务） |
 | 真实园区迁移路径文档 | 0.5 天 | 还没并入 `INTEGRATION_GUIDE.md` |
-| Dashboard 加联调统计面板 | 1 天 | 上报成功率 / 响应时间 / ActualState 样例（数据源 `metrics.py` 已有） |
-| collector 多协议适配器骨架 | 2-3 天 | SNMP / CLI / OpenFlow |
+| Dashboard 加联调统计面板 | 1 天 | 上报成功率 / 响应时间 / ActualState 样例（数据源 `metrics.py` 已有）；v3.21.0 起还能直接显示 `GET /api/capabilities` 的「当前环境能力」|
+| collector 多协议适配器骨架 | 2-3 天 | SNMP / CLI / OpenFlow。**v3.21.0 已把探测驱动抽成配置项**（`probe.driver`: `mininet` / `icmp` 两个分支代码里已有），SNMP / CLI 适配器还没写 |
 | OVS log → 根因归因 demo | 1 天 | `ovs_logger` 已能抓到「是谁下的 ofctl 命令」 |
+| **真实 OpenFlow 网络接入验证** | 1-2 天 | v3.21.0 的配置层 + 只读模式（`mode: read-only`）已就位，**但从没在真实网络上跑过**。最终验收环境还没定，这是当前最大的未知数 —— 拿到环境后先 `python3 env_doctor.py` 对一遍能力 |
 
 ### 4.3 🔵 已明确的边界（不做）
 
@@ -244,8 +262,8 @@ curl -s --noproxy '*' http://127.0.0.1:8080/metrics | head   # 看指标
 | `dashboard.html` 单文件 1600+ 行 | 低 | 可维护性问题，见 §4.2 |
 | `docs/architecture.png` 需手工重新生成 | 低 | 改 `docs/architecture.html` 后要重新截图 PNG（headless Chrome，`--window-size=1460,1060`）|
 | ~~`39 表 / 15 个月分区` 旧数全库 6 处~~ | ✅ 已清 | 2026-10-31 按实测统一为 **25 张逻辑表 / 53 张物理表（75 个分区子表）**：`README.md`（3 处）、`REQUIREMENTS.md`（1 处）、`docs/architecture.html`（2 处）均已改，`architecture.png` 已用 headless Chrome 重新截图（1460×1060） |
-| `speaker_notes.md` 里 Q4「自愈留给 Phase 2」、Q6「稳定时 60 秒写一次心跳」两条内容已过期 | 中 | 自愈已有 `assurance_mvp.py`；心跳 v3.9 起默认关。讲之前要改，否则会被问住 |
-| `docs/speaker_notes.md` 里有 2 条问答内容已过期 | 低 | Q4 说「自愈的触发和执行留给 Phase 2」（我们已有 `assurance_mvp` 自愈）、Q6 说「稳定时 60 秒写一次心跳」（心跳 v3.9 起默认关）。**讲稿本身是现成的，但这两条要改** |
+| `speaker_notes.md` 里 Q4「自愈留给 Phase 2」、Q6「稳定时 60 秒写一次心跳」两条内容已过期 | 中 | 自愈已有 `assurance_mvp.py`；心跳 v3.9 起默认关。**讲稿本身是现成的，但这两条要改**，否则会被问住 |
+| **`env.json` 的拓扑期望必须和实际启动的拓扑一致** | 中 | v3.21.0 新增配置层时踩过：`start_all.sh` 起的是 **1 交换机 4 主机**，而 `demo_full.py` / `integration_demo.py` 起的是 **2 交换机** —— 配置对不上，状态校验会误报「少了 1 台交换机」。跑 2 交换机那两个脚本前要 `export INTENSURE_ENV_FILE=env.topo_simple.json`。**换环境时先 `python3 env_doctor.py` 对一下** |
 
 ---
 

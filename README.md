@@ -18,7 +18,7 @@
 
 ## ✅ 完成状态
 
-### ✅ 已完成（v1.0 ~ v3.20, 2026-08-04 ~ 2026-10-31）
+### ✅ 已完成（v1.0 ~ v3.21, 2026-08-04 ~ 2026-10-31）
 
 | 任务 | 状态 |
 |---|---|
@@ -54,6 +54,7 @@
 | **可观测性**（`metrics.py` 纯标准库 Prometheus 注册表 + `GET /metrics` + 上报/自营 REST 埋点）| ✅ v3.18.0 (2026-10-29) |
 | **契约版本管理**（`assurance_bridge.py` 版本协商 6 态 + 60s TTL + 严格模式开关）| ✅ v3.18.0 (2026-10-29) |
 | **契约端点落地**（`/api/intensure/v1/*` 5 个端点 + `contract_api.py` 转换层，旧路径保留）| ✅ v3.20.0 (2026-10-31) |
+| **环境配置化 + 能力自检**（`env_config.py` / `capabilities.py` / `env_doctor.py` / `env.json` + 只读模式）| ✅ v3.21.0 (2026-10-31) |
 | **故障注入 REST 接口**（`POST /api/v1/test/inject-fault` + `GET/DELETE /api/v1/test/faults`，9 种故障全覆盖）| ✅ v3.19.0 (2026-10-29) |
 
 ### 🎯 下一步（我们主动要做）
@@ -130,6 +131,54 @@ pip install -r requirements-dev.txt
 ```bash
 colima start
 ```
+
+### 1️⃣.4 环境配置与体检（v3.21.0 新增，换环境必看）
+
+**换环境不用改代码了** —— 环境差异全在配置文件里。
+
+```bash
+# 体检：当前环境能不能干活、缺什么
+python3 env_doctor.py            # 人看的报告
+python3 env_doctor.py --json     # 机器可读（给脚本用）
+
+# 退出码：0 = 关键项全通过（可能有告警）
+#         1 = 有 error 级失败
+#         2 = 采集层没跑起来，连状态都拿不到
+```
+
+**换环境就改 `env.json`**（或在 `env.yaml` 里写同样内容）：
+
+```bash
+export INTENSURE_ENV_FILE=env.topo_simple.json   # 换成 2 交换机那份
+```
+
+配置查找顺序：**显式路径 → `$INTENSURE_ENV_FILE` → `env.json` → `env.yaml`**。
+**配置文件缺失也能跑** —— 会用 `env_config.py` 里的内置默认值，而默认值等于改造前的行为。
+
+`env.json` 常用字段：
+
+| 字段 | 作用 |
+|---|---|
+| `environment` | 环境标签，会出现在 `GET /api/capabilities` 输出里 |
+| `mode` | `active`（允许注故障）/ `read-only`（**只读**，任何写端点一律 403）|
+| `topology_expect` | 期望拓扑（交换机数 / 主机数 / 链路数），状态校验用它 |
+| `dpid_to_switch` | dpid → 设备名映射；真实设备 dpid 没规律时在这里显式写 |
+| `port_label_map` | 真实端口名 → 契约短标签（`GigabitEthernet0/1` → `eth1`）|
+| `probe` | 探测参数：`driver`（`mininet` / `icmp`）、`source`、`destination` |
+| `allow_fault_injection` | **接真实网络时必须 `false`** —— 注故障是 `sudo tc` 打网卡 |
+| `assurance_expected_version` | 期望的对方契约版本；`null` = 用 `assurance_bridge` 默认值 |
+
+**只读模式什么时候开**：接**真实网络**（别人的设备、生产的网）时必须开 ——
+注故障本质是 `sudo tc` 打本机网卡，对着别人的设备发这类命令是事故：
+
+```json
+{"mode": "read-only", "allow_fault_injection": false}
+```
+
+> ⚠️ `env.json` 里的**拓扑期望必须和实际启动的拓扑一致** ——
+> `start_all.sh` 起的是 **1 交换机**，`demo_full.py` / `integration_demo.py` 起的是 **2 交换机**。
+> 对不上会导致状态校验误报「少了 1 台交换机」。
+> 用 `INTENSURE_ENV_FILE=env.topo_simple.json` 切到 2 交换机那份。
 
 ### 1️⃣.5 一键启停 + 状态体检（推荐，演示现场用）
 
@@ -311,7 +360,7 @@ colima stop
 
 ---
 
-## 📂 文件清单（截至 v3.20）
+## 📂 文件清单（截至 v3.21）
 
 ```
 intensure/
@@ -322,7 +371,7 @@ intensure/
 ├── 控制器层
 │   ├── simple_switch_13.py     # 最简 L2
 │   ├── controller_app.py       # 链路事件采集（LLDP + PortStatus）
-│   └── state_server.py         # 自营 REST API（Flask，23 端点，含 /metrics + 契约端点）✅ v3.20.0
+│   └── state_server.py         # 自营 REST API（Flask，24 端点，含 /metrics + 契约端点 + /api/capabilities）✅ v3.21.0
 ├── 采集层
 │   ├── state_model.py          # 内部数据抽象（供 ActualStateBuilder 读）
 │   ├── state_collector.py      # CLI 工具（手工验证）
@@ -339,6 +388,12 @@ intensure/
 │   ├── mock_assurance_server.py# 本地 mock 保障模块
 │   ├── assurance_bridge.py     # 跨智能体推送桥（ASSURANCE_BASE）+ 契约版本协商 ✅ v3.18.0
 │   └── contract_api.py         # 契约格式转换层（内部 state → /api/intensure/v1/*）✅ v3.20.0
+  ├── 环境配置层 ✅ v3.21.0
+  │   ├── env_config.py           # 环境配置层（读 env.json / env.yaml）
+  │   ├── capabilities.py         # 能力自检（供 GET /api/capabilities）
+  │   ├── env_doctor.py           # 环境体检 CLI（--json / 退出码 0/1/2）
+  │   ├── env.json                # 默认环境（= start_all.sh 的 1 交换机 4 主机）
+  │   └── env.topo_simple.json    # 2 交换机环境（demo_full.py / integration_demo.py 用）
 ├── 保障模块层 ✅ v3.7
 │   ├── assurance_mvp.py        # 一致性检查 + 根因诊断 + 写库
 │   └── graceful.py             # 优雅降级
@@ -358,7 +413,7 @@ intensure/
 │   ├── README.md               # 本文件
 │   ├── REQUIREMENTS.md         # 职责 + 联调契约背景
 │   ├── STATE_MODEL.md          # 统一状态模型
-│   ├── CHANGELOG.md            # 版本历史（v1.0 ~ v3.20）
+│   ├── CHANGELOG.md            # 版本历史（v1.0 ~ v3.21）
 │   └── docs/                   # 优化清单 / 架构 / 契约 / 汇报材料
 │       └── DEVELOPMENT_LOG.md  # ⭐ 开发进度 / 待办 / 交接（先看这个）
 └── legacy/                     # 历史探索材料（不接入主流程）
@@ -395,6 +450,14 @@ intensure/
 （`intensure_assurance_contract` / `intensure_build_info`）。
 
 顺带一提：`GET /api/health` 带 `version` 字段（当前报 `3.19.0`）。
+
+### 🧭 环境能力自检（v3.21.0 新增）
+
+| 端点 | 用途 |
+|---|---|
+| `GET /api/capabilities` | 回答「**当前这个环境我们能干什么**」：已连几台交换机、拓扑发现是不是退化了、探测用哪个驱动、故障注入能不能用、契约版本对不对、是不是只读模式 |
+
+**换环境后先看这个端点 —— 不用试错。**
 
 ### 📡 跨模块契约端点（v3.20.0 新增）
 
@@ -435,6 +498,14 @@ intensure/
 11. **OVS local 端口永远 LINK_DOWN** → 验证时跳过 OFPP_LOCAL
 12. **`pkill -f` 会匹配自身** → 单独跑 pkill 命令
 13. **tar 恢复覆盖新代码** → 先备份再改
+14. **状态文件写不进去被静默吞**（v3.21.0）—— 旧的 `/tmp/network_state.json` 是
+    **root 属主**（以前 sudo 起的控制器留下的），当前用户覆盖不了 → 控制器写盘失败
+    被 `except: pass` 吞掉 → **状态永远停在旧快照**，`state_server` / dashboard 读到
+    过期数据而且**查不出原因**。
+    现在控制器写失败**只报一次**并给修复命令，`start_all.sh` 启动前会删掉不可写的旧文件
+15. **Python 侧的 urllib 也会被代理劫持**（v3.21.0）—— v3.19.0 只修了 curl 侧，
+    Python 侧漏了：VM 的 `http_proxy` 没配 `no_proxy` → 连 `127.0.0.1` 都走代理 →
+    HTTP 不可达。修法同 curl 思路：`urllib.request.build_opener(urllib.request.ProxyHandler({}))`
 
 ### 跨平台联调（待踩坑）
 - Windows 防火墙放行 8000 端口

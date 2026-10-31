@@ -9,6 +9,68 @@
 ---
 
 
+## v3.21.0 - 2026-10-31 环境配置化 + 能力自检 + 只读模式
+
+**触发**：最终验收环境还不确定 —— 三个人可能各配各的 Mininet，也可能接真实 OpenFlow 网络。
+原先「本地 Mininet 实验环境」在代码里**写死了 7 处**（拓扑文件、IP 段、交换机命名、探测方式、
+注故障方式、状态校验基线、端口名格式），**换一次环境就要改一轮代码**，而且往往是在赶演示的时候改。
+
+这轮把「环境差异」从代码搬到配置文件，**环境能力变成运行时可查的事实**。
+
+### 新增
+
+**`env_config.py`（329 行）—— 环境配置层**
+- 读 `env.json`（标准库可读，CI 也能跑）/ `env.yaml`（装了 PyYAML 才读）
+- 路径用 `$INTENSURE_ENV_FILE` 覆盖；查找顺序：显式路径 → 环境变量 → `env.json` → `env.yaml`
+- **配置缺失时用内置默认值，而默认值 == 改造前的行为** —— 开这个功能不改变任何现有行为，回归测试照常全绿
+- `env.json` 里的 `//` 注释由 `_strip_json_comments()` 剥掉，所以配置文件能写注释
+
+**`capabilities.py`（143 行）—— 能力自检**
+输出：OpenFlow 协议与已连交换机数、拓扑发现方式（LLDP / degraded）、主机与拓扑期望比对、
+探测驱动与参数、故障注入可用性（含不可用的原因）、契约路径版本与对方期望版本、只读标志。
+
+**`env_doctor.py`（323 行）—— 体检 CLI**
+一条命令回答「当前环境能不能干活、缺什么」；`--json` 给脚本用；退出码 **0 / 1 / 2**
+（0 = 全通过，1 = 有 error 级失败，2 = 采集层没跑起来，连状态都拿不到）。
+
+**`env.json` / `env.topo_simple.json`** —— 两份默认环境配置。
+
+**`GET /api/capabilities`** —— 能力自检端点（挂在 `state_server.py`）。
+
+### 改造
+
+- `state_server` 的 `/api/validate` 改用配置里的拓扑期望（不再写死 2 交换机）
+- **只读模式**：`mode: read-only` 时 `POST /api/v1/test/inject-fault` 一律 **403**
+- `actual_state_builder` 的 `dpid_to_switch` 没显式传时从配置读
+- `state_model` 的校验基线可注入
+- CI pytest 列表补到 **14 个文件**
+
+### 🐛 顺手修的两个真 bug（都是 env_doctor 在真实环境里抓出来的）
+
+**1. 状态文件写不进去被静默吞**
+旧 `/tmp/network_state.json` 是 **root 属主**（以前 sudo 起的控制器留下的），当前用户覆盖不了 →
+控制器写盘失败被 `except: pass` 吞掉 → **状态永远停在 10-25 的旧快照**，
+`state_server` / dashboard 读到过期数据而且**查不出原因**。
+修：控制器写失败**只报一次**并给修复命令（`sudo rm -f /tmp/network_state.json`）；
+`start_all.sh` 启动前删掉不可写的旧文件。
+
+**2. 体检工具自己的 urllib 也被代理劫持**
+VM 的 `http_proxy` 没配 `no_proxy` → 连 `127.0.0.1` 都走代理 → HTTP 不可达。
+curl 那边 v3.19.0 已经修过，**Python 侧漏了**。修：`urllib` 也用 `ProxyHandler({})`（跟 `reporter.py` 一致）。
+
+### 🧪 测试
+
+- 新增 `test_env_config.py`（**15 例**），CI pytest 列表补到 **14 个文件**
+- **测试总数 196 → 211**，本地 **211 passed**，`ruff check` 全过
+
+### 📝 文档
+
+`README.md`（文件清单 / 对外接口 / 环境配置小节 / 踩坑）、`docs/DEVELOPMENT_LOG.md`（时间线 +
+`env_doctor` 用法 + 新增一条经验）、`docs/architecture.html` + `.png`（采集层加「环境配置 + 能力自检」）。
+
+---
+
+
 ## v3.20.0 - 2026-10-31 落地 /api/intensure/v1/* 契约端点
 
 **触发**：架构图（`docs/architecture.html`）里那个红框「⚠️ 待解决：契约路径不匹配」
