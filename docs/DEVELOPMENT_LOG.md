@@ -243,7 +243,8 @@ curl -s --noproxy '*' http://127.0.0.1:8080/metrics | head   # 看指标
 | CI 测试列表是显式枚举 | 中 | 新增测试文件必须手工加进 `ci.yml`，忘了就不会跑（已踩坑 2 次） |
 | `dashboard.html` 单文件 1600+ 行 | 低 | 可维护性问题，见 §4.2 |
 | `docs/architecture.png` 需手工重新生成 | 低 | 改 `docs/architecture.html` 后要重新截图 PNG（headless Chrome，`--window-size=1460,1060`）|
-| **`39 表 / 15 个月分区` 这个旧数全库还有 6 处没改** | 中 | 已按实测订正为 **25 张逻辑表 / 53 张物理表（75 个分区子表）**（见 §1 脚注），但下面 4 个文件还写着旧数：`README.md`（3 处，L15/L43/L491）、`REQUIREMENTS.md`（1 处，L57）、`docs/architecture.html`（2 处，L121/L204）。**改 `architecture.html` 后要连带重截 PNG**。下次同步文档时一并清掉 |
+| ~~`39 表 / 15 个月分区` 旧数全库 6 处~~ | ✅ 已清 | 2026-10-31 按实测统一为 **25 张逻辑表 / 53 张物理表（75 个分区子表）**：`README.md`（3 处）、`REQUIREMENTS.md`（1 处）、`docs/architecture.html`（2 处）均已改，`architecture.png` 已用 headless Chrome 重新截图（1460×1060） |
+| `speaker_notes.md` 里 Q4「自愈留给 Phase 2」、Q6「稳定时 60 秒写一次心跳」两条内容已过期 | 中 | 自愈已有 `assurance_mvp.py`；心跳 v3.9 起默认关。讲之前要改，否则会被问住 |
 | `docs/speaker_notes.md` 里有 2 条问答内容已过期 | 低 | Q4 说「自愈的触发和执行留给 Phase 2」（我们已有 `assurance_mvp` 自愈）、Q6 说「稳定时 60 秒写一次心跳」（心跳 v3.9 起默认关）。**讲稿本身是现成的，但这两条要改** |
 
 ---

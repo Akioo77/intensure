@@ -118,7 +118,7 @@
     <!-- ============ 区域标题 ============ -->
     <text class="zone" x="30" y="98">A · 意图流水线（同事负责）</text>
     <text class="zone" x="30" y="250">B · ★ 采集层 intensure（本项目）</text>
-    <text class="zone" x="30" y="630">C · 共享 PostgreSQL（6 schema / 39 表）</text>
+    <text class="zone" x="30" y="630">C · 共享 PostgreSQL（6 schema / 25 张逻辑表）</text>
 
     <!-- ============ A 区：流水线 ============ -->
     <rect x="30" y="110" width="160" height="70" rx="10" fill="var(--input)" stroke="#2563eb" stroke-width="1.4" />
@@ -201,7 +201,7 @@
     <!-- ============ C 区：共享库 ============ -->
     <rect x="30" y="640" width="930" height="210" rx="12" fill="var(--storage)" fill-opacity="0.3" stroke="#0f766e" stroke-width="1.6" />
     <text class="box-title" x="52" y="670">共享 PostgreSQL · intensure_dev</text>
-    <text class="box-sub" x="52" y="688">6 schema / 39 表 · 15 个月分区 · alembic 管理（新建库 = 现有库，已用 verify_fresh_db.sh 验证）· 同学 A 的保障模块也读写这套库</text>
+    <text class="box-sub" x="52" y="688">6 schema / 25 张逻辑表（物理表 53 张）· alembic 管理（新建库 = 现有库，已用 verify_fresh_db.sh 验证）· 保障模块也读写这套库</text>
 
     <rect x="52" y="706" width="280" height="122" rx="9" fill="var(--neutral)" stroke="#64748b" stroke-width="1.2" />
     <text class="box-title" x="68" y="732">intensure.* + assurance.*</text>
