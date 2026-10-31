@@ -20,6 +20,9 @@ import fault_api  # noqa: E402  (v3.19.0 故障注入测试接口)
 
 import contract_api  # noqa: E402  (v3.20.0 跨模块契约格式转换)
 
+import capabilities  # noqa: E402  (v3.21.0 环境能力自检)
+import env_config  # noqa: E402  (v3.21.0 环境配置)
+
 import metrics  # noqa: E402  (v3.18.0 可观测性)
 
 from flask import Flask, Response, g, jsonify, request, send_from_directory
@@ -73,6 +76,18 @@ def health():
         'source': 'memory' if CONTROLLER_STATE is not None else 'file',
         'version': metrics.PROJECT_VERSION,
     })
+
+
+@app.route('/api/capabilities')
+def api_capabilities():
+    """环境能力自检（v3.21.0）。
+
+    回答"当前这个环境我们能干什么"：OpenFlow 连上了几台交换机、拓扑发现
+    是不是退化了、探测用哪个驱动、故障注入能不能用、契约版本对不对。
+
+    换环境后先看这个端点 —— 不用试错。
+    """
+    return jsonify(capabilities.build_capabilities(get_state()))
 
 
 # ============================================================
@@ -162,7 +177,9 @@ def api_validate():
     """跑状态验证（在查询时即时跑）."""
     from state_model import validate_state
     state = get_state()
-    report = validate_state(state)
+    # v3.21.0：期望拓扑从环境配置来（换环境时改 env.json，不用改代码）
+    expect = env_config.get_config().topology_expect
+    report = validate_state(state, topology_expect=expect or None)
     return jsonify(report)
 
 
@@ -221,6 +238,21 @@ def api_inject_fault():
     target = data.get('target', '')
     params = data.get('params') or {}
     mode = data.get('mode', 'test')
+
+    # v3.21.0 只读守卫：环境配置为只读时，写操作一律拒绝。
+    # （接真实网络时用这个开关，保证采集层不会改变现网）
+    cfg = env_config.get_config()
+    if not cfg.write_operations_allowed:
+        logger.warning(
+            f'[read-only] 拒绝注故障请求（环境={cfg.environment}, mode={cfg.mode}）')
+        return jsonify({
+            'status': 'error',
+            'error': '当前环境为只读模式（mode=read-only），禁止故障注入',
+            'fault_type': fault_type,
+            'target': target,
+            'environment': cfg.environment,
+            'mode': cfg.mode,
+        }), 403
 
     try:
         result = fault_api.FAULT_API.inject(fault_type, target, params, mode)

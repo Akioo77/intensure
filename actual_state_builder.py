@@ -44,6 +44,14 @@ class ActualStateBuilder:
                 {'0000000000000001': 's1', '0000000000000002': 's2'}
                 如果不传，则使用默认推断（dpid 末位 → "sN"，Mininet 约定）
         """
+        # v3.21.0：没显式传映射表时，从环境配置读（env.json 的 dpid_to_switch）。
+        # 真实设备 dpid 没规律时靠这张表；Mininet 环境留空即可（末位推断）。
+        if dpid_to_switch is None:
+            try:
+                import env_config
+                dpid_to_switch = env_config.get_config().dpid_to_switch
+            except Exception:
+                dpid_to_switch = {}
         self.dpid_to_switch = dpid_to_switch or {}
 
     # ============================================================

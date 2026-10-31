@@ -16,6 +16,7 @@ import eventlet
 eventlet.monkey_patch()  # 必须在 os_ken 之前
 
 import json
+import logging
 import os
 import time
 
@@ -54,6 +55,11 @@ NETWORK_STATE = {
 }
 
 STATE_FILE = '/tmp/network_state.json'
+
+# v3.21.0：写状态文件失败时只报一次（避免每 5s 刷屏）
+_DUMP_ERROR_REPORTED = False
+
+logger = logging.getLogger(__name__)
 STATS_INTERVAL = 5   # 秒
 LLDP_INTERVAL = 3    # 秒: LLDP 发送周期
 LINK_TIMEOUT = 30    # 秒: 链路条目超时
@@ -95,8 +101,19 @@ def dump_state_to_file():
         with open(tmp, 'w') as f:
             json.dump(snapshot, f, default=str)
         os.replace(tmp, STATE_FILE)
-    except Exception:
-        pass  # 写文件失败不应影响控制器
+    except Exception as e:
+        # v3.21.0：写失败不能静默吞 —— 静默会让「状态永远停在旧值」变成
+        # 查不出原因的问题（踩过：旧文件是 root 属主，控制器以普通用户跑，
+        # 写不进去，state_server 一直读 10-25 的旧快照）。
+        # 只报一次，避免每 5s 刷屏。
+        global _DUMP_ERROR_REPORTED
+        if not _DUMP_ERROR_REPORTED:
+            _DUMP_ERROR_REPORTED = True
+            logger.error(
+                f'状态文件写不进去（{type(e).__name__}: {e}）—— '
+                f'{STATE_FILE} 可能属主是别的用户。'
+                f'修：sudo rm -f {STATE_FILE}（它是运行时快照，删了会重建）'
+            )
 
 
 class StateCollectorController(app_manager.OSKenApp):

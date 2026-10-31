@@ -178,32 +178,37 @@ def validate_consistency(state: dict) -> List[dict]:
     return issues
 
 
-def validate_completeness(state: dict) -> List[dict]:
-    """4. Completeness: 期望资源全到位."""
+def validate_completeness(state: dict, topology_expect: dict = None) -> List[dict]:
+    """4. Completeness: 期望资源全到位.
+
+    topology_expect 可注入（换环境时从 env.json 来），没传用 EXPECTED_TOPOLOGY。
+    """
     issues = []
+    # v3.21.0: 期望值可从环境配置注入（env.json 的 topology_expect）
+    expect = topology_expect or EXPECTED_TOPOLOGY
     n_sw = len(state.get('switches', {}))
     n_host = len(state.get('hosts', {}))
 
-    if n_sw < EXPECTED_TOPOLOGY['switches']:
+    if n_sw < expect['switches']:
         issues.append(_issue('warning', 'completeness',
-                             f'expected {EXPECTED_TOPOLOGY["switches"]} switches, got {n_sw}',
-                             expected=EXPECTED_TOPOLOGY['switches'], actual=n_sw))
-    elif n_sw > EXPECTED_TOPOLOGY['switches']:
+                             f'expected {expect["switches"]} switches, got {n_sw}',
+                             expected=expect['switches'], actual=n_sw))
+    elif n_sw > expect['switches']:
         issues.append(_issue('info', 'completeness',
                              f'more switches than expected: {n_sw}',
                              actual=n_sw))
 
-    if n_host < EXPECTED_TOPOLOGY['hosts']:
+    if n_host < expect['hosts']:
         issues.append(_issue('info', 'completeness',
-                             f'expected {EXPECTED_TOPOLOGY["hosts"]} hosts, got {n_host}',
-                             expected=EXPECTED_TOPOLOGY['hosts'], actual=n_host))
+                             f'expected {expect["hosts"]} hosts, got {n_host}',
+                             expected=expect['hosts'], actual=n_host))
 
     # 找已知 IP
     known_ips = set()
     for h in state.get('hosts', {}).values():
         for ip in h.get('ipv4', []):
             known_ips.add(ip)
-    expected_ips = set(EXPECTED_TOPOLOGY['expected_host_ips'])
+    expected_ips = set(expect['expected_host_ips'])
     missing_ips = expected_ips - known_ips
     if missing_ips:
         issues.append(_issue('info', 'completeness',
@@ -221,11 +226,11 @@ def validate_completeness(state: dict) -> List[dict]:
         except Exception:
             continue
     n_links = len(pairs)
-    if n_links < EXPECTED_TOPOLOGY['inter_switch_links']:
+    if n_links < expect['inter_switch_links']:
         issues.append(_issue('info', 'completeness',
-                             f'expected {EXPECTED_TOPOLOGY["inter_switch_links"]} '
+                             f'expected {expect["inter_switch_links"]} '
                              f'inter-switch link(s), got {n_links}',
-                             expected=EXPECTED_TOPOLOGY['inter_switch_links'],
+                             expected=expect['inter_switch_links'],
                              actual=n_links))
 
     return issues
@@ -301,13 +306,14 @@ def validate_anomaly(state: dict, baseline: dict = None) -> List[dict]:
 
 
 def validate_state(state: dict, baseline: dict = None,
-                   connectivity: dict = None) -> dict:
+                   connectivity: dict = None,
+                   topology_expect: dict = None) -> dict:
     """主入口: 跑全部验证, 返回报告."""
     issues = []
     issues += validate_schema(state)
     issues += validate_sanity(state)
     issues += validate_consistency(state)
-    issues += validate_completeness(state)
+    issues += validate_completeness(state, topology_expect=topology_expect)
     issues += validate_anomaly(state, baseline)
 
     # connectivity 由 demo 注入

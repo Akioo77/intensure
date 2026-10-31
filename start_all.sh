@@ -71,6 +71,16 @@ ok "旧进程与 tmux 会话已清理"
 
 # ============ 1. 控制器 ============
 step "1/4 启动 os-ken 控制器（OpenFlow 6653）"
+
+# v3.21.0：状态文件是运行时快照，但如果它是别的用户（比如以前用 sudo 起的
+# 控制器）留下的 root 属主文件，当前用户就写不进去 → 状态永远停在旧值，
+# 而 state_server / dashboard 读到的都是过期数据（静默，很难查）。
+# 这里是运行时快照，删了会重建，所以直接清掉。
+if [ -f /tmp/network_state.json ] && [ ! -w /tmp/network_state.json ]; then
+    warn "旧状态文件不可写（属主不是当前用户），删掉重建：/tmp/network_state.json"
+    sudo rm -f /tmp/network_state.json 2>/dev/null || rm -f /tmp/network_state.json 2>/dev/null || true
+fi
+
 tmux new-session -d -s "$SESSION" -n controller -c "$PROJECT_DIR" \
     "PYTHONPATH=. osken-manager controller_app 2>&1 | tee /tmp/osken.log"
 sleep 4
