@@ -18,6 +18,8 @@ import state_history
 
 import fault_api  # noqa: E402  (v3.19.0 故障注入测试接口)
 
+import contract_api  # noqa: E402  (v3.20.0 跨模块契约格式转换)
+
 import metrics  # noqa: E402  (v3.18.0 可观测性)
 
 from flask import Flask, Response, g, jsonify, request, send_from_directory
@@ -136,36 +138,12 @@ def api_flows():
 
 @app.route('/api/links')
 def api_links():
-    """LLDP 发现的交换机间链路 (去重成对)."""
-    state = get_state()
-    links = state.get('links', {})
-    pairs = []
-    seen = set()
-    for key, v in links.items():
-        try:
-            dpid, port = key.split(':')
-            dpid, port = dpid, int(port)
-            other = (v['peer_dpid'], v['peer_port'])
-            pkey = frozenset([(dpid, port), other])
-            if pkey in seen:
-                continue
-            seen.add(pkey)
+    """LLDP 发现的交换机间链路 (去重成对).
 
-            def port_name(d, pn):
-                for pp in state['switches'].get(d, {}).get('ports', []):
-                    if pp['port_no'] == pn:
-                        return pp['name']
-                return None
-
-            pairs.append({
-                'a': {'dpid': dpid, 'port_no': port, 'name': port_name(dpid, port)},
-                'b': {'dpid': other[0], 'port_no': other[1],
-                      'name': port_name(other[0], other[1])},
-                'last_seen': v['last_seen'],
-            })
-        except Exception:
-            continue
-    return jsonify(pairs)
+    v3.20.0: 实现挪到 contract_api.build_links()（契约层也要用同一份），
+    这里保留原路径 + 原返回结构，dashboard 行为不变。
+    """
+    return jsonify(contract_api.build_links(get_state()))
 
 
 @app.route('/api/events')
@@ -385,6 +363,86 @@ def api_ovs_log_stats():
         }), 500
 
     return jsonify(logger.get_stats())
+
+
+# ============================================================
+# 跨模块契约端点（v3.20.0 · /api/intensure/v1/*）
+# ============================================================
+# 背景：docs/cross-module-api-contract.md §5.1 要求本模块暴露
+#   GET  /api/intensure/v1/state/current
+#   GET  /api/intensure/v1/state/history
+#   GET  /api/intensure/v1/port-events
+#   GET  /api/intensure/v1/link-events
+#   POST /api/intensure/v1/probe-results
+# 之前我们只提供不带前缀的 /api/*，对方按契约调会全部 404。
+#
+# ⚠️ 设计约束：**只加不改**。旧的 /api/* 路径全部保留（dashboard、演示脚本、
+# 对方已写好的调用都在用），契约路径作为并行别名新增。这样既能对齐契约，
+# 又不会打破任何现有链路。
+
+@app.route('/api/intensure/v1/state/current')
+def api_contract_state_current():
+    """当前状态快照（契约 §4.1）。
+
+    保障模块每 5s 调一次，用 version 字段判断采集是否在更新。
+    采集还没初始化时返回 424 DEPENDENCY_NOT_READY。
+    """
+    state = get_state()
+    if not contract_api.is_state_ready(state):
+        return jsonify(contract_api.build_error(
+            'DEPENDENCY_NOT_READY', '采集尚未初始化（还没有交换机被发现）',
+            module='intensure')), 424
+    return jsonify(contract_api.build_current_state(state))
+
+
+@app.route('/api/intensure/v1/state/history')
+def api_contract_state_history():
+    """历史状态（契约 §5.1）。?since=...&until=...&limit=N
+
+    返回 summary 历史条目列表（与现有 GET /api/history?key=summary 同源）。
+    """
+    since = request.args.get('since', default=0, type=float)
+    until = request.args.get('until', default=0, type=float)
+    limit = request.args.get('limit', default=100, type=int)
+    entries = state_history.get('summary', limit=0)
+    return jsonify(contract_api.build_state_history(entries, since, until, limit))
+
+
+@app.route('/api/intensure/v1/port-events')
+def api_contract_port_events():
+    """端口事件流（契约 §5.1）。?dpid=...&since=...&limit=N"""
+    dpid = request.args.get('dpid', default=None, type=str)
+    since = request.args.get('since', default=0, type=float)
+    limit = request.args.get('limit', default=200, type=int)
+    events = contract_api.build_port_events(get_state(), dpid=dpid, since=since, limit=limit)
+    return jsonify(events)
+
+
+@app.route('/api/intensure/v1/link-events')
+def api_contract_link_events():
+    """链路事件流（契约 §5.1）。?since=...&limit=N"""
+    since = request.args.get('since', default=0, type=float)
+    limit = request.args.get('limit', default=200, type=int)
+    events = contract_api.build_link_events(get_state(), since=since, limit=limit)
+    return jsonify(events)
+
+
+@app.route('/api/intensure/v1/probe-results', methods=['POST'])
+def api_contract_probe_results():
+    """探测结果上报（契约 §5.1，live_env / 探测侧调）。
+
+    body: {"reachable": [...], "unreachable": [...], "loss_pct": 0.0, "latency_ms": 12.3}
+    """
+    body = request.get_json(force=True, silent=True) or {}
+    record = contract_api.build_probe_results(body)
+    state_history.add_connectivity(record)
+    state_history.dump()
+    return jsonify({
+        'status': 'ok',
+        'recorded': True,
+        'reachable': len(record['reachable']),
+        'unreachable': len(record['unreachable']),
+    })
 
 
 def main():

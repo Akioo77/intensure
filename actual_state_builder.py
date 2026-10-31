@@ -107,6 +107,19 @@ class ActualStateBuilder:
         return self.build(**kwargs)
 
     # ============================================================
+    # 公开辅助：只要 down 端口 / down 链路，不要整条 ActualState
+    # （v3.20.0：契约层 contract_api.py 复用这里的映射逻辑，避免两处实现）
+    # ============================================================
+
+    def down_ports(self, state: dict) -> List[str]:
+        """所有 down 端口，格式 "s1:eth2"。"""
+        return self._extract_down_ports(state)
+
+    def down_links(self, state: dict) -> List[str]:
+        """所有 down 链路，格式 "s1:eth2-s2:eth3"。"""
+        return self._extract_down_links(state)
+
+    # ============================================================
     # 内部映射
     # ============================================================
 
