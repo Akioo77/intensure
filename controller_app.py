@@ -23,6 +23,7 @@ import time
 import state_history
 
 import db_writer
+import env_config
 
 from graceful import install_graceful_shutdown
 
@@ -60,6 +61,22 @@ STATE_FILE = '/tmp/network_state.json'
 _DUMP_ERROR_REPORTED = False
 
 logger = logging.getLogger(__name__)
+
+
+def _flow_write_allowed() -> bool:
+    """是否允许向交换机下发流表规则（读 env.json 的 flow_rule_write）。
+
+    🔴 见 env_config.EnvConfig.flow_rule_write：
+    controller_app 握手时装 table-miss（所有未匹配包送控制器）、学到 MAC 后装学习规则，
+    本质是个 **L2 学习交换机** —— 指向真实园区交换机 = 接管其转发路径。
+
+    只读模式永远为 False；配置读不出来也返回 False（宁可不采集，不改现网）。
+    """
+    try:
+        return env_config.get_config().flow_rule_write
+    except Exception as e:
+        logger.warning(f'[env] 读配置失败，禁止下发流表规则: {e}')
+        return False
 STATS_INTERVAL = 5   # 秒
 LLDP_INTERVAL = 3    # 秒: LLDP 发送周期
 LINK_TIMEOUT = 30    # 秒: 链路条目超时
@@ -152,13 +169,21 @@ class StateCollectorController(app_manager.OSKenApp):
         parser = datapath.ofproto_parser
 
         # table-miss: 所有未匹配包送控制器
-        match = parser.OFPMatch()
-        actions = [parser.OFPActionOutput(ofproto.OFPP_CONTROLLER,
-                                           ofproto.OFPCML_NO_BUFFER)]
-        inst = [parser.OFPInstructionActions(ofproto.OFPIT_APPLY_ACTIONS, actions)]
-        datapath.send_msg(parser.OFPFlowMod(
-            datapath=datapath, priority=0,
-            match=match, instructions=inst))
+        #
+        # ⚠️ 这是**接管转发路径**的动作 —— 装上后该交换机所有未匹配包都送回控制器。
+        #    接真实园区网络前必须允许关闭（env.json 的 flow_rule_write）。
+        if _flow_write_allowed():
+            match = parser.OFPMatch()
+            actions = [parser.OFPActionOutput(ofproto.OFPP_CONTROLLER,
+                                               ofproto.OFPCML_NO_BUFFER)]
+            inst = [parser.OFPInstructionActions(ofproto.OFPIT_APPLY_ACTIONS, actions)]
+            datapath.send_msg(parser.OFPFlowMod(
+                datapath=datapath, priority=0,
+                match=match, instructions=inst))
+        else:
+            logger.warning(
+                '[env] flow_rule_write=false —— 不下发 table-miss 规则，'
+                '该交换机不会把未匹配包送回控制器（无 MAC 级观测）')
 
         self.datapaths[datapath.id] = datapath
         dpid_hex = format(datapath.id, '016x')
@@ -434,18 +459,21 @@ class StateCollectorController(app_manager.OSKenApp):
         out_port = self.mac_to_port[datapath.id].get(dst, ofproto.OFPP_FLOOD)
 
         actions = [parser.OFPActionOutput(out_port)]
-        if out_port != ofproto.OFPP_FLOOD:
-            match = parser.OFPMatch(in_port=in_port, eth_dst=dst)
-            inst = [parser.OFPInstructionActions(
-                ofproto.OFPIT_APPLY_ACTIONS, actions)]
-            datapath.send_msg(parser.OFPFlowMod(
-                datapath=datapath, priority=1,
-                match=match, instructions=inst, idle_timeout=30))
+        # ⚠️ 装学习规则 + 发 packet-out 同样是**写交换机转发路径**。
+        #    flow_rule_write=false 时一律不下发（见 env_config）。
+        if _flow_write_allowed():
+            if out_port != ofproto.OFPP_FLOOD:
+                match = parser.OFPMatch(in_port=in_port, eth_dst=dst)
+                inst = [parser.OFPInstructionActions(
+                    ofproto.OFPIT_APPLY_ACTIONS, actions)]
+                datapath.send_msg(parser.OFPFlowMod(
+                    datapath=datapath, priority=1,
+                    match=match, instructions=inst, idle_timeout=30))
 
-        data = msg.data if msg.buffer_id == ofproto.OFP_NO_BUFFER else None
-        datapath.send_msg(parser.OFPPacketOut(
-            datapath=datapath, buffer_id=msg.buffer_id,
-            in_port=in_port, actions=actions, data=data))
+            data = msg.data if msg.buffer_id == ofproto.OFP_NO_BUFFER else None
+            datapath.send_msg(parser.OFPPacketOut(
+                datapath=datapath, buffer_id=msg.buffer_id,
+                in_port=in_port, actions=actions, data=data))
 
     def _is_interface_mac(self, mac: str) -> bool:
         """判断 MAC 是否是某个交换机端口的 hw_addr (即交换机接口自身)."""

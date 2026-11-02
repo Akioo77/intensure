@@ -86,13 +86,18 @@ def build_capabilities(state: Optional[dict] = None,
         'mode': cfg.mode,
         'read_only': cfg.is_read_only,
         'write_operations': cfg.write_operations_allowed,
+        # 🔴 接真网前必看：控制器能不能向交换机下发流表（= 会不会接管转发路径）
+        'flow_rule_write': cfg.flow_rule_write,
         'config_source': cfg.source,
 
         # ---- 采集能力 ----
         'openflow': {
             'protocol': OPENFLOW_PROTOCOL,
-            # 控制器从不下发流表（controller_app 不发 OFPPFlowMod），只读
-            'write_operations': 'none',
+            # ⚠️ 2026-11-03 订正：这里原来写死 'none' + 注释「控制器从不下发流表」，
+            #    **那是错的** —— controller_app 会下发 OFPFlowMod（握手装 table-miss、
+            #    学到 MAC 装学习规则），本质是个 L2 学习交换机，会**接管转发路径**。
+            #    现在如实反映 flow_rule_write 配置（只读模式强制为 none）。
+            'write_operations': ('flow-rules' if cfg.flow_rule_write else 'none'),
             'switches_connected': len(switches),
             'dpids': sorted(switches.keys()),
         },

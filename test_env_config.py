@@ -228,8 +228,15 @@ def test_capabilities_content():
     check('有 mode', caps['mode'] == 'active')
     check('交换机数对', caps['openflow']['switches_connected'] == 2,
           str(caps['openflow']))
-    check('OpenFlow 写操作标注为 none',
-          caps['openflow']['write_operations'] == 'none')
+    # ⚠️ 2026-11-03 订正：这里原来断言 'none'（注释写「控制器从不下发流表」），
+    #    **那个断言本身是错的** —— controller_app 会下发 OFPFlowMod（table-miss +
+    #    MAC 学习规则），本质是个 L2 学习交换机，会接管转发路径。
+    #    现在 capabilities 如实反映 flow_rule_write：active → 'flow-rules'。
+    check('OpenFlow 写操作如实标注为 flow-rules',
+          caps['openflow']['write_operations'] == 'flow-rules',
+          str(caps['openflow']))
+    check('顶层有 flow_rule_write', caps.get('flow_rule_write') is True,
+          str(caps.get('flow_rule_write')))
     check('拓扑发现是 lldp', caps['topology_discovery']['method'] == 'lldp',
           str(caps['topology_discovery']))
     check('主机数对', caps['hosts']['discovered'] == 2)
@@ -350,6 +357,94 @@ def test_dpid_mapping_from_config():
         check('映射从配置读到了',
               builder.dpid_to_switch.get('00000000000000aa') == 'sw-core-1',
               str(builder.dpid_to_switch))
+    finally:
+        if old is None:
+            os.environ.pop(env_config.CONFIG_ENV_VAR, None)
+        else:
+            os.environ[env_config.CONFIG_ENV_VAR] = old
+        env_config.reset_cache()
+        os.unlink(path)
+
+
+# ============ flow_rule_write：接真实网络的关键开关 ============
+
+def test_flow_rule_write_default_true():
+    """active 模式默认允许下发流表（= 改造前行为，演示环境不受影响）。"""
+    cfg = env_config.EnvConfig()
+    check('默认允许写流表', cfg.flow_rule_write is True, str(cfg.flow_rule_write))
+
+
+def test_read_only_forces_flow_rule_write_false():
+    """只读模式**强制**禁止下发流表，配置里写 true 也不行。
+
+    这是接真实园区网络的安全底线：只读 = 不写现网。
+    """
+    path = write_tmp(json.dumps({'mode': 'read-only', 'flow_rule_write': True}))
+    old = os.environ.get(env_config.CONFIG_ENV_VAR)
+    os.environ[env_config.CONFIG_ENV_VAR] = path
+    env_config.reset_cache()
+    try:
+        cfg = env_config.get_config()
+        check('只读模式强制禁写流表', cfg.flow_rule_write is False, str(cfg.flow_rule_write))
+    finally:
+        if old is None:
+            os.environ.pop(env_config.CONFIG_ENV_VAR, None)
+        else:
+            os.environ[env_config.CONFIG_ENV_VAR] = old
+        env_config.reset_cache()
+        os.unlink(path)
+
+
+def test_flow_rule_write_can_be_disabled_in_active_mode():
+    """active 模式也能显式关掉（方案 B：不装 table-miss，不接管转发路径）。"""
+    path = write_tmp(json.dumps({'mode': 'active', 'flow_rule_write': False}))
+    old = os.environ.get(env_config.CONFIG_ENV_VAR)
+    os.environ[env_config.CONFIG_ENV_VAR] = path
+    env_config.reset_cache()
+    try:
+        cfg = env_config.get_config()
+        check('active 模式可显式禁写流表', cfg.flow_rule_write is False, str(cfg.flow_rule_write))
+    finally:
+        if old is None:
+            os.environ.pop(env_config.CONFIG_ENV_VAR, None)
+        else:
+            os.environ[env_config.CONFIG_ENV_VAR] = old
+        env_config.reset_cache()
+        os.unlink(path)
+
+
+def test_broken_config_disables_flow_rule_write():
+    """配置坏了 → 安全兜底：禁写流表（接管转发路径比采不到数据危险）。"""
+    path = write_tmp('{ this is not valid json ')
+    old = os.environ.get(env_config.CONFIG_ENV_VAR)
+    os.environ[env_config.CONFIG_ENV_VAR] = path
+    env_config.reset_cache()
+    try:
+        cfg = env_config.get_config()
+        check('配置坏了禁写流表', cfg.flow_rule_write is False, str(cfg.flow_rule_write))
+        check('配置坏了禁注故障', cfg.write_operations_allowed is False)
+    finally:
+        if old is None:
+            os.environ.pop(env_config.CONFIG_ENV_VAR, None)
+        else:
+            os.environ[env_config.CONFIG_ENV_VAR] = old
+        env_config.reset_cache()
+        os.unlink(path)
+
+
+def test_capabilities_reports_flow_rule_write():
+    """capabilities 要如实反映能不能下发流表（接真网前靠它确认）。"""
+    if flask is None:
+        return
+    path = write_tmp(json.dumps({'mode': 'read-only'}))
+    old = os.environ.get(env_config.CONFIG_ENV_VAR)
+    os.environ[env_config.CONFIG_ENV_VAR] = path
+    env_config.reset_cache()
+    try:
+        client = state_server.app.test_client()
+        caps = client.get('/api/capabilities').get_json()
+        check('capabilities 含 flow_rule_write', 'flow_rule_write' in caps, str(caps.keys()))
+        check('只读时 flow_rule_write=False', caps.get('flow_rule_write') is False, str(caps))
     finally:
         if old is None:
             os.environ.pop(env_config.CONFIG_ENV_VAR, None)

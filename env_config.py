@@ -48,6 +48,13 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     # 模式：active | read-only
     'mode': MODE_ACTIVE,
 
+    # 是否允许控制器向交换机下发流表规则。
+    # ⚠️ 这是接真实网络时最关键的开关：controller_app 握手时装 table-miss
+    #    （所有未匹配包送控制器）、学到 MAC 后装学习规则 —— 它本质上是个
+    #    **L2 学习交换机**，指向真实园区交换机 = 接管其转发路径。
+    # 默认 True = 改造前行为（本机实验环境照常跑）。
+    'flow_rule_write': True,
+
     # 期望拓扑 —— 校验 completeness 用。
     # 默认对应 start_all.sh / demo_db_pipeline.sh 起的 SingleSwitchTopo(k=4)
     # （1 交换机 4 主机）。2 交换机那套用 env.topo_simple.json。
@@ -88,6 +95,8 @@ DEFAULT_CONFIG: Dict[str, Any] = {
 _SAFE_FALLBACK = {
     'mode': MODE_READ_ONLY,
     'allow_fault_injection': False,
+    # 配置坏了 → 宁可不写流表（接管转发路径比采不到数据危险得多）
+    'flow_rule_write': False,
 }
 
 
@@ -239,10 +248,34 @@ class EnvConfig:
         """是否允许本模块做写操作（注故障等）。
 
         只读模式下永远为 False —— 这是「采集层不改变现网」这条承诺的执行点。
-        注意：OpenFlow 侧本来就不下发流表（controller_app 从不发 OFPPFlowMod），
-        这里的开关管的是我们自己暴露的写端点。
+        ⚠️ 注意（2026-11-03 订正）：这个开关管的是**我们自己暴露的写端点**，
+        **管不到 OpenFlow 侧** —— controller_app 会下发 OFPFlowMod（见
+        `flow_rule_write`）。原注释「OpenFlow 侧本来就不下发流表」是错的。
         """
         return not self.is_read_only and bool(self._data.get('allow_fault_injection', True))
+
+    @property
+    def flow_rule_write(self) -> bool:
+        """是否允许控制器向交换机下发流表规则。
+
+        🔴 **接真实网络时最关键的开关**（2026-11-03 加）。
+
+        controller_app 握手时会装 **table-miss 规则**（priority 0，所有未匹配包送控制器），
+        学到 MAC 之后装**学习规则**（priority 1，idle_timeout 30）——
+        也就是说**它本质上是个 L2 学习交换机**。
+        把它指向真实园区交换机，等于**接管那台交换机的转发路径** ——
+        这比注故障严重得多（`allow_fault_injection` 只挡住了后者）。
+
+        规则：
+        - **只读模式永远为 False**，不能被配置覆盖
+          （只读模式的语义就是「不写现网」）
+        - active 模式取配置值，默认 True（= 改造前行为，演示环境不受影响）
+        - 关掉之后：交换机不再把未匹配包送回控制器 → 没有 packet-in →
+          **拿不到 MAC 级观测**（链路/端口状态仍可采，走 LLDP + port stats）
+        """
+        if self.is_read_only:
+            return False
+        return bool(self._data.get('flow_rule_write', True))
 
     @property
     def allow_fault_injection(self) -> bool:
@@ -290,6 +323,7 @@ class EnvConfig:
             'mode': self.mode,
             'read_only': self.is_read_only,
             'write_operations_allowed': self.write_operations_allowed,
+            'flow_rule_write': self.flow_rule_write,
             'config_source': self.source,
             'probe_driver': self.probe_driver,
             'topology_expect': self.topology_expect,
