@@ -265,7 +265,9 @@ python3 env_doctor.py --json     # 机器可读（给脚本用）
 | `speaker_notes.md` 里 Q4「自愈留给 Phase 2」、Q6「稳定时 60 秒写一次心跳」两条内容已过期 | 中 | 自愈已有 `assurance_mvp.py`；心跳 v3.9 起默认关。**讲稿本身是现成的，但这两条要改**，否则会被问住 |
 | **`env.json` 的拓扑期望必须和实际启动的拓扑一致** | 中 | v3.21.0 新增配置层时踩过：`start_all.sh` 起的是 **1 交换机 4 主机**，而 `demo_full.py` / `integration_demo.py` 起的是 **2 交换机** —— 配置对不上，状态校验会误报「少了 1 台交换机」。跑 2 交换机那两个脚本前要 `export INTENSURE_ENV_FILE=env.topo_simple.json`。**换环境时先 `python3 env_doctor.py` 对一下** |
 
----
+
+| **环境迁移后 DB 权限模型会被重建** | 中 | 2026-11-03 换机（账号 sunxiaoxuan→akioo、VM 重建为 aarch64）后发现：`implementation.policies` 的属主变成 `intensure_user` 且只有它有全套权限，`implementation_user`/`assurance_user`/`translation_user` **一个授权都没有** → `seed_policies.py` 直接 `permission denied`、assurance 一直报「network_state 还没数据」。**修法**：重放官方授权脚本 `sudo -u postgres psql -d intensure_dev -f docs/access-control-grants.sql`（幂等），再 `python3 seed_policies.py` 播种 |
+| **`db_writer.query()` 吞异常 → 权限问题伪装成「没数据」** | 中 | `assurance_mvp.py` 用 `w.query_one('SELECT payload FROM intensure.network_state LIMIT 1')`，查不到就报「network_state 还没数据」。但 **DB 报 permission denied 时也会返回 None** → 现象与「真没数据」一模一样，极易误判。排查权限问题必须**直连 psql 实测**（`PGPASSWORD=... psql -U <role> -c '...'），别信 db_writer 的返回值 |---
 
 ## 8. 协作约定
 
@@ -319,6 +321,8 @@ python3 env_doctor.py --json     # 机器可读（给脚本用）
     脚本里已加 `export no_proxy` + `curl --noproxy '*'`，**别删**（v3.19.0）
 12. **启动脚本的就绪探测别太早** —— `sleep 3` 后就 curl，Flask 还没 ready 会误判；
     看到「服务没起来」先去看 `/tmp/state_server.log`，别急着改代码（v3.19.0）
+13. **换机/迁移后先重放授权脚本** —— 新环境的 PG 会把表属主和 GRANT 重建掉，四账号最小权限分离（intensure_user / assurance_user / implementation_user / translation_user）会失效。症状是 `seed_policies.py` 报 `permission denied`、assurance 一直说「network_state 还没数据」。→ `sudo -u postgres psql -d intensure_dev -f docs/access-control-grants.sql`（幂等）再播种（2026-11-03）
+14. **`db_writer` 的查询失败会伪装成「表里没数据」** —— 它吞异常，permission denied 和 0 行返回一样的 None。查权限一律**直连 psql 实测**，别看 db_writer 的返回值（2026-11-03）
 
 ---
 
