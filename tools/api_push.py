@@ -30,6 +30,7 @@ import json
 import os
 import subprocess
 import sys
+import time
 import urllib.request
 from datetime import datetime, timezone
 
@@ -46,19 +47,45 @@ def gh_token():
     return tok
 
 
-def req(token, method, path, data=None):
+def req(token, method, path, data=None, retries=4):
+    """发一个 API 请求，失败自动重试。
+
+    ⚠️ 为什么必须重试（2026-11-03 实测）：
+    本机到 api.github.com 的链路**本身是抖的** —— 连续小请求的 HTTP 码在
+    200 / 000 / 200 之间跳（约一半成功率）。一次抖动就会把整个推送打断
+    （实测挂在第 3 个 blob 上）。
+
+    重试是安全的：blob / tree / commit 都是**内容寻址**的，
+    同样的输入重发只会得到同样的 sha，不会产生垃圾对象。
+    """
     body = json.dumps(data).encode() if data is not None else None
-    r = urllib.request.Request(
-        f'{API}{path}', data=body, method=method,
-        headers={
-            'Authorization': f'Bearer {token}',
-            'Accept': 'application/vnd.github+json',
-            'Content-Type': 'application/json',
-            'User-Agent': 'intensure-api-push',
-        })
-    with urllib.request.urlopen(r, timeout=30) as resp:
-        raw = resp.read()
-        return json.loads(raw) if raw else {}
+    last = None
+    for attempt in range(1, retries + 1):
+        try:
+            r = urllib.request.Request(
+                f'{API}{path}', data=body, method=method,
+                headers={
+                    'Authorization': f'Bearer {token}',
+                    'Accept': 'application/vnd.github+json',
+                    'Content-Type': 'application/json',
+                    'User-Agent': 'intensure-api-push',
+                })
+            with urllib.request.urlopen(r, timeout=30) as resp:
+                raw = resp.read()
+                return json.loads(raw) if raw else {}
+        except urllib.error.HTTPError as e:
+            # 4xx 是真错误（例如 ref 非快进），重试没有意义
+            if e.code < 500:
+                raise
+            last = e
+        except Exception as e:
+            last = e
+        if attempt < retries:
+            delay = 2 * attempt
+            print(f'   ↻ {method} {path} 第 {attempt} 次失败（{type(last).__name__}），'
+                  f'{delay}s 后重试')
+            time.sleep(delay)
+    raise last
 
 
 def git(*args, **kw):
