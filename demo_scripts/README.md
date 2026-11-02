@@ -177,10 +177,10 @@ REGISTERED → ACTIVE → VIOLATED → DIAGNOSING → [HEALING] → VERIFYING �
 
 ### Q3: 一致性检查频率是多少？
 
-> A: 默认 5 秒一次。但有**自适应**机制：
-> - 健康时降低频率（节能）
-> - 检测到违规时提高到 1 秒（快速响应）
-> - 自愈期间高频验证
+> A: **默认 5 秒一次**（`ASSURANCE_INTERVAL` 可调）。
+> ⚠️ 之前这里写的「自适应机制（健康时降频 / 违例时提速到 1 秒）」**代码里并不存在**，已删 ——
+> 实际就是固定间隔 + **写库侧按事件节流**（`state_history` 每 30 秒或状态变化时写）。
+> 完整口径见 `docs/speaker_notes.md` Q6（那里是唯一权威版本）。
 
 ### Q4: intensure 和 assurance-agent 怎么通信？为什么不直接嵌在一起？
 

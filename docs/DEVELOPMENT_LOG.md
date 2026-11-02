@@ -181,7 +181,7 @@ python3 env_doctor.py --json     # 机器可读（给脚本用）
 |---|---|---|
 | **跑通 1 次真实联调** | **外部阻塞** | 卡在保障模块的 cloudflared 隧道不通（HTTP 000）。路径/契约已对齐，只剩这一个变量 |
 | ~~演示讲稿~~（15-20 分钟完整剧本） | ✅ **已完成** | `docs/speaker_notes.md`（299 行）：开场 30 秒 + 11 个分段带时间标注的逐句话术 + 汇报完成 30 秒 + 应急方案，**合计约 29 分钟**，已超过 15-20 分钟的目标 |
-| Q&A 预案（15-20 个老师可能问的问题） | 🟡 **部分完成** | 素材其实成型了：`docs/speaker_notes.md` 有 **Q1–Q8 完整答案**（不是占位），`demo_scripts/README.md` 另有 5 个问题。**去重后约 10-13 题**，离 15-20 还差 3-7 题，且没有按「老师真会问什么」排过序 |
+| Q&A 预案（15-20 个老师可能问的问题） | ✅ **已完成** | 2026-11-03 补齐到 **15 题**：`docs/speaker_notes.md` Q1–Q15（新增 Q9–Q15），**按「老师真会问」排了序**（⭐ 标记优先级，时间紧只准备前 6 题）。同时**订正了 3 处讲错的口径**：Q4 自愈（我们不做决策）、Q6 频率与写库节流、`demo_scripts/README.md` Q3 里代码中不存在的「自适应机制」 |
 
 ### 4.2 🟡 我们自己能做（不依赖外部）
 
@@ -262,7 +262,8 @@ python3 env_doctor.py --json     # 机器可读（给脚本用）
 | `dashboard.html` 单文件 1600+ 行 | 低 | 可维护性问题，见 §4.2 |
 | `docs/architecture.png` 需手工重新生成 | 低 | 改 `docs/architecture.html` 后要重新截图 PNG（headless Chrome，`--window-size=1460,1060`）|
 | ~~`39 表 / 15 个月分区` 旧数全库 6 处~~ | ✅ 已清 | 2026-10-31 按实测统一为 **25 张逻辑表 / 53 张物理表（75 个分区子表）**：`README.md`（3 处）、`REQUIREMENTS.md`（1 处）、`docs/architecture.html`（2 处）均已改，`architecture.png` 已用 headless Chrome 重新截图（1460×1060） |
-| `speaker_notes.md` 里 Q4「自愈留给 Phase 2」、Q6「稳定时 60 秒写一次心跳」两条内容已过期 | 中 | 自愈已有 `assurance_mvp.py`；心跳 v3.9 起默认关。**讲稿本身是现成的，但这两条要改**，否则会被问住 |
+| ~~`speaker_notes.md` 里 Q4「自愈留给 Phase 2」、Q6「稳定时 60 秒写一次心跳」两条内容已过期~~ | ✅ 已改 | 2026-11-03 已订正：Q4 改成「**我们不做自愈决策**，那是保障模块的职责；我们做检测+根因诊断+传证据」；Q6 改成「检查 5s 一次，**写库另有节流**（`state_history` 每 30s 或状态变化时）」。⚠️ 原文那句「自愈已有 `assurance_mvp.py`」**本身是错的** —— 实测 `assurance_mvp.py` 里 `heal/guard/verdict` **零命中**，自愈引擎（`healing_engine.py`/`conflict_resolver.py`）全在 `legacy/` 已归档 |
+| `demo_scripts/README.md` 的 Q3 声称检查频率有「自适应机制（健康降频/违例提速）」 | 中 | 代码里**不存在**这个逻辑（`CHECK_INTERVAL` 固定 5s）。2026-11-03 已删该说法，改为指向 `speaker_notes.md` Q6 统一口径 |
 | **`env.json` 的拓扑期望必须和实际启动的拓扑一致** | 中 | v3.21.0 新增配置层时踩过：`start_all.sh` 起的是 **1 交换机 4 主机**，而 `demo_full.py` / `integration_demo.py` 起的是 **2 交换机** —— 配置对不上，状态校验会误报「少了 1 台交换机」。跑 2 交换机那两个脚本前要 `export INTENSURE_ENV_FILE=env.topo_simple.json`。**换环境时先 `python3 env_doctor.py` 对一下** |
 
 
