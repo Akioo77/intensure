@@ -507,6 +507,112 @@ curl -s "http://127.0.0.1:8080/api/events?limit=20"
 curl -s http://127.0.0.1:8080/api/validate
 ```
 
+### 6.7 迁移到真实园区网络（v3.21.0 起）
+
+> **一句话结论：代码一行都不用改。** v3.21.0 把「环境差异」从代码里搬到了配置文件
+> `env.json`，换环境 = 改配置 + 跑体检，不是改代码。
+
+#### 6.7.0 迁移四步
+
+```bash
+# Step 0：体检（先看当前环境我们能不能干活、缺什么）
+python3 env_doctor.py
+
+# Step 1：按下面那张表改 env.json（或另写一份 env.campus.json）
+export INTENSURE_ENV_FILE=env.campus.json
+
+# Step 2：体检复检，确认能力项全绿
+python3 env_doctor.py
+
+# Step 3：起服务后查能力自检端点
+curl -s http://127.0.0.1:8080/api/capabilities | python3 -m json.tool
+```
+
+#### 6.7.1 `env.json` 逐字段对照表
+
+| 字段 | 本机实验环境 | 真实园区网络 | 说明 |
+|---|---|---|---|
+| `environment` | `"mininet-lab"` | 你的环境标签 | 纯标识，会出现在 `/api/capabilities` |
+| **`mode`** | `"active"` | **`"read-only"`** | 🔴 **接真网必须改**。read-only 下**所有写端点一律 403** |
+| `topology_expect.switches` | `1` | 真实交换机数 | 状态校验的完整性维度用它，对不上会误报「少了 N 台交换机」 |
+| `topology_expect.hosts` | `4` | 真实主机数 | 同上 |
+| `topology_expect.inter_switch_links` | `0` | **交换机之间的**链路数 | ⚠️ `state['links']` 只记 LLDP 发现的交换机间链路，主机↔交换机链路**不在里面** |
+| `topology_expect.host_switch_links` | `4` | 主机↔交换机链路数 | 这部分要自己数，`state['links']` 里没有 |
+| `topology_expect.expected_host_ips` | `["10.0.0.1"..."10.0.0.4"]` | 园区主机 IP | 探测与校验的基准 |
+| `dpid_to_switch` | `{}` | **`{"0x2452...": "sw-core-1"}`** | 真实设备 dpid 没规律，**留空会按 dpid 末位推断 → 拓扑校验误报** |
+| `port_label_map` | `{}` | **`{"GigabitEthernet0/1": "eth1"}`** | 契约要短标签（`eth1`），真实设备端口名很长，**不映射会导致 down_ports 判定错** |
+| `probe.driver` | `"mininet"` | `"icmp"` | 两个分支代码里已有 |
+| `probe.source` / `destination` | `10.0.0.1` / `10.0.0.4` | 园区内可达的源/目的 IP | ⚠️ 源 IP 必须在园区网内，否则探测全失败 |
+| **`allow_fault_injection`** | `true` | **`false`** | 🔴 **接真网必须改**。注故障是 `sudo tc` 打本机网卡，**对着别人的设备发这类命令是事故** |
+| `assurance_expected_version` | `null` | 对方的实际契约版本 | null = 用 `assurance_bridge` 默认值（0.4.0） |
+
+**配置路径优先级**：`$INTENSURE_ENV_FILE` > `env.json` > `env.yaml`。
+**删掉 `env.json` 也能跑** —— 会用 `env_config.py` 的内置默认值（= 改造前的行为）。
+
+#### 6.7.2 🔴 「只读模式」管不到控制器（接真网前必读）
+
+`mode: read-only` **只管我们自己暴露的 REST 写端点** —— 也就是 `POST /api/v1/test/inject-fault`。
+
+**但它管不到 OpenFlow 侧。** 这是我们实测代码查出来的（2026-11-03），也是最容易误解的一点：
+
+| 模块 | 读 `env.json` / 受 `mode` 约束？ | 会写什么 |
+|---|---|---|
+| `state_server.py` | ✅ 是 | 注故障端点（`mode=read-only` → 403） |
+| `actual_state_builder.py` / `capabilities.py` / `env_doctor.py` | ✅ 是 | 只读 |
+| **`controller_app.py`** | ❌ **完全没读配置层** | 🔴 **向交换机下发 `OFPFlowMod`** |
+
+`controller_app` 具体下发了什么：
+
+1. **交换机握手时**装 **table-miss 规则**（priority 0，`OFPActionOutput(OFPP_CONTROLLER)`）
+   —— 即**所有未匹配包都送回控制器**
+2. **学到 MAC 之后**装 **学习规则**（priority 1，`in_port + eth_dst → out_port`，`idle_timeout=30`）
+
+也就是说：**我们的控制器本质上是个 L2 学习交换机**。
+把它指向真实园区交换机，等于**接管那台交换机的转发路径** ——
+这比注故障严重得多（`allow_fault_injection: false` 只挡住了后者）。
+
+> 📌 顺带订正一处：`env.json` 原注释写「OpenFlow 侧本来就不下发流表（controller_app 从不发
+> `OFPPFlowMod`）」—— **这句是错的**。`OFPPFlowMod` 这个常量在 os-ken 里**根本不存在**，
+> 我们实际用的是 `OFPFlowMod`，**发了 2 次**。已订正该注释。
+
+**因此接真实园区网络前，有三条路可选（需要团队决策）**：
+
+| 方案 | 做法 | 代价 |
+|---|---|---|
+| **A. 不接控制器** | 只跑采集/保障侧，主机级探测改用 `probe.driver: icmp` | 拿不到 MAC 级观测（无 packet-in → 无 MAC 学习）；链路/端口状态仍可采（LLDP + port stats） |
+| **B. 给控制器加开关** | 在 `env.json` 加 `flow_rule_write: false`，`mode=read-only` 时**不装 table-miss** | 同上；且这是**代码改动**，需补测试 |
+| **C. 隔离试验** | 在 dedicated VLAN / 实验端口上做，别接生产交换机 | 覆盖不到真实业务流量，但风险最低 |
+
+⚠️ **在方案确定之前，不要把 `controller_app` 指向真实园区交换机。**
+演示用的 `mode: read-only` + `allow_fault_injection: false` **只能保护 REST 端点这一层**。
+
+#### 6.7.3 迁移后验证清单
+
+- [ ] `python3 env_doctor.py` 能力项全绿（交换机数、拓扑发现方式、探测驱动、故障注入可用性、契约版本）
+- [ ] `GET /api/capabilities` 返回的 `mode` = `read-only`、`fault_injection` 标为不可用
+- [ ] `GET /api/intensure/v1/state/current` 返回的交换机数/端口名与 `env.json` 期望一致
+- [ ] **端口名映射抽查**：故意 down 一个真实端口，看 `down_ports` 里报的是**短标签**（`eth1`）还是原始长名
+- [ ] 契约端点 5 个全通（`state/current`、`state/history`、`port-events`、`link-events`、`probe-results`）
+- [ ] 单测仍全绿（`pytest`）—— 配置层默认行为 = 改造前行为，不该因换配置而挂
+
+#### 6.7.4 回退方案
+
+把 `INTENSURE_ENV_FILE` 指回 `env.json`（或直接 unset）即可，**不需要回滚代码**。
+这就是配置层存在的意义：换环境的成本从「改一轮代码 + 回归」降到「改一个文件 + 跑体检」。
+
+#### 6.7.5 迁移风险清单（实测踩过的坑）
+
+1. **`dpid_to_switch` 不填** → 按 dpid 末位推断设备名，真实设备下必然错 → 拓扑校验误报
+2. **`port_label_map` 不填** → `down_ports` 报原始长名，与契约的短标签不一致 → **保障模块的自愈判定会受影响**
+3. **`topology_expect` 用错链路口径** → 把主机↔交换机链路也算进 `inter_switch_links` → 校验永远说「少了 N 条链路」
+4. **探测源 IP 不在网内** → 全部探测失败，看起来像「网络不通」，其实是探测配置错
+5. **忘了改 `mode` / `allow_fault_injection`** → 会对真实设备发 `sudo tc` 命令
+6. 🔴 **以为 `mode: read-only` 就万事大吉** → 它**管不到控制器**；`controller_app` 仍会下发 `OFPFlowMod` 接管转发路径（见 §6.7.2，**这是当前最大的接入风险**）
+
+> ⚠️ 本节是**迁移路径的预案**，v3.21.0 的配置层与只读模式已就位，
+> 但**我们还没在真实网络上实际跑过** —— 拿到环境后请先跑 `env_doctor.py` 对一遍能力，
+> 再按 6.7.3 逐项验证。
+
 ---
 
 ## 七、联调流程建议
@@ -788,6 +894,12 @@ while True:
 ---
 
 ## 🕘 最近更新
+
+**2026-11-03 · 新增 §6.7 迁移到真实园区网络** —— 并查出**当前最大的接入风险**：
+`mode: read-only` 只管 REST 写端点，**管不到控制器**；`controller_app` 会下发 `OFPFlowMod`（table-miss + MAC 学习），
+指向真实园区交换机等于接管其转发路径。§6.7.2 给了三条可选方案，**方案确定前不要接真网**。
+
+v3.21.0 配置层已就位，但从未在真实网络上跑过；这节把迁移路径、`env.json` 逐字段对照、只读模式的真实含义、验证清单、回退方案和 5 条实测风险写清楚。
 
 **2026-10-29 · 文档同步至当前实现状态**
 

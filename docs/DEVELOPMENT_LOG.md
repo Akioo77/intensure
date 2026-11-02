@@ -189,7 +189,8 @@ python3 env_doctor.py --json     # 机器可读（给脚本用）
 |---|---|---|
 | Dashboard 单文件 SPA 拆分 | 3-5 天 | 1600+ 行 HTML/JS/CSS 混在一起。**演示是加分项，拆错会伤演示**，建议演示后再做 |
 | Docker 化 | 3 天 | `Dockerfile` + compose（intensure / postgres / dashboard 三服务） |
-| 真实园区迁移路径文档 | 0.5 天 | 还没并入 `INTEGRATION_GUIDE.md` |
+| 真实园区迁移路径文档 | ✅ 已完成 | 2026-11-03 并入 `INTEGRATION_GUIDE.md` §6.7：`env.json` 逐字段对照表、只读模式的真实含义、验证清单、回退方案、6 条风险。
+  ⚠️ **同时查出当前最大的接入风险**（见 §7「控制器不受只读模式约束」）|
 | Dashboard 加联调统计面板 | 1 天 | 上报成功率 / 响应时间 / ActualState 样例（数据源 `metrics.py` 已有）；v3.21.0 起还能直接显示 `GET /api/capabilities` 的「当前环境能力」|
 | collector 多协议适配器骨架 | 2-3 天 | SNMP / CLI / OpenFlow。**v3.21.0 已把探测驱动抽成配置项**（`probe.driver`: `mininet` / `icmp` 两个分支代码里已有），SNMP / CLI 适配器还没写 |
 | OVS log → 根因归因 demo | 1 天 | `ovs_logger` 已能抓到「是谁下的 ofctl 命令」 |
@@ -268,7 +269,17 @@ python3 env_doctor.py --json     # 机器可读（给脚本用）
 
 
 | **环境迁移后 DB 权限模型会被重建** | 中 | 2026-11-03 换机（账号 sunxiaoxuan→akioo、VM 重建为 aarch64）后发现：`implementation.policies` 的属主变成 `intensure_user` 且只有它有全套权限，`implementation_user`/`assurance_user`/`translation_user` **一个授权都没有** → `seed_policies.py` 直接 `permission denied`、assurance 一直报「network_state 还没数据」。**修法**：重放官方授权脚本 `sudo -u postgres psql -d intensure_dev -f docs/access-control-grants.sql`（幂等），再 `python3 seed_policies.py` 播种 |
-| **`db_writer.query()` 吞异常 → 权限问题伪装成「没数据」** | 中 | `assurance_mvp.py` 用 `w.query_one('SELECT payload FROM intensure.network_state LIMIT 1')`，查不到就报「network_state 还没数据」。但 **DB 报 permission denied 时也会返回 None** → 现象与「真没数据」一模一样，极易误判。排查权限问题必须**直连 psql 实测**（`PGPASSWORD=... psql -U <role> -c '...'），别信 db_writer 的返回值 |---
+| **`db_writer.query()` 吞异常 → 权限问题伪装成「没数据」** | 中 | `assurance_mvp.py` 用 `w.query_one('SELECT payload FROM intensure.network_state LIMIT 1')`，查不到就报「network_state 还没数据」。但 **DB 报 permission denied 时也会返回 None** → 现象与「真没数据」一模一样，极易误判。排查权限问题必须**直连 psql 实测**（`PGPASSWORD=... psql -U <role> -c '...'），别信 db_writer 的返回值 |
+| 🔴 **控制器不受 `mode=read-only` 约束** | **高** | 2026-11-03 实测查实：`controller_app.py` **完全不读 `env_config`**，
+  却会向交换机下发 `OFPFlowMod` —— 握手时装 **table-miss 规则**（priority 0，所有未匹配包送控制器）、
+  学到 MAC 后装**学习规则**（priority 1，idle_timeout 30）。
+  即 **controller_app 本质是个 L2 学习交换机**，指向真实园区交换机 = **接管其转发路径**。
+  `mode=read-only` + `allow_fault_injection=false` **只保护 REST 写端点这一层**，管不到 OpenFlow 侧。
+  **接真网前必须先决策**（A 不接控制器 / B 加 `flow_rule_write` 开关 / C 隔离试验），见 `INTEGRATION_GUIDE.md` §6.7.2。
+  顺带：`env.json` 原注释「从不发 OFPPFlowMod」**是错的** —— `OFPPFlowMod` 这个常量在 os-ken 里不存在，
+  我们实际用的是 `OFPFlowMod`（2 处）。注释已订正 |
+
+---
 
 ## 8. 协作约定
 
