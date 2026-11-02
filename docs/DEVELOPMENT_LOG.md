@@ -323,6 +323,17 @@ python3 env_doctor.py --json     # 机器可读（给脚本用）
     看到「服务没起来」先去看 `/tmp/state_server.log`，别急着改代码（v3.19.0）
 13. **换机/迁移后先重放授权脚本** —— 新环境的 PG 会把表属主和 GRANT 重建掉，四账号最小权限分离（intensure_user / assurance_user / implementation_user / translation_user）会失效。症状是 `seed_policies.py` 报 `permission denied`、assurance 一直说「network_state 还没数据」。→ `sudo -u postgres psql -d intensure_dev -f docs/access-control-grants.sql`（幂等）再播种（2026-11-03）
 14. **`db_writer` 的查询失败会伪装成「表里没数据」** —— 它吞异常，permission denied 和 0 行返回一样的 None。查权限一律**直连 psql 实测**，别看 db_writer 的返回值（2026-11-03）
+15. **本机 `github.com:443` 不通 → `git push` 一直卡** —— 但 `api.github.com` 通、SSH 22 也通。
+    现象是 git 卡在 `Trying <ip>:443...`（GIT_TRACE_CURL 能看到）。
+    → 用 `python3 tools/api_push.py` 走 GitHub REST API 推（token 从 `gh auth token` 取，scope 需含 `repo`）
+16. **API 推 commit 的两条字节规则**（不搞懂就会 sha 对不齐、本地远端看起来分叉）：
+    - **日期保留原时区偏移** —— API 显示成 UTC，但存的 commit 对象里还是 `+0800`；本地提交用什么偏移就发什么偏移，转 UTC 反而算不出同一个 sha
+    - **消息必须带尾换行** —— git 存的对象里消息是 `body + '\n'`，API 原样保存，两边字节一致 sha 才相同
+    实测：不带尾换行时本地与远端 sha 必然不同（踩过：`889f04e` vs `5a0a94ac`）
+17. **换账号后 `git push` 报 `Host key verification failed`** —— 新账号的 `known_hosts` 里没有 GitHub 主机密钥。
+    → 用 `ssh-keyscan` 抓取后**必须核对官方指纹**（`https://api.github.com/meta` 的 `ssh_key_fingerprints`）再写入，
+    别盲信 keyscan；写入后若仍 `Permission denied (publickey)`，说明公钥没在 GitHub 注册
+    （`gh ssh-key add` 需要 `admin:public_key` scope，本机 token 没有）→ 改走 `tools/api_push.py`（2026-11-03）
 
 ---
 
