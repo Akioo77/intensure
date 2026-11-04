@@ -33,3 +33,16 @@ ignore = [
 [tool.ruff.format]
 quote-style = "double"
 indent-style = "space"
+
+[tool.pytest.ini_options]
+# 让「裸跑 pytest」就能拿到正确结果。
+#
+# 问题：仓库里有两个文件是**手写脚本**而不是单元测试：
+#   test_recovery.py      —— 硬编码真实 mininet 拓扑，需要 root
+#   demo_scripts/         —— 集成测试脚本，同样需要 root 与真实拓扑
+# 它们在被 pytest 收集时 import 就调 Mininet.init() → ensureRoot() → SystemExit
+# → pytest 直接 INTERNALERROR（整个进程挂掉，不是用例失败），看起来像"环境坏了"。
+#
+# CI 里本来就用显式文件列表绕开了这两个（见 .github/workflows/ci.yml），
+# 这里让本地开发不用背那份列表 —— 改完代码直接 `pytest` 即可。
+addopts = "--ignore=test_recovery.py --ignore=demo_scripts --ignore=legacy"
