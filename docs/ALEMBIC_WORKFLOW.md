@@ -33,7 +33,7 @@
 
 ```bash
 colima ssh
-cd /home/sunxiaoxuan.guest/intensure
+cd /home/akioo.guest/intensure
 
 export ALEMBIC_DB_URL='postgresql:///intensure_dev'
 
@@ -197,8 +197,16 @@ bash demo_scripts/verify_fresh_db.sh
 alembic 需要能建 schema 的角色。VM 里用的是与 OS 用户同名的 PG 角色（peer 认证）：
 
 ```sql
--- 已建（2026-10-27）
-CREATE ROLE "sunxiaoxuan" LOGIN SUPERUSER CREATEDB;
+-- 已建（2026-10-27 首次；2026-11-04 换机后按新账号重建）
+CREATE ROLE "akioo" LOGIN SUPERUSER CREATEDB;
 ```
 
 连接串 `postgresql:///intensure_dev` 走 unix socket + peer 认证，无需密码。
+
+> ⚠️ **换机 / 换账号后这个角色不会自动出现**，缺了会直接报
+> `FATAL: role "akioo" does not exist`（alembic 全线不可用；
+> 应用自己用 `intensure_user` / `assurance_user` 账号密码连库，不受影响）。
+> → 跑一次（幂等，已存在就什么都不做）：
+> ```bash
+> bash db_maintenance/ensure_peer_role.sh
+> ```
