@@ -1,6 +1,6 @@
 # 开发进度与交接文档（intensure 采集模块）
 
-> 最后更新：**2026-10-31**（对应代码版本 v3.21.0）
+> 最后更新：**2026-11-04**（对应代码版本 v3.21.0）
 > 维护方式：每次做完一轮开发就更新「开发进度」与「待办清单」两节，**以代码实际状态为准**，不写没实现的东西。
 > 本文回答三个问题：现在做到哪了 / 接下来做什么 / 别人怎么接手。
 
@@ -14,34 +14,39 @@ intensure 是意图驱动网络管理系统的**采集层**（Mininet + OVS + os
 
 ---
 
-## 1. 当前状态速览（2026-10-31 实测）
+## 1. 当前状态速览（2026-11-04 实测）
 
 | 指标 | 数值 | 怎么核的 |
 |---|---|---|
 | 代码版本 | v3.21.0 | `git describe --tags` |
 | 自营 REST 端点 | **24 个** | `grep -c "^@app.route" state_server.py` |
 | 其中跨模块契约端点 | 5 个 | `/api/intensure/v1/*`（v3.20.0 新增） |
-| 单元测试 | **211 例全绿** | VM 内 `pytest` |
+| 单元测试 | **216 例全绿** | VM 内 `pytest`（裸跑即可，见 §3.2） |
 | CI 跑的测试文件 | **14 个** | `.github/workflows/ci.yml` |
 | 代码风格 | `ruff check .` 全过 | 规则 E/W/F，E402 豁免（见 §8） |
 | 环境配置 | `env.json` / `env.yaml`，`$INTENSURE_ENV_FILE` 覆盖 | v3.21.0 起环境差异在配置里，不在代码里 |
-| Python 代码量 | 12212 行（根目录 *.py） | `wc -l *.py` |
-| 提交总数 | 55 个（含本文档 commit） | `git log --oneline \| wc -l` |
-| 数据库 | **6 schema / 25 张逻辑表**（物理表 53 张，其中 75 个是分区子表）| 实测口径见下方脚注 |
+| Python 代码量 | 13602 行（根目录 *.py） | `wc -l *.py` |
+| 提交总数 | 67 个（含本文档 commit） | `git log --oneline \| wc -l` |
+| 数据库 | **6 schema / 26 张逻辑表**（物理表 47 张，其中 21 个是分区子表）| 实测口径见下方脚注 |
 | 对外接口方向 | **只 POST 不读 GET** | 见 §6 边界 |
 
 > **关于「表数量」的口径**（这里最容易各说各话，老师问起来要能答）：
-> - **逻辑表 25 张** —— 不含分区子表的普通表（`pg_class.relispartition = false`）
-> - **物理表 53 张** —— 逻辑表 + 所有分区子表（`pg_tables` 的总数）
-> - **分区子表 75 个** —— 历史累积：v3.14.0 之前是硬编码月份（2026_08/09/10…），
->   v3.14.0 起改为「当前月 + 0..2」动态创建，所以**只增不减**
-> - 仓库里流传的「39 表」是早期某个时点的物理表数，**已过期**（见 §7）
+> - **逻辑表 26 张** —— 不含分区子表的普通表（`pg_class.relispartition = false`）
+> - **物理表 47 张** —— 逻辑表 + 所有分区子表（26 + 21）
+> - **分区子表 21 个** —— `assurance` 6 + `intensure` 12 + `shared` 3；
+>   v3.14.0 起改为「当前月 + 0..2」动态创建，**只增不减**
+> - `public` schema 下那 1 张是 `alembic_version`（alembic 自己的版本表，不算业务表）
+> - 仓库里流传的「39 表 / 53 物理表 / 75 分区子表」都是**过期口径**（见 §7）
 >
 > 自己核一下（VM 内）：
 > ```bash
-> sudo -u postgres psql -d intensure_dev -t -A -c "SELECT schemaname, count(*) \
->   FROM pg_tables WHERE schemaname NOT IN ('pg_catalog','information_schema') \
->   GROUP BY schemaname ORDER BY 1;"
+> sudo -u postgres psql -d intensure_dev -t -A -c "SELECT n.nspname,
+>   count(*) FILTER (WHERE NOT c.relispartition) AS logical,
+>   count(*) FILTER (WHERE c.relispartition) AS parts
+>   FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+>   WHERE c.relkind = 'r'
+>     AND n.nspname NOT IN ('pg_catalog','information_schema')
+>   GROUP BY 1 ORDER BY 1;"
 > ```
 
 ---
@@ -82,23 +87,33 @@ intensure 是意图驱动网络管理系统的**采集层**（Mininet + OVS + os
 ### 3.1 环境（重要：代码在 macOS，跑在 VM 里）
 
 ```
-宿主机：macOS + Colima（/usr/local/bin/colima —— 登录 shell 的默认 PATH 里就有，
-      实测 `bash -lc 'which colima'` 能找到；**但非登录 shell 不一定**：
-      某些工具/IDE/agent 的 shell PATH 里没有 /usr/local/bin，
-      这时先 `export PATH="/usr/local/bin:$PATH"` 再跑）
-VM：Ubuntu 24.04 / Python 3.12.3 / pytest 9.1.1 / ruff 0.6.9   ← 权威测试环境
-仓库（宿主机）：/Users/sunxiaoxuan/workspace/projects/intensure
-仓库（VM 内） ：/home/sunxiaoxuan.guest/intensure
+宿主机：macOS + Colima（**/Users/akioo/.local/bin/colima** —— 2026-11-04 换机后
+      从 /usr/local/bin 挪到了 ~/.local/bin；PATH 里没有时先
+      `export PATH="$HOME/.local/bin:/usr/local/bin:$PATH"`）
+VM：Ubuntu 24.04 (aarch64) / Python 3.12.3 / pytest 8.3.5 / ruff 0.6.9  ← 权威测试环境
+仓库（宿主机）：/Users/akioo/projects/intensure
+仓库（VM 内） ：/home/akioo.guest/intensure
 ```
+
+> ⚠️ **2026-11-04 换机（账号 sunxiaoxuan → akioo）后的两个变化**：
+> 1. **代码不再靠 rsync 同步** —— VM 里 `/home/akioo.guest/intensure` 是指向宿主仓库的
+>    **软链接**（Colima virtiofs 直接挂宿主目录），宿主改完 VM 立刻可见。
+>    宿主的 `/Users/akioo/projects/intensure` 与 VM 的 `/home/akioo.guest/intensure`
+>    是同一份文件，**别再 rsync**（rsync 会把软链接当目录处理，反而搞乱）。
+> 2. **PG 的 peer 角色要重建** —— alembic 用 `postgresql:///intensure_dev` 走 peer 认证，
+>    角色名 = OS 用户名。换账号后这个角色不会自动出现 → alembic 报
+>    `FATAL: role "akioo" does not exist`。**修法**：
+>    `bash db_maintenance/ensure_peer_role.sh`（幂等，2026-11-04 已在新 VM 执行过一次）。
+>    应用自己用的是 `intensure_user` / `assurance_user` 账号密码连库，不受这个影响。
 
 **同步代码到 VM**（改完代码必须做，否则 VM 跑的是旧代码）：
 
 ```bash
 export PATH="/usr/local/bin:$PATH"
-cd ~/workspace/projects/intensure
+cd ~/projects/intensure
 rsync -az --exclude '.git' --exclude '__pycache__' \
-  -e "ssh -F /Users/sunxiaoxuan/.colima/ssh_config" ./ \
-  colima:/home/sunxiaoxuan.guest/intensure/
+  -e "ssh -F /Users/akioo/.colima/ssh_config" ./ \
+  colima:/home/akioo.guest/intensure/
 ```
 
 > ⚠️ **不要用 `rsync --delete`**：alembic 的 `versions/` 目录删了会出 multiple heads（CHANGELOG 踩过的坑）。
@@ -106,20 +121,37 @@ rsync -az --exclude '.git' --exclude '__pycache__' \
 ### 3.2 跑测试 / lint（改动后必做）
 
 ```bash
-colima ssh -- bash -lc 'cd /home/sunxiaoxuan.guest/intensure && ruff check . && \
-  python3 -m pytest test_actual_state_builder.py test_reporter.py test_graceful.py \
-  test_db_writer.py test_assurance_mvp.py test_state_server.py test_state_history.py \
-  test_ovs_logger.py test_state_model.py test_metrics.py test_contract_version.py \
-  test_fault_api.py test_contract_api.py -q'
+colima ssh -- bash -lc 'cd /home/akioo.guest/intensure && ruff check . && pytest -q'
 ```
 
-> CI 跑的就是这 13 个文件（`.github/workflows/ci.yml` 里是显式列表，**新增测试文件必须手工加进去**，否则不会被执行——这坑踩过两次）。
+> ✅ **2026-11-04 起：VM 里直接 `pytest` 就能跑**（216 例）。
+> 之前裸跑 `pytest` 会 **INTERNALERROR**（整个进程挂掉，不是用例失败）——
+> 因为 `test_recovery.py` 和 `demo_scripts/` 里的脚本在收集阶段就 import mininet
+> → `Mininet.init()` → `ensureRoot()` → `SystemExit`。
+> 现在 `pyproject.toml` 里配了 `addopts = "--ignore=test_recovery.py --ignore=demo_scripts --ignore=legacy"`，
+> **本地不用再背 CI 那份显式文件列表**。CI 仍然用显式列表（`.github/workflows/ci.yml`），
+> 新增测试文件时**两处都要加**。
+
+<details>
+<summary>CI 的显式清单（14 个文件，与裸跑 pytest 等价）</summary>
+
+```bash
+colima ssh -- bash -lc 'cd /home/akioo.guest/intensure && pytest \
+  test_actual_state_builder.py test_reporter.py test_graceful.py test_db_writer.py \
+  test_assurance_mvp.py test_state_server.py test_state_history.py test_ovs_logger.py \
+  test_state_model.py test_metrics.py test_contract_version.py test_fault_api.py \
+  test_contract_api.py test_env_config.py -q'
+```
+
+</details>
+
+> ⚠️ CI 跑的就是这 14 个文件（`.github/workflows/ci.yml` 里是显式列表，**新增测试文件必须手工加进去**，否则不会被执行——这坑踩过两次）。
 
 ### 3.3 演示 / 联调
 
 ```bash
 colima start                                   # 开机后必做
-colima ssh && cd /home/sunxiaoxuan.guest/intensure
+colima ssh && cd /home/akioo.guest/intensure
 bash start_all.sh                              # 一键起 4 组件（controller/api/mininet/assurance）
 bash status.sh                                 # 5 段体检
 bash stop_all.sh                               # 优雅停止（数据保留）
@@ -129,7 +161,7 @@ curl -s --noproxy '*' http://127.0.0.1:8080/metrics | head   # 看指标
 ### 3.4 演示时按什么顺序敲哪条命令
 
 > **完整版在 `demo_scripts/README.md` §「演示流程全景」**（含状态机轨迹 + 每步产物）。
-> 下表是速查版 —— 命令在 VM 里的 `/home/sunxiaoxuan.guest/intensure` 下执行。
+> 下表是速查版 —— 命令在 VM 里的 `/home/akioo.guest/intensure` 下执行。
 
 | 顺序 | 命令 | 干什么 | 关键产物 |
 |---|---|---|---|
@@ -266,6 +298,7 @@ python3 env_doctor.py --json     # 机器可读（给脚本用）
 | ~~`speaker_notes.md` 里 Q4「自愈留给 Phase 2」、Q6「稳定时 60 秒写一次心跳」两条内容已过期~~ | ✅ 已改 | 2026-11-03 已订正：Q4 改成「**我们不做自愈决策**，那是保障模块的职责；我们做检测+根因诊断+传证据」；Q6 改成「检查 5s 一次，**写库另有节流**（`state_history` 每 30s 或状态变化时）」。⚠️ 原文那句「自愈已有 `assurance_mvp.py`」**本身是错的** —— 实测 `assurance_mvp.py` 里 `heal/guard/verdict` **零命中**，自愈引擎（`healing_engine.py`/`conflict_resolver.py`）全在 `legacy/` 已归档 |
 | `demo_scripts/README.md` 的 Q3 声称检查频率有「自适应机制（健康降频/违例提速）」 | 中 | 代码里**不存在**这个逻辑（`CHECK_INTERVAL` 固定 5s）。2026-11-03 已删该说法，改为指向 `speaker_notes.md` Q6 统一口径 |
 | **`env.json` 的拓扑期望必须和实际启动的拓扑一致** | 中 | v3.21.0 新增配置层时踩过：`start_all.sh` 起的是 **1 交换机 4 主机**，而 `demo_full.py` / `integration_demo.py` 起的是 **2 交换机** —— 配置对不上，状态校验会误报「少了 1 台交换机」。跑 2 交换机那两个脚本前要 `export INTENSURE_ENV_FILE=env.topo_simple.json`。**换环境时先 `python3 env_doctor.py` 对一下** |
+| **systemd 定时清理在重建后的 VM 里没装** | 中 | v3.15.0 的 `db_maintenance/retention-cleanup.{service,timer}` 只在仓库里，**重建 VM 后从没 `systemctl install` 过** —— 2026-11-04 实测 `/etc/systemd/system/` 下没有这两个单元，`systemctl list-timers` 也查不到。**后果：过期月分区不会被自动清理**（`intensure.state_history` 已到 7612 行、assurance 一致性检查 4413 行）。→ 装：`sudo cp db_maintenance/retention-cleanup.* /etc/systemd/system/ && sudo systemctl daemon-reload && sudo systemctl enable --now retention-cleanup.timer` |
 
 
 | **环境迁移后 DB 权限模型会被重建** | 中 | 2026-11-03 换机（账号 sunxiaoxuan→akioo、VM 重建为 aarch64）后发现：`implementation.policies` 的属主变成 `intensure_user` 且只有它有全套权限，`implementation_user`/`assurance_user`/`translation_user` **一个授权都没有** → `seed_policies.py` 直接 `permission denied`、assurance 一直报「network_state 还没数据」。**修法**：重放官方授权脚本 `sudo -u postgres psql -d intensure_dev -f docs/access-control-grants.sql`（幂等），再 `python3 seed_policies.py` 播种 |
@@ -346,6 +379,23 @@ python3 env_doctor.py --json     # 机器可读（给脚本用）
     → 用 `ssh-keyscan` 抓取后**必须核对官方指纹**（`https://api.github.com/meta` 的 `ssh_key_fingerprints`）再写入，
     别盲信 keyscan；写入后若仍 `Permission denied (publickey)`，说明公钥没在 GitHub 注册
     （`gh ssh-key add` 需要 `admin:public_key` scope，本机 token 没有）→ 改走 `tools/api_push.py`（2026-11-03）
+18. **裸跑 `pytest` 会 INTERNALERROR，不是用例失败** —— `test_recovery.py` / `demo_scripts/` 里的脚本
+    在**收集阶段**就 import mininet → `Mininet.init()` → `ensureRoot()` → `SystemExit`，
+    pytest 整个进程直接挂掉，看起来像"环境坏了"。
+    → 已修（2026-11-04）：`pyproject.toml` 加 `[tool.pytest.ini_options] addopts =
+    "--ignore=test_recovery.py --ignore=demo_scripts --ignore=legacy"`，现在 VM 里 `pytest` 直接 216 例绿。
+    **新增测试文件时，CI 的显式列表和这个 addopts 都要过一遍。**
+19. **换账号后 PG 的 peer 角色消失** —— alembic 用 `postgresql:///intensure_dev` 走 unix socket + peer 认证，
+    peer 认证的 PG 角色名 = OS 用户名。换机换账号后这个角色不会自动出现 →
+    `FATAL: role "akioo" does not exist`，**alembic 全线不可用**（应用自己用账号密码连，不受影响）。
+    → 已修（2026-11-04）：新增 `db_maintenance/ensure_peer_role.sh`（幂等），换机后跑一次即可。
+20. **宿主机的代理没开 → GitHub 完全推不动** —— 环境变量里 `HTTP_PROXY/HTTPS_PROXY=http://127.0.0.1:1082`
+    （Shadowrocket），但 1082 端口当前**没有监听**（Shadowrocket 没运行）：
+    → 走代理报 `Failed to connect to github.com:443 over proxy 127.0.0.1`；
+    → 不走代理直连 `github.com:443` 也超时（网络受限）。
+    同时 `gh auth status` 显示 keyring 里的 token **已失效** → `tools/api_push.py` 这条后路暂时也用不了。
+    → **推代码前先启动 Shadowrocket**，再 `gh auth refresh -h github.com` 重新登录。
+    （本地 commit 不受影响，先提交在本地。）
 
 ---
 

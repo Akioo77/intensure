@@ -245,7 +245,7 @@ topology:
 ---
 
 📁 文档位置：
-- 本地：`~/workspace/projects/intensure/INTEGRATION_PLAN.md`
-- VM：`/home/sunxiaoxuan.guest/intensure/INTEGRATION_PLAN.md`（待同步）
+- 本地：`~/projects/intensure/INTEGRATION_PLAN.md`
+- VM：`/home/akioo.guest/intensure/INTEGRATION_PLAN.md`（待同步）
 
 **下一步**：等你给保障模块 IP + Swagger 地址后开干 💎

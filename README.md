@@ -84,7 +84,7 @@
 
 ```bash
 colima ssh
-cd /home/sunxiaoxuan.guest/intensure
+cd /home/akioo.guest/intensure
 export ALEMBIC_DB_URL='postgresql:///intensure_dev'
 
 alembic current        # 现在哪个版本
@@ -184,7 +184,7 @@ export INTENSURE_ENV_FILE=env.topo_simple.json   # 换成 2 交换机那份
 
 ```bash
 colima ssh
-cd /home/sunxiaoxuan.guest/intensure
+cd /home/akioo.guest/intensure
 
 bash start_all.sh      # 一键起 4 组件（控制器/REST/Mininet/保障模块）
 bash status.sh        # 5 段体检：进程 / tmux / 端口+健康 / DB 行数 / 汇总
@@ -208,7 +208,7 @@ bash stop_all.sh      # 一键优雅停止
 
 ```bash
 colima ssh
-cd /home/sunxiaoxuan.guest/intensure
+cd /home/akioo.guest/intensure
 sudo -E python3 -u demo_full.py
 ```
 
@@ -218,7 +218,7 @@ sudo -E python3 -u demo_full.py
 
 ```bash
 # 终端 1: 控制器 + 自营 dashboard（采集视角）
-cd /home/sunxiaoxuan.guest/intensure
+cd /home/akioo.guest/intensure
 sudo -E python3 -u run_all.py
 
 # 终端 2: 常驻 Mininet + 周期探测
@@ -236,7 +236,7 @@ ssh -F ~/.colima/ssh_config -N -L 18080:127.0.0.1:8080 colima
 
 ```bash
 colima ssh
-cd /home/sunxiaoxuan.guest/intensure
+cd /home/akioo.guest/intensure
 
 # 1. 跑 integration_demo.py（--mode mock 会自动启动 mock server）
 python3 integration_demo.py --mode mock --intent-id REQ-001-CI-001
@@ -256,7 +256,7 @@ python3 integration_demo.py --mode mock --intent-id REQ-001-CI-001
 
 # 终端 2: 采集模块 + 联调 demo（本系统）
 colima ssh
-cd /home/sunxiaoxuan.guest/intensure
+cd /home/akioo.guest/intensure
 python3 integration_demo.py \
   --mode real \
   --assurance-url http://<同学A的IP>:8000/api/v1/assurance \
@@ -278,7 +278,7 @@ python3 integration_demo.py \
 
 ```bash
 colima ssh
-cd /home/sunxiaoxuan.guest/intensure
+cd /home/akioo.guest/intensure
 
 # 配置上报参数
 export ASSURANCE_URL=http://<同学A的IP>:8000/api/v1/assurance
@@ -539,8 +539,8 @@ intensure/
 
 ---
 
-📁 项目根目录：`~/workspace/projects/intensure/`
-🖥️ VM 路径：`/home/sunxiaoxuan.guest/intensure/`
+📁 项目根目录：`~/projects/intensure/`
+🖥️ VM 路径：`/home/akioo.guest/intensure/`
 🌐 采集视角 Dashboard：`http://127.0.0.1:18080/`
 🌐 保障模块 Swagger：`http://<同学 A 的 IP>:8000/docs`（待提供）
 

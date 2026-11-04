@@ -46,7 +46,7 @@
 ### 一键演示（自动模式）
 
 ```bash
-cd ~/workspace/projects/intensure/demo_scripts
+cd ~/projects/intensure/demo_scripts
 bash demo_all.sh --auto
 ```
 

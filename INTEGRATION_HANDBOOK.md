@@ -473,7 +473,7 @@ curl -s --noproxy '*' http://127.0.0.1:8080/api/state | head -c 300
 
 ```bash
 # 1. 预检环境（必须 5 项全绿）
-cd ~/workspace/projects/intensure
+cd ~/projects/intensure
 bash demo_scripts/00_pre_check.sh
 
 # 2. 提前 10 分钟跑预演（不带回车）

@@ -149,7 +149,7 @@
 
 ```bash
 # 在 VM 内：
-cd /home/sunxiaoxuan.guest/intensure
+cd /home/akioo.guest/intensure
 DEMO_AUTO=1 bash demo_scripts/demo_db_pipeline.sh
 ```
 

@@ -379,10 +379,10 @@ legacy/
 
 | 位置 | 路径 |
 |------|------|
-| macOS 项目根 | `~/workspace/projects/intensure/` |
-| macOS 镜像 | `~/.openclaw/workspace/projects/intensure/` |
-| VM 项目根（Colima Ubuntu 24.04） | `/home/sunxiaoxuan.guest/intensure/` |
-| 本机 Git 仓库 | `~/workspace/projects/intensure/.git/` |
+| macOS 项目根 | `~/projects/intensure/` |
+| macOS 镜像 | `~/projects/intensure/` |
+| VM 项目根（Colima Ubuntu 24.04） | `/home/akioo.guest/intensure/` |
+| 本机 Git 仓库 | `~/projects/intensure/.git/` |
 
 > 📌 VM 路径用 mount 共享（virtiofs），**macOS 改文件后必须 scp 到 VM 才生效**。
 
@@ -410,7 +410,7 @@ legacy/
 ```bash
 # Terminal 1: VM 内启动 controller + REST API + Dashboard
 colima ssh
-cd /home/sunxiaoxuan.guest/intensure
+cd /home/akioo.guest/intensure
 sudo -E nohup python3 -u run_all.py > /tmp/controller.log 2>&1 &
 
 # Terminal 2: VM 内启动 Mininet + 周期探测
@@ -427,7 +427,7 @@ open http://127.0.0.1:18080/
 
 ```bash
 colima ssh
-cd /home/sunxiaoxuan.guest/intensure
+cd /home/akioo.guest/intensure
 python3 integration_demo.py --mode mock --intent-id REQ-001-CI-001
 ```
 
@@ -466,7 +466,7 @@ python3 integration_demo.py --mode mock --intent-id REQ-001-CI-001
 
 ```bash
 colima ssh
-cd /home/sunxiaoxuan.guest/intensure
+cd /home/akioo.guest/intensure
 python3 integration_demo.py \
   --mode real \
   --assurance-url http://<同学C的IP>:8000/api/v1/assurance \
@@ -477,7 +477,7 @@ python3 integration_demo.py \
 
 ```bash
 colima ssh
-cd /home/sunxiaoxuan.guest/intensure
+cd /home/akioo.guest/intensure
 python3 -m unittest test_actual_state_builder -v
 python3 -m unittest test_reporter -v
 python3 -m unittest test_recovery -v

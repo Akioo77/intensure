@@ -78,13 +78,13 @@ sudo -u postgres psql -c "SHOW server_version;"  # 确认 16.x
 ```bash
 sudo -u postgres createuser -s intensure_admin  # DDL 用
 sudo -u postgres createdb -O intensure_admin intensure_dev
-sudo -u postgres psql -d intensure_dev -f ~/workspace/projects/intensure/docs/database-schema.sql
+sudo -u postgres psql -d intensure_dev -f ~/projects/intensure/docs/database-schema.sql
 ```
 
 ### 3.3 创建 4 模块用户 + 权限
 
 ```bash
-sudo -u postgres psql -d intensure_dev -f ~/workspace/projects/intensure/docs/access-control-matrix.sql
+sudo -u postgres psql -d intensure_dev -f ~/projects/intensure/docs/access-control-matrix.sql
 # 创建 access-control-matrix.sql（把 .md 中的 SQL 部分抽出成 .sql 文件）
 ```
 
@@ -93,7 +93,7 @@ sudo -u postgres psql -d intensure_dev -f ~/workspace/projects/intensure/docs/ac
 以 intensure 为例：
 
 ```bash
-cd ~/workspace/projects/intensure
+cd ~/projects/intensure
 pip install alembic psycopg2-binary sqlalchemy
 alembic init alembic
 # 配置 alembic.ini：sqlalchemy.url = postgresql://intensure_user:intensure_dev_pwd@localhost/intensure_dev
@@ -161,7 +161,7 @@ alembic downgrade base
 ```bash
 sudo -u postgres dropdb intensure_dev
 sudo -u postgres createdb -O intensure_admin intensure_dev
-sudo -u postgres psql -d intensure_dev -f ~/workspace/projects/intensure/docs/database-schema.sql
+sudo -u postgres psql -d intensure_dev -f ~/projects/intensure/docs/database-schema.sql
 # 重跑 access-control-matrix.sql
 ```
 

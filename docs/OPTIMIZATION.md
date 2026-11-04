@@ -313,7 +313,7 @@ stats 显示 reconnects=3 / errors=0；另加 3 个回归测试锁住行为。
 
 **踩到并修掉的坑**：服务用 `User=postgres` + `psql -f` 会报 `Permission denied` —— 
 项目目录是 0700，postgres 读不到 .sql 文件。
-改成 `User=sunxiaoxuan` + **stdin 管道**（`<` 重定向）：由项目属主打开文件喂给 psql 的 stdin，
+改成 `User=akioo` + **stdin 管道**（`<` 重定向）：由项目属主打开文件喂给 psql 的 stdin，
 postgres 不需要读路径 —— 和 alembic 里 `_exec_raw` 同一思路。
 
 **实测**：造了 2026_08 的过期分区 → 触发 service → **两个分区都被删掉**，只剩当月及以后。

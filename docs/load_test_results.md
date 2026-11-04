@@ -147,7 +147,7 @@
 
 ```bash
 colima ssh
-cd /home/sunxiaoxuan.guest/intensure
+cd /home/akioo.guest/intensure
 
 # 最坏上界（10 分钟）
 python3 demo_scripts/load_test.py --intents 100 --minutes 10 --cycle 5

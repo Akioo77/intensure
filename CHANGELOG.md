@@ -9,6 +9,58 @@
 ---
 
 
+## 未发布 — 2026-11-04 换机后的环境适配
+
+**触发**：2026-11-03 换机（账号 `sunxiaoxuan` → `akioo`，VM 重建为 aarch64），
+仓库从 `~/workspace/projects/intensure` 挪到 `~/projects/intensure`，VM 账号也换了。
+代码本身没问题，但**环境里的绝对路径全部失效**，踩了下面这些坑。
+这一轮把它们一次性修掉 —— 原则：**路径不写死账号，能自解析就自解析，必须写死就给覆盖入口。**
+
+### 修复
+
+**硬编码家目录路径（19 处 → 0 处）**
+- Shell 脚本（`start_all.sh` / `status.sh` / `stop_all.sh` / `start_env.sh` / `test_osken.sh` /
+  `demo_scripts/demo_db_pipeline.sh`）：`PROJECT_DIR` 改成从脚本自身位置推导
+  （`$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)`），跟着文件走，不跟着账号走。
+- Python 脚本（`test_recovery.py` / `live_env_mesh.py` / `live_env_multi.py` /
+  `demo_scripts/test_fault_types.py`）：`sys.path.insert` 改成 `Path(__file__).resolve().parent`。
+- 宿主机侧脚本（`demo_scripts/fault.sh` / `verify_fresh_db.sh` / `apply_partner_schema.py`）：
+  走 `$INTENSURE_VM_DIR` 环境变量，默认当前账号家目录。
+- systemd 单元（`retention-cleanup.service` / `.timer`）：`User=` 与绝对路径同步更新。
+
+**新增 `db_maintenance/ensure_peer_role.sh`** —— 幂等地建「与 OS 用户同名的 PG 角色」。
+alembic 用 `postgresql:///intensure_dev` 走 unix socket + peer 认证，角色名 = OS 用户名，
+换账号后这个角色不会自动出现 → `FATAL: role "akioo" does not exist`，**alembic 全线不可用**
+（应用自己用 `intensure_user` / `assurance_user` 账号密码连库，不受影响）。
+换机后跑一次即可。
+
+**`pyproject.toml` 加 `[tool.pytest.ini_options]`** —— 之前在仓库根裸跑 `pytest` 会
+**INTERNALERROR**（整个进程挂掉，不是用例失败）：`test_recovery.py` 与 `demo_scripts/`
+里的手写脚本在**收集阶段**就 import mininet → `Mininet.init()` → `ensureRoot()` → `SystemExit`。
+现在 `addopts = "--ignore=test_recovery.py --ignore=demo_scripts --ignore=legacy"`，
+VM 里直接 `pytest` 就是 **216 例全绿**，与 CI 的显式清单等价，不用再背那份列表。
+
+**`metrics.py` 的 `PROJECT_VERSION` 3.19.0 → 3.21.0** —— `GET /api/health` 报的版本
+比 CHANGELOG 落后两版，是老师/联调一眼能看出的口径错误。
+
+### 文档
+
+- `docs/DEVELOPMENT_LOG.md` 按 2026-11-04 实测刷新：测试数 211 → **216**、
+  代码量 12212 → **13602 行**、表数量口径统一为实测的 **6 schema / 26 逻辑表 / 47 物理表（21 分区子表）**
+  （原先「25 / 53 / 75」自相矛盾）、CI 清单 13 → **14 个文件**、新增环境坑 18–20。
+- 全库路径刷新：README / REQUIREMENTS / INTEGRATION_* / demo_runbook / presentation /
+  演示手册 / 项目汇报 / migration-strategy 等。**历史文件（CHANGELOG 旧条目、legacy/、压测原始数据）保持原样。**
+
+### 已知未修（需要环境侧配合）
+
+- **systemd 定时清理没装到新 VM** —— `retention-cleanup.{service,timer}` 只在仓库里，
+  重建 VM 后从没 `systemctl install` 过 → **过期月分区不会被自动清理**（需 root 权限装单元）。
+- **GitHub 推送链路不通** —— 宿主机的 `HTTP(S)_PROXY=127.0.0.1:1082`（Shadowrocket）
+  当前没有监听，且 `gh` 的 keyring token 迁移后已失效 → `git push` 与 `tools/api_push.py` 都用不了。
+  需先启动 Shadowrocket 并 `gh auth refresh -h github.com`。
+
+---
+
 ## v3.21.0 - 2026-10-31 环境配置化 + 能力自检 + 只读模式
 
 **触发**：最终验收环境还不确定 —— 三个人可能各配各的 Mininet，也可能接真实 OpenFlow 网络。

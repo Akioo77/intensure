@@ -324,9 +324,9 @@ legacy/
 |---|---|---|
 | 采集模块联调说明 | 真实契约（采集模块 = 同学 A 写） | `~/Desktop/网络智能体/采集模块联调说明.md` |
 | 意图翻译接口 v0.1 | 真实 schema（意图翻译模块写） | `~/Desktop/网络智能体/意图翻译智能体_案例1-6_接口确认稿_v0.1.pdf` |
-| 下一阶段方案 | 本模块执行计划 | `~/workspace/projects/intensure/INTEGRATION_PLAN.md` |
+| 下一阶段方案 | 本模块执行计划 | `~/projects/intensure/INTEGRATION_PLAN.md` |
 | 旧版需求 v1.0 | 历史参考（已废弃） | `legacy/PHASE3_PLAN_v1.md` |
-| 本模块 README | 使用指南 | `~/workspace/projects/intensure/README.md` |
+| 本模块 README | 使用指南 | `~/projects/intensure/README.md` |
 
 ---
 
@@ -356,8 +356,8 @@ legacy/
 
 ---
 
-📁 项目根目录：`~/workspace/projects/intensure/`
-🖥️ VM 路径：`/home/sunxiaoxuan.guest/intensure/`
+📁 项目根目录：`~/projects/intensure/`
+🖥️ VM 路径：`/home/akioo.guest/intensure/`
 🌐 Dashboard（采集视角）：`http://127.0.0.1:18080/`（自营）
 🌐 保障模块 Swagger：`http://<同学 B/C 的 IP>:8000/docs`（待提供）
 

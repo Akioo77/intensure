@@ -16,7 +16,7 @@ colima status
 colima ssh
 
 # 3. 进入项目目录
-cd /home/sunxiaoxuan.guest/intensure
+cd /home/akioo.guest/intensure
 ```
 
 ---
@@ -117,7 +117,7 @@ tail -30 /tmp/osken.log # 控制器日志
 
 ```bash
 colima ssh
-cd /home/sunxiaoxuan.guest/intensure
+cd /home/akioo.guest/intensure
 
 # 1. 杀干净
 tmux kill-session -t intensure 2>/dev/null
