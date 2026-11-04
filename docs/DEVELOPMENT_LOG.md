@@ -303,12 +303,7 @@ python3 env_doctor.py --json     # 机器可读（给脚本用）
 
 | **环境迁移后 DB 权限模型会被重建** | 中 | 2026-11-03 换机（账号 sunxiaoxuan→akioo、VM 重建为 aarch64）后发现：`implementation.policies` 的属主变成 `intensure_user` 且只有它有全套权限，`implementation_user`/`assurance_user`/`translation_user` **一个授权都没有** → `seed_policies.py` 直接 `permission denied`、assurance 一直报「network_state 还没数据」。**修法**：重放官方授权脚本 `sudo -u postgres psql -d intensure_dev -f docs/access-control-grants.sql`（幂等），再 `python3 seed_policies.py` 播种 |
 | **`db_writer.query()` 吞异常 → 权限问题伪装成「没数据」** | 中 | `assurance_mvp.py` 用 `w.query_one('SELECT payload FROM intensure.network_state LIMIT 1')`，查不到就报「network_state 还没数据」。但 **DB 报 permission denied 时也会返回 None** → 现象与「真没数据」一模一样，极易误判。排查权限问题必须**直连 psql 实测**（`PGPASSWORD=... psql -U <role> -c '...'），别信 db_writer 的返回值 |
-| 🔴 **控制器不受 `mode=read-only` 约束** | **高** | 2026-11-03 实测查实：`controller_app.py` **完全不读 `env_config`**，
-  却会向交换机下发 `OFPFlowMod` —— 握手时装 **table-miss 规则**（priority 0，所有未匹配包送控制器）、
-  学到 MAC 后装**学习规则**（priority 1，idle_timeout 30）。
-  即 **controller_app 本质是个 L2 学习交换机**，指向真实园区交换机 = **接管其转发路径**。
-  `mode=read-only` + `allow_fault_injection=false` **只保护 REST 写端点这一层**，管不到 OpenFlow 侧。
-  **接真网前必须先决策**（A 不接控制器 / B 加 `flow_rule_write` 开关 / C 隔离试验），见 `INTEGRATION_GUIDE.md` §6.7.2。
+| ~~🔴 **控制器不受 `mode=read-only` 约束**~~ | ~~高~~ → **已修（待收尾）** | 2026-11-03 实测查实：`controller_app.py` 不读 `env_config`，却会向交换机下发 `OFPFlowMod` —— 握手时装 **table-miss 规则**（priority 0，所有未匹配包送控制器）、学到 MAC 后装**学习规则**（priority 1，idle_timeout 30）。即 **controller_app 本质是个 L2 学习交换机**，指向真实园区交换机 = **接管其转发路径**。<br>**2026-11-04 复核：方案 B 已落地** —— `flow_rule_write` 开关（commit `16a324d`）同时管住 **table-miss 与学习规则**两处下发点（`controller_app.py` 的 `_flow_write_allowed()`），且 `env_config.flow_rule_write` 在 **read-only 模式下强制 False**（不能被配置覆盖），active 模式取配置值、默认 True。<br>⚠️ **残留风险（接真网前必须做）**：active 模式默认仍是 True → **必须显式设 `mode: read-only` 或 `flow_rule_write: false`**，并在交换机上用 `ovs-ofctl dump-flows` 确认没有新规则。<br>代价：关掉后交换机不再把未匹配包送回控制器 → 没有 packet-in → **拿不到 MAC 级观测**（链路/端口状态仍可采，走 LLDP + port stats）。详见 `INTEGRATION_GUIDE.md` §6.7.2 |
   顺带：`env.json` 原注释「从不发 OFPPFlowMod」**是错的** —— `OFPPFlowMod` 这个常量在 os-ken 里不存在，
   我们实际用的是 `OFPFlowMod`（2 处）。注释已订正 |
 
@@ -396,6 +391,17 @@ python3 env_doctor.py --json     # 机器可读（给脚本用）
     同时 `gh auth status` 显示 keyring 里的 token **已失效** → `tools/api_push.py` 这条后路暂时也用不了。
     → **推代码前先启动 Shadowrocket**，再 `gh auth refresh -h github.com` 重新登录。
     （本地 commit 不受影响，先提交在本地。）
+21. **`ovs-vsctl set port X down` 不是合法语法 —— 而且会静默杀死演示** ——
+    ovs-vsctl 的 port 没有 `down` 列（合法选项是 `tag` / `trunks` / `vlan_mode`…），
+    执行报 `Port does not contain a column whose name matches "down"` 并返回 1。
+    `demo_db_pipeline.sh` 开着 `set -e` → 这一行失败 = 整场演示在第 6 步**静默死掉**
+    （屏幕上只留一行 warn，看不到任何报错，很容易误判成"环境挂了"）。
+    → **2026-11-04 已修**：断链改成「主机侧 `mnexec ip link set` 为主 +
+    交换机侧 `ovs-ofctl mod-port s1 s1-eth1 down` 为备」，两条都有失败判定；
+    恢复步骤与注入方式**对称**（原来只恢复主机侧，用交换机侧注入就永远恢复不回来）；
+    「恢复后回到 pass」改成**先看证据再喊成功**（原来无条件打 ✅）。
+    ⚠️ 顺带一条：**`sudo mn -c` 会删掉 /tmp 下的文件**（Mininet 清理会扫 /tmp）——
+    调试日志别写在 /tmp，会被下一次 `mn -c` 抹掉。
 
 ---
 

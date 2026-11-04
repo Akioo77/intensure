@@ -43,6 +43,13 @@ VM 里直接 `pytest` 就是 **216 例全绿**，与 CI 的显式清单等价，
 **`metrics.py` 的 `PROJECT_VERSION` 3.19.0 → 3.21.0** —— `GET /api/health` 报的版本
 比 CHANGELOG 落后两版，是老师/联调一眼能看出的口径错误。
 
+**`demo_scripts/demo_db_pipeline.sh` 的断链/恢复逻辑** —— 原先兜底分支写的是
+`ovs-vsctl set port s1-eth1 down`，**这不是合法语法**（ovs-vsctl 的 port 没有 `down` 列，
+报 `Port does not contain a column whose name matches "down"`），返回 1；而脚本开着 `set -e`
+→ 整场演示在第 6 步**静默死掉**，屏幕上只留一行 warn，极易误判成"环境坏了"。
+→ 改成「主机侧 `mnexec ip link set` 为主 + 交换机侧 `ovs-ofctl mod-port` 为备」，
+两条都有失败判定；恢复步骤与注入方式**对称**；「恢复后回到 pass」改成**先看证据再喊成功**。
+
 ### 文档
 
 - `docs/DEVELOPMENT_LOG.md` 按 2026-11-04 实测刷新：测试数 211 → **216**、
