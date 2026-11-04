@@ -154,12 +154,27 @@ if [ -z "$DEMO_AUTO" ]; then
 else
     echo -e "  ${DIM}DEMO_AUTO=1 自动继续${R}"
 fi
-H1_PID=$(pgrep -f "mininet:h1" 2>/dev/null | head -1)
-if [ -z "$H1_PID" ]; then
-    warn "找不到 h1 进程，尝试直接 down s1-eth1"
-    sudo ovs-vsctl set port s1-eth1 down 2>/dev/null
-else
-    sudo mnexec -a $H1_PID ip link set h1-eth0 down 2>&1 | head -1
+H1_PID=$(pgrep -f "mininet:h1" 2>/dev/null | head -1 || true)
+FAULT_MODE=""
+if [ -n "$H1_PID" ]; then
+    # 方式① 主机侧：在 h1 的网络命名空间里 down 它的网卡
+    if sudo mnexec -a "$H1_PID" ip link set h1-eth0 down >/dev/null 2>&1; then
+        FAULT_MODE="host"
+        ok "已 down h1 主机接口 h1-eth0（命名空间 PID $H1_PID）"
+    fi
+fi
+if [ -z "$FAULT_MODE" ]; then
+    # 方式② 交换机侧：ovs-ofctl 把 s1-eth1 置 down
+    # ⚠️ 不要再用 `ovs-vsctl set port X down` —— ovs-vsctl 的 port 没有 down 列，
+    #    会报 "Port does not contain a column whose name matches down" 并返回 1；
+    #    而本脚本开着 set -e → 整场演示会在这一行**静默死掉**（看不到任何报错）。
+    warn "主机侧断链不可用，改为在交换机侧 down s1-eth1"
+    if sudo ovs-ofctl mod-port s1 s1-eth1 down >/dev/null 2>&1; then
+        FAULT_MODE="switch"
+        ok "已在交换机侧 down s1-eth1"
+    else
+        fail "断链失败：主机侧与交换机侧都试过了 —— 看 /tmp/mn.log"
+    fi
 fi
 echo
 echo -e "  ${DIM}等待 10s 收集故障数据...${R}"
@@ -188,16 +203,33 @@ fi
 
 # ============ 7. 恢复 + 验证 ============
 step "7/8 恢复链路"
-if [ -n "$H1_PID" ]; then
-    sudo mnexec -a $H1_PID ip link set h1-eth0 up 2>&1 | head -1
-fi
+# 恢复方式必须与注入方式**对称** —— 否则「用交换机侧注入、只恢复主机侧」，
+# 端口会一直 down 着，后面的"回到 pass"就永远看不到。
+case "$FAULT_MODE" in
+    host)
+        sudo mnexec -a "$H1_PID" ip link set h1-eth0 up >/dev/null 2>&1 || true
+        ok "已恢复 h1 主机接口 h1-eth0"
+        ;;
+    switch)
+        sudo ovs-ofctl mod-port s1 s1-eth1 up >/dev/null 2>&1 || true
+        ok "已恢复交换机端口 s1-eth1"
+        ;;
+    *)
+        warn "没有可恢复的注入方式（FAULT_MODE 为空）—— 链路可能仍是断的"
+        ;;
+esac
 echo -e "  ${DIM}等待 10s 验证恢复...${R}"
 sleep 10
 echo
 echo -e "  ${BOLD}─── 恢复后检查（应回到 pass）───${R}"
 PASS_AFTER=$(pg "SELECT count(*) FROM assurance.consistency_checks WHERE result='pass' AND checked_at > now() - interval '15 seconds';")
 echo -e "    ${R}最近 15s: pass=$PASS_AFTER${R}"
-ok "故障恢复后检查回到 pass（自愈闭环证据）"
+if [ "${PASS_AFTER:-0}" -gt 0 ]; then
+    ok "故障恢复后检查回到 pass（自愈闭环证据）"
+else
+    # 别在没拿到证据时先喊成功 —— 看 /tmp/assurance.log 与 assurance.consistency_checks
+    warn "恢复后 15s 内没有 pass 记录 —— 看 /tmp/assurance.log 和 consistency_checks 表"
+fi
 
 # ============ 8. 清理（可选） ============
 step "8/8 最终统计 + 清理"
