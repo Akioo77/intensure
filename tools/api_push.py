@@ -106,10 +106,86 @@ def _date(iso_local: str) -> str:
     return dt.strftime('%Y-%m-%dT%H:%M:%SZ')
 
 
+def push_chain(token, branch, commits, remote_head):
+    """链式推送多个 commit：按顺序建 commit，最后只更新一次 ref。
+
+    为什么需要：一次只推一个 commit 时，工具会把本地 HEAD 重建成「UTC 版」sha，
+    而下一个 commit 的父节点还是原来的本地 sha —— 父节点对不上就推不动了。
+    链式推送让每个 commit 的远端父节点 = 上一个新建出来的 sha。
+    """
+    parent_remote = remote_head
+    parent_tree = req(token, 'GET', f'/git/commits/{remote_head}')['tree']['sha']
+    created = []
+    for c in commits:
+        files = [f for f in git('diff-tree', '--no-commit-id', '--name-only', '-r',
+                                c).split('\n') if f.strip()]
+        items = []
+        for path in files:
+            if not os.path.exists(path):
+                items.append({'path': path, 'mode': '100644', 'type': 'blob', 'sha': None})
+                continue
+            with open(path, 'rb') as fh:
+                b64 = base64.b64encode(fh.read()).decode()
+            blob = req(token, 'POST', '/git/blobs', {'content': b64, 'encoding': 'base64'})
+            mode = git('ls-files', '-s', '--', path).split()[0]
+            items.append({'path': path, 'mode': mode, 'type': 'blob', 'sha': blob['sha']})
+        tree = req(token, 'POST', '/git/trees',
+                   {'base_tree': parent_tree, 'tree': items})['sha']
+        message = git('log', '-1', '--format=%B', c).rstrip('\n')
+        author = {'name': git('log', '-1', '--format=%an', c),
+                  'email': git('log', '-1', '--format=%ae', c),
+                  'date': _date(git('log', '-1', '--format=%aI', c))}
+        committer = {'name': git('log', '-1', '--format=%cn', c),
+                     'email': git('log', '-1', '--format=%ce', c),
+                     'date': _date(git('log', '-1', '--format=%cI', c))}
+        new_commit = req(token, 'POST', '/git/commits', {
+            'message': message, 'tree': tree, 'parents': [parent_remote],
+            'author': author, 'committer': committer,
+        })['sha']
+        print(f'  {c[:8]} -> {new_commit[:8]}  ({len(files)} files)')
+        created.append((c, new_commit))
+        parent_remote = new_commit
+        parent_tree = tree
+    req(token, 'PATCH', f'/git/refs/heads/{branch}',
+        {'sha': parent_remote, 'force': False})
+    print(f'OK remote {branch} -> {parent_remote} ({len(created)} commits)')
+    return created
+
+
+def rebuild_local_chain(commits, base):
+    """把本地这串 commit 也重建成 UTC 版（与远端逐个 sha 对齐）。"""
+    parent = base
+    mapping = []
+    for c in commits:
+        tree = git('rev-parse', f'{c}^{{tree}}')
+        message = git('log', '-1', '--format=%B', c).rstrip('\n')
+        env = dict(os.environ)
+        env.update({
+            'GIT_AUTHOR_NAME': git('log', '-1', '--format=%an', c),
+            'GIT_AUTHOR_EMAIL': git('log', '-1', '--format=%ae', c),
+            'GIT_AUTHOR_DATE': _date(git('log', '-1', '--format=%aI', c)),
+            'GIT_COMMITTER_NAME': git('log', '-1', '--format=%cn', c),
+            'GIT_COMMITTER_EMAIL': git('log', '-1', '--format=%ce', c),
+            'GIT_COMMITTER_DATE': _date(git('log', '-1', '--format=%cI', c)),
+        })
+        msg_file = os.path.join(os.environ.get('TMPDIR', '/tmp'), '_apipush_chain_msg')
+        with open(msg_file, 'w', encoding='utf-8') as fh:
+            fh.write(message)
+        new = subprocess.run(
+            ['git', 'commit-tree', tree, '-p', parent, '-F', msg_file],
+            capture_output=True, text=True, env=env).stdout.strip()
+        os.remove(msg_file)
+        mapping.append((c, new))
+        parent = new
+    return mapping, parent
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--branch', default='master')
     ap.add_argument('--commit', default='HEAD')
+    ap.add_argument('--all', action='store_true',
+                    help='链式推送远端 head 到 HEAD 之间的所有 commit')
     ap.add_argument('--force', action='store_true',
                     help='远端 head 与本地 parent 不一致时仍强制更新（内容需等价）')
     args = ap.parse_args()
@@ -141,6 +217,25 @@ def main():
     print(f'files    : {files}')
 
     token = gh_token()
+
+    if args.all:
+        ref = req(token, 'GET', f'/git/ref/heads/{args.branch}')
+        remote_head = ref['object']['sha']
+        commits = [c for c in git('rev-list', '--reverse',
+                                  f'{remote_head}..{commit}').split('\n') if c]
+        if not commits:
+            print('没有需要推送的 commit')
+            return 0
+        print(f'链式推送 {len(commits)} 个 commit（远端 head {remote_head[:8]}）')
+        created = push_chain(token, args.branch, commits, remote_head)
+        mapping, local_head = rebuild_local_chain([c for c, _ in created], remote_head)
+        for (local_c, remote_c), (_, local_new) in zip(created, mapping):
+            ok = 'OK ' if remote_c == local_new else 'WARN'
+            print(f'  {ok} {local_c[:8]} local={local_new[:8]} remote={remote_c[:8]}')
+        git('update-ref', f'refs/heads/{args.branch}', local_head, commit)
+        git('update-ref', f'refs/remotes/origin/{args.branch}', local_head)
+        print(f'OK 本地 master 已对齐 -> {local_head[:8]}')
+        return 0
 
     # 远端父节点必须就是本地父节点，否则推上去会变成非快进
     ref = req(token, 'GET', f'/git/ref/heads/{args.branch}')
