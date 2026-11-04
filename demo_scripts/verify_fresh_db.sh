@@ -60,7 +60,7 @@ fi
 # ---------- 3. alembic upgrade head ----------
 echo ""
 echo "③ alembic upgrade head（从零建全库）"
-OUT=$(colima ssh -- bash -c "cd /home/sunxiaoxuan.guest/intensure && ALEMBIC_DB_URL='postgresql:///$VERIFY' python3 -m alembic upgrade head" 2>&1)
+OUT=$(colima ssh -- bash -c "cd ${INTENSURE_VM_DIR:-/home/akioo.guest/intensure} && ALEMBIC_DB_URL='postgresql:///$VERIFY' python3 -m alembic upgrade head" 2>&1)
 RC=$?
 echo "$OUT" | grep -E 'Running upgrade|ERROR' | sed 's/^/   /'
 if [ "$RC" != "0" ]; then

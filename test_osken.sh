@@ -1,6 +1,6 @@
 #!/bin/bash
 set -e
-cd /home/sunxiaoxuan.guest/intensure
+cd "$(dirname "${BASH_SOURCE[0]}")"
 
 echo "=== 1. Python 直接 import ==="
 python3 -c 'import simple_switch_13; print("import ok")' 2>&1

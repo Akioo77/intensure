@@ -9,7 +9,7 @@ set -e
 export no_proxy="${no_proxy:-127.0.0.1,localhost,::1}"
 export NO_PROXY="${NO_PROXY:-127.0.0.1,localhost,::1}"
 
-PROJECT_DIR="/home/sunxiaoxuan.guest/intensure"
+PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DEMO_LOG="/tmp/sdn_demo.log"
 
 CLEANUP_AT_END=true
@@ -65,10 +65,10 @@ fi
 # ============ 2. 启动 Mininet（用 Python API + tmux） ============
 step "2/8 启动 Mininet (single,4 拓扑，4 主机 1 交换机)"
 # 用 Python API 启动 mn（避免 CLI 退出问题），脚本已附在 VM
-cat > /tmp/_demo_mn.py <<'PYEOF'
+cat > /tmp/_demo_mn.py << PYEOF
 #!/usr/bin/env python3
 import sys, time
-sys.path.insert(0, '/home/sunxiaoxuan.guest/intensure')
+sys.path.insert(0, '${PROJECT_DIR}')
 from mininet.net import Mininet
 from mininet.node import OVSSwitch, RemoteController
 from mininet.topo import SingleSwitchTopo

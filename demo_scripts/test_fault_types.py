@@ -2,7 +2,7 @@
 """P2-3 实测: 4 种新故障在真实 Mininet 拓扑上。
 
 用法(在 VM 内):
-    cd /home/sunxiaoxuan.guest/intensure
+    cd <项目根>
     sudo python3 demo_scripts/test_fault_types.py
 
 ⚠️ 需要 mininet + ovs-ofctl + 能起 os-ken 控制器 —— CI 里跑不了, 属于集成测试。
@@ -17,8 +17,11 @@
 """
 import sys
 import time
+from pathlib import Path
 
-sys.path.insert(0, '/home/sunxiaoxuan.guest/intensure')
+# 自解析项目根：不再硬编码某个账号的家目录（换机 / 换用户不用改代码）
+PROJECT_DIR = str(Path(__file__).resolve().parent.parent)
+sys.path.insert(0, PROJECT_DIR)
 
 from mininet.net import Mininet
 from mininet.node import OVSSwitch, RemoteController
@@ -43,7 +46,7 @@ import subprocess
 import os
 ctrl = subprocess.Popen(
     ['osken-manager', 'controller_app'],
-    env={**os.environ, 'PYTHONPATH': '/home/sunxiaoxuan.guest/intensure'},
+    env={**os.environ, 'PYTHONPATH': PROJECT_DIR},
     stdout=open('/tmp/_fi_ctrl.log', 'w'), stderr=subprocess.STDOUT)
 time.sleep(4)
 

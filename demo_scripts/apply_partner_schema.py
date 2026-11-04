@@ -235,8 +235,8 @@ def main():
     print("=== APPLY: 先备份 ===")
     subprocess.run(["colima", "ssh", "--", "bash", "-c",
                     f"sudo -u postgres pg_dump -d {DB} -f /tmp/pre_apply.sql && "
-                    "sudo cp /tmp/pre_apply.sql /home/sunxiaoxuan.guest/"], check=False)
-    print("  备份: /home/sunxiaoxuan.guest/pre_apply.sql")
+                    "sudo cp /tmp/pre_apply.sql \"$HOME\"/"], check=False)
+    print("  备份: <VM 家目录>/pre_apply.sql")
     rc3, o3, e3 = ssh_script(rewritten)
     if rc3 != 0:
         print("落地失败:")

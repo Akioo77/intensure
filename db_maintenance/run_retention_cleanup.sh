@@ -16,7 +16,7 @@
 #   bash db_maintenance/run_retention_cleanup.sh [库名]
 #
 # 建议 crontab（若不用 systemd timer）:
-#   0 4 * * 0 bash /home/sunxiaoxuan.guest/intensure/db_maintenance/run_retention_cleanup.sh
+#   0 4 * * 0 bash /home/akioo.guest/intensure/db_maintenance/run_retention_cleanup.sh
 set -euo pipefail
 
 DB="${1:-intensure_dev}"

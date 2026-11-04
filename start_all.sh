@@ -22,7 +22,7 @@ export NO_PROXY="${NO_PROXY:-127.0.0.1,localhost,::1}"
 
 set -uo pipefail
 
-PROJECT_DIR="/home/sunxiaoxuan.guest/intensure"
+PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SESSION="intensure"
 DB_NAME="intensure_dev"
 
@@ -110,13 +110,13 @@ fi
 # ============ 3. Mininet ============
 if [ "$WITH_MININET" -eq 1 ]; then
     step "3/4 启动 Mininet 拓扑（4 主机 1 交换机）"
-    cat > /tmp/_start_all_mn.py << 'PYEOF'
+    cat > /tmp/_start_all_mn.py << PYEOF
 #!/usr/bin/env python3
 """start_all.sh 用的 Mininet 启动脚本（用 Python API，CLI 退出会连带杀进程）。"""
 import sys
 import time
 
-sys.path.insert(0, '/home/sunxiaoxuan.guest/intensure')
+sys.path.insert(0, '${PROJECT_DIR}')
 from mininet.net import Mininet
 from mininet.node import OVSSwitch, RemoteController
 from mininet.topo import SingleSwitchTopo

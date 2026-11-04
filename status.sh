@@ -11,7 +11,7 @@ set -uo pipefail
 export no_proxy="${no_proxy:-127.0.0.1,localhost,::1}"
 export NO_PROXY="${NO_PROXY:-127.0.0.1,localhost,::1}"
 
-PROJECT_DIR="/home/sunxiaoxuan.guest/intensure"
+PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SESSION="intensure"
 DB_NAME="intensure_dev"
 

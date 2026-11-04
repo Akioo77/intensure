@@ -20,7 +20,9 @@ export NO_PROXY="${NO_PROXY:-127.0.0.1,localhost,::1}"
 
 set -uo pipefail
 
-VM_SCRIPT="/home/sunxiaoxuan.guest/intensure/fault_cli.sh"
+# VM 内的项目目录：默认当前账号家目录，可用 INTENSURE_VM_DIR 覆盖
+VM_PROJECT_DIR="${INTENSURE_VM_DIR:-/home/akioo.guest/intensure}"
+VM_SCRIPT="$VM_PROJECT_DIR/fault_cli.sh"
 BACKBONE="s1-eth3 s2-eth3"   # 骨干链路接口（演示默认目标）
 
 # 颜色

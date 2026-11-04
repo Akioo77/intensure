@@ -3,7 +3,7 @@
 # 启动 Mininet + os-ken SDN 环境（前置条件：colima 已起）
 
 set -e
-PROJECT_DIR="/home/sunxiaoxuan.guest/intensure"
+PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 cd "$PROJECT_DIR"
 

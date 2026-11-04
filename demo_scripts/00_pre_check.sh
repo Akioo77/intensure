@@ -54,7 +54,7 @@ if echo "$RESP" | grep -q '"switches"\|"hosts"\|"links"'; then
   PASS=$((PASS+1))
 else
   ui_warn "intensure 服务未响应（演示时不需要，联调需要）"
-  ui_warn "起服务: cd ~/workspace/projects/intensure && python3 state_server.py &"
+  ui_warn "起服务: cd ~/projects/intensure && python3 state_server.py &"
   FAIL=$((FAIL+1))
 fi
 

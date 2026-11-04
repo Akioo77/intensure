@@ -1,8 +1,10 @@
 """快速验证: 端口状态 down → up 恢复 + 确认 Step2 警告来源."""
 import sys
 import time
+from pathlib import Path
 
-sys.path.insert(0, '/home/sunxiaoxuan.guest/intensure')
+# 自解析项目根：不再硬编码某个账号的家目录（换机 / 换用户不用改代码）
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from mininet.net import Mininet
 from mininet.node import RemoteController, OVSSwitch
