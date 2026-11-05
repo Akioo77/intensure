@@ -171,8 +171,12 @@ def push_chain(token, branch, commits, remote_head):
         created.append((c, new_commit))
         parent_remote = new_commit
         parent_tree = tree
+        # 每个 commit 后立刻更新 ref：抖动网络下中途失败也不丢已推的 commit
+        # （内容寻址，重跑会得到同样的 sha，可从断点接着推）
+        req(token, 'PATCH', f'/git/refs/heads/{branch}',
+            {'sha': parent_remote, 'force': True})
     req(token, 'PATCH', f'/git/refs/heads/{branch}',
-        {'sha': parent_remote, 'force': False})
+        {'sha': parent_remote, 'force': True})
     print(f'OK remote {branch} -> {parent_remote} ({len(created)} commits)')
     return created
 
