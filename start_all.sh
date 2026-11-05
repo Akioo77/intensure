@@ -133,10 +133,16 @@ net.start()
 info('MININET_STARTED\n')
 net.pingAll()
 info('PINGALL_DONE\n')
-time.sleep(3600)
+
+# 存活时长可配：MININET_UPTIME_S（秒）。
+# 默认 86400（24h）—— 之前写死 3600（1h），结果**拓扑每小时自己死一次**：
+# 这个脚本 sleep 结束就退出 → tmux 窗口随之关闭 → 演示/联调时拓扑莫名其妙没了。
+# 改默认值的理由：老师/联调随时可能回来，环境不该定时自杀。
+# 想恢复旧行为：MININET_UPTIME_S=3600 bash start_all.sh
+time.sleep(int(os.environ.get('MININET_UPTIME_S', '86400')))
 PYEOF
     tmux new-window -t "$SESSION" -n mininet \
-        "sudo python3 /tmp/_start_all_mn.py 2>&1 | tee /tmp/mn.log"
+        "sudo MININET_UPTIME_S=${MININET_UPTIME_S:-86400} python3 /tmp/_start_all_mn.py 2>&1 | tee /tmp/mn.log"
     sleep 10
     MN_PROCS=$(pgrep -f "mininet:" 2>/dev/null | wc -l | tr -d ' ')
     if [ "$MN_PROCS" -ge 5 ]; then

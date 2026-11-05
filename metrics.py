@@ -25,8 +25,8 @@ import time
 from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
 # 与 CHANGELOG 最新标签对齐（build_info 指标 + GET /api/health 的 version 字段用）
-# v3.21.0 —— 之前一直停在 3.19.0，/api/health 报的版本比 CHANGELOG 落后两版
-PROJECT_VERSION = '3.21.0'
+# v3.22.0 —— 接入适配层（exec_target）+ 换机环境适配 + 4 个真 bug 修复
+PROJECT_VERSION = '3.22.0'
 
 # 直方图默认桶（秒）——覆盖 1ms ~ 30s，够上报/探测量级用
 DEFAULT_BUCKETS: Tuple[float, ...] = (
