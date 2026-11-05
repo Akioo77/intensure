@@ -74,7 +74,10 @@ def req(token, method, path, data=None, retries=4):
                 return json.loads(raw) if raw else {}
         except urllib.error.HTTPError as e:
             # 4xx 是真错误（例如 ref 非快进），重试没有意义
-            if e.code < 500:
+            # 401/404 在这条不稳定链路上是**间歇性假错误**（实测同一时刻
+            # curl 连发 3 次全 201，脚本却拿到 401）—— token 本身是有效的，
+            # 所以这两个码也重试；重试后仍失败才是真错误。
+            if e.code < 500 and e.code not in (401, 404):
                 raise
             last = e
         except Exception as e:
