@@ -212,7 +212,7 @@ python3 env_doctor.py --json     # 机器可读（给脚本用）
 
 | 事项 | 归属 | 说明 |
 |---|---|---|
-| **跑通 1 次真实联调** | **外部阻塞** | 卡在保障模块的 cloudflared 隧道不通（HTTP 000）。路径/契约已对齐，只剩这一个变量 |
+| **跑通 1 次真实联调** | **外部阻塞** | 卡在保障模块的 cloudflared 隧道不通（HTTP 000）。路径/契约已对齐，只剩这一个变量。<br>⚠️ **2026-11-06 复测**：换了代理节点后仍然 `HTTP 000`（直连也 000）→ 不是我方网络问题，是那个 `*.trycloudflare.com` 隧道本身已经失效（cloudflared 进程停了/换域名了）。**需要对方起一个新隧道并给地址**，或给一个局域网可达的 IP。 |
 | ~~演示讲稿~~（15-20 分钟完整剧本） | ✅ **已完成** | `docs/speaker_notes.md`（299 行）：开场 30 秒 + 11 个分段带时间标注的逐句话术 + 汇报完成 30 秒 + 应急方案，**合计约 29 分钟**，已超过 15-20 分钟的目标 |
 | Q&A 预案（15-20 个老师可能问的问题） | ✅ **已完成** | 2026-11-03 补齐到 **15 题**：`docs/speaker_notes.md` Q1–Q15（新增 Q9–Q15），**按「老师真会问」排了序**（⭐ 标记优先级，时间紧只准备前 6 题）。同时**订正了 3 处讲错的口径**：Q4 自愈（我们不做决策）、Q6 频率与写库节流、`demo_scripts/README.md` Q3 里代码中不存在的「自适应机制」 |
 
@@ -224,9 +224,10 @@ python3 env_doctor.py --json     # 机器可读（给脚本用）
 | Docker 化 | 3 天 | `Dockerfile` + compose（intensure / postgres / dashboard 三服务） |
 | 真实园区迁移路径文档 | ✅ 已完成 | 2026-11-03 并入 `INTEGRATION_GUIDE.md` §6.7：`env.json` 逐字段对照表、只读模式的真实含义、验证清单、回退方案、6 条风险。
   ⚠️ **同时查出当前最大的接入风险**（见 §7「控制器不受只读模式约束」）|
-| Dashboard 加联调统计面板 | 1 天 | 上报成功率 / 响应时间 / ActualState 样例（数据源 `metrics.py` 已有）；v3.21.0 起还能直接显示 `GET /api/capabilities` 的「当前环境能力」|
-| collector 多协议适配器骨架 | 2-3 天 | SNMP / CLI / OpenFlow。**2026-11-05 进展**：接入适配层（`exec_target.py` + `target.type=ssh`）已落地 —— 「要在哪台设备上执行动作」不再是硬编码本机；`probe.source` / `probe.destination` 也真正生效了（之前是死配置）。<br>⚠️ **还差**：SNMP / CLI **采集**适配器（现在 `probe.driver` 只有 `mininet` / `icmp` 两个值有意义，填别的会被 `env_doctor` 判成「未知驱动」）；以及真实设备上的端口名/dpid 映射验证 |
-| OVS log → 根因归因 demo | 1 天 | `ovs_logger` 已能抓到「是谁下的 ofctl 命令」 |
+| Dashboard 加联调统计面板 | ✅ 已完成 | **2026-11-05 由 OpenClaw 实现（v3.19.1）**：上报成功率 / 故障注入次数 / 环境能力等，数据源 `/metrics` + `/api/capabilities` |
+| collector 多协议适配器骨架 | ✅ 已完成 | **2026-11-06**：`probe_drivers.py` —— 统一 `ProbeResult`，四个驱动 `mininet` / `icmp` / **`snmp`（纯标准库 BER 编解码，无第三方依赖）** / `cli`（模板 + 可配正则）。`probe.driver` / `probe.source` / `probe.destination` **全部真正生效**（之前是死配置）。SNMP 实测：真实 UDP 收发、取到 sysUpTime ✅<br>⚠️ **还差**：真实设备上的端口名 / dpid 映射验证；`openflow` 驱动（采集层已覆盖 flow stats，不重复实现） |
+| **hosts 表陈旧条目不清理** | 0.5 天 | **2026-11-06 实测发现**：采集到的 `hosts` 是按 MAC 累积的字典，**没有 TTL / 淘汰** → 换过拓扑后旧 MAC 一直留着（实测 4 台真实主机 + 4 条残留，体检读数变成「发现 8 台（期望 4）」）。<br>后果：① 体检读数脏、接真网时会被误读；② dashboard 主机列表出现幽灵主机；③ 状态 payload 每 5s 全量写库 → `state_history` 被撑大；④ **真实园区里主机频繁上下线 → 字典无界增长**（最该修的理由）。<br>→ 修法：给 `hosts` 加最后出现时间 + 过期淘汰（并让 `capabilities` 的 hosts 计数与之一致） |
+| OVS log → 根因归因 demo | 1 天 | 端点已经齐了（`/api/ovs/log`、`/api/ovs/log/correlate`、`/api/ovs/log/stats`），**但 `demo_scripts/` 里还没有对应的演示脚本** —— 差一个能讲的流程 |
 | **真实 OpenFlow 网络接入验证** | 1-2 天 | v3.21.0 的配置层 + 只读模式（`mode: read-only`）已就位，**但从没在真实网络上跑过**。最终验收环境还没定，这是当前最大的未知数 —— 拿到环境后先 `python3 env_doctor.py` 对一遍能力 |
 
 ### 4.3 🔵 已明确的边界（不做）
