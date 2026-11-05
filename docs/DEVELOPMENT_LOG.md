@@ -301,7 +301,7 @@ python3 env_doctor.py --json     # 机器可读（给脚本用）
 | ~~`speaker_notes.md` 里 Q4「自愈留给 Phase 2」、Q6「稳定时 60 秒写一次心跳」两条内容已过期~~ | ✅ 已改 | 2026-11-03 已订正：Q4 改成「**我们不做自愈决策**，那是保障模块的职责；我们做检测+根因诊断+传证据」；Q6 改成「检查 5s 一次，**写库另有节流**（`state_history` 每 30s 或状态变化时）」。⚠️ 原文那句「自愈已有 `assurance_mvp.py`」**本身是错的** —— 实测 `assurance_mvp.py` 里 `heal/guard/verdict` **零命中**，自愈引擎（`healing_engine.py`/`conflict_resolver.py`）全在 `legacy/` 已归档 |
 | `demo_scripts/README.md` 的 Q3 声称检查频率有「自适应机制（健康降频/违例提速）」 | 中 | 代码里**不存在**这个逻辑（`CHECK_INTERVAL` 固定 5s）。2026-11-03 已删该说法，改为指向 `speaker_notes.md` Q6 统一口径 |
 | **`env.json` 的拓扑期望必须和实际启动的拓扑一致** | 中 | v3.21.0 新增配置层时踩过：`start_all.sh` 起的是 **1 交换机 4 主机**，而 `demo_full.py` / `integration_demo.py` 起的是 **2 交换机** —— 配置对不上，状态校验会误报「少了 1 台交换机」。跑 2 交换机那两个脚本前要 `export INTENSURE_ENV_FILE=env.topo_simple.json`。**换环境时先 `python3 env_doctor.py` 对一下** |
-| **systemd 定时清理在重建后的 VM 里没装** | 中 | v3.15.0 的 `db_maintenance/retention-cleanup.{service,timer}` 只在仓库里，**重建 VM 后从没 `systemctl install` 过** —— 2026-11-04 实测 `/etc/systemd/system/` 下没有这两个单元，`systemctl list-timers` 也查不到。**后果：过期月分区不会被自动清理**（`intensure.state_history` 已到 7612 行、assurance 一致性检查 4413 行）。→ 装：`sudo cp db_maintenance/retention-cleanup.* /etc/systemd/system/ && sudo systemctl daemon-reload && sudo systemctl enable --now retention-cleanup.timer` |
+| ~~**systemd 定时清理在重建后的 VM 里没装**~~ | ✅ **2026-11-06 已装** | v3.15.0 的 `db_maintenance/retention-cleanup.{service,timer}` 只在仓库里，重建 VM 后从没 `systemctl install` 过 —— 过期月分区不会自动清理。<br>→ **2026-11-06 已装并验证**：单元已复制到 `/etc/systemd/system/`、`daemon-reload`、`enable --now`；`systemctl list-timers` 显示下次触发 **04:07+随机 0–5 分钟**；手动跑一次验证真能删（当时没有过期分区，删了 0 个 —— 符合预期）。<br>保留策略：`state_history` 7 天，其余（`port_events` / `link_events` / `consistency_checks` / `probe_results` / `audit_log`）30 天 |
 
 
 | **环境迁移后 DB 权限模型会被重建** | 中 | 2026-11-03 换机（账号 sunxiaoxuan→akioo、VM 重建为 aarch64）后发现：`implementation.policies` 的属主变成 `intensure_user` 且只有它有全套权限，`implementation_user`/`assurance_user`/`translation_user` **一个授权都没有** → `seed_policies.py` 直接 `permission denied`、assurance 一直报「network_state 还没数据」。**修法**：重放官方授权脚本 `sudo -u postgres psql -d intensure_dev -f docs/access-control-grants.sql`（幂等），再 `python3 seed_policies.py` 播种 |
@@ -325,6 +325,39 @@ python3 env_doctor.py --json     # 机器可读（给脚本用）
 
 > 交接方式：Mavis 给 OpenClaw 明确清单（改哪些文件、依据是什么、哪些数字以实测为准），OpenClaw 改完自行提交 docs commit。
 > **注意**：OpenClaw 的回复偶尔为空，但**工作照做**——以 git log 为准，不要以回复内容为准。
+
+### 8.1.1 ⚠️ 同一分支，同一时间只允许一个 agent 提交（2026-11-05 加）
+
+**这不是流程洁癖，是出过事的**：
+
+- 2026-11-05 13:45，OpenClaw 跑了 `git rebase`（它自己发起的，为了对齐远端 sha），
+  把我的提交**静默丢掉了一个** —— `61387b8`（往 `ci.yml` 加 `test_exec_target.py`）
+  没被 pick 进去，`.github/workflows/ci.yml` 那行就没了。
+  提交本身**没有冲突**，是被 rebase 丢的，**git 不报错**。
+  OpenClaw 自己也发现了（它记忆里写着"ci.yml 那 1 行仍需人点一次浏览器"），但已经晚了。
+- 同一天我提交 `chore(release)` 时，`git add -A` 把 OpenClaw 未提交的 `start_all.sh` 改动
+  卷进了我的发布提交 —— 提交说明与内容不符。
+
+**约定**：
+
+1. **谁在提交，谁负责推**；另一个 agent 在这段时间**只读 + 出建议**，不动 git。
+2. 需要对方改代码时，走**明确清单**交接（改哪些文件 / 依据 / 哪些数字以实测为准），
+   不要两边同时改同一个分支。
+3. **push 前后各自核对一次**：`git log origin/master..HEAD` 必须为空才算推干净了。
+4. `git add -A` 之前先 `git status` 看一眼 —— 确认没有别人的改动混进来。
+5. ⚠️ **推之前确认文件真的进了版本库**：`git ls-files <file>`（磁盘上有 ≠ 版本库里有，
+   `.gitignore` 的规则会静默忽略文件 —— 见 §8.4 坑 26）。
+
+### 8.1.2 推送通道（2026-11-06 加）
+
+本机到 GitHub 有两条通道，**互为备份**：
+
+| 通道 | 配置 | 备注 |
+|---|---|---|
+| HTTPS + OAuth | `gh` token，scope 含 `workflow` | ⚠️ 改 `.github/workflows/*` 必须有 `workflow` scope，否则整批 push 被拒 |
+| **SSH over 443** | `~/.ssh/config` 的 `Host github.com` → `Port 443` + `ssh.github.com` | 公钥已登记；**22 端口被代理吞掉，必须走 443** |
+
+`origin` 现在指向 SSH。代理节点不稳时（HTTP 通道 503），走 SSH 照样能推。
 
 ### 8.2 版本管理
 

@@ -413,9 +413,10 @@ intensure/
 │   ├── README.md               # 本文件
 │   ├── REQUIREMENTS.md         # 职责 + 联调契约背景
 │   ├── STATE_MODEL.md          # 统一状态模型
-│   ├── CHANGELOG.md            # 版本历史（v1.0 ~ v3.21）
+│   ├── CHANGELOG.md            # 版本历史（v1.0 ~ v3.22）
 │   └── docs/                   # 优化清单 / 架构 / 契约 / 汇报材料
-│       └── DEVELOPMENT_LOG.md  # ⭐ 开发进度 / 待办 / 交接（先看这个）
+│       ├── DEVELOPMENT_LOG.md  # ⭐ 开发进度 / 待办 / 交接（先看这个）
+│       └── PARTNER_COORDINATION.md  # ⭐ 给保障模块的联调协作说明（进度/需配合/局限/待开发）
 └── legacy/                     # 历史探索材料（不接入主流程）
     ├── intent_registry.py / conflict_detector.py / conflict_resolver.py
     ├── healing_engine.py / healing_intent_generator.py
