@@ -90,6 +90,39 @@ def test_runtime_artifacts_are_gitignored():
           str(patterns[:20]))
 
 
+def test_dependencies_are_actually_tracked_by_git():
+    """依赖文件必须**在 git 里被追踪**，而不只是在磁盘上存在。
+
+    ⚠️ 这是个真实踩过的坑：`.gitignore` 里的 `lib/`（Python 打包模板规则）
+    会匹配**任意层级**叫 lib 的目录 → `demo_scripts/lib/ui.sh` 被静默忽略 →
+    `git add -A` 看不见它、也不报错 → 文件"从来没进过版本库"，
+    而本地明明有文件、脚本本地也能跑 → **CI 上必然缺文件**。
+    """
+    try:
+        p = subprocess.run(['git', 'ls-files', 'demo_scripts/'],
+                           capture_output=True, text=True, cwd=REPO, timeout=30)
+    except (OSError, subprocess.SubprocessError) as e:
+        return                       # 不是 git 仓库就跳过
+    if p.returncode != 0:
+        return
+    tracked = set(p.stdout.split())
+    check('demo_scripts/lib/ui.sh 在版本库里',
+          'demo_scripts/lib/ui.sh' in tracked,
+          f'已追踪的 demo_scripts 文件: {sorted(tracked)[:10]}')
+    # 所有被 source 的静态依赖都必须在版本库里
+    missing = []
+    for path in _demo_scripts():
+        with open(path, encoding='utf-8') as fh:
+            for line in fh:
+                m = re.search(r'source\s+"?\$SCRIPT_DIR/([^"$]+)"?', line)
+                if not m or m.group(1) == '.env':
+                    continue
+                rel = os.path.join('demo_scripts', m.group(1))
+                if rel not in tracked:
+                    missing.append(rel)
+    check('被 source 的依赖都在版本库里', not missing, str(missing))
+
+
 # ====================================================================
 # 2. 函数齐备
 # ====================================================================

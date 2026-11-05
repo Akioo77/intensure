@@ -19,6 +19,11 @@ wheels/
 *.egg-info/
 .installed.cfg
 *.egg
+# ⚠️ 上面的 lib/ 是 Python 打包模板规则（匹配**任意层级**叫 lib 的目录），
+#    会把 demo_scripts/lib/ 一起静默忽略掉 —— 联调脚本的公共 UI 库
+#    就是这么"从来没进过版本库"的（git add 看不见它，也不报错）。
+!demo_scripts/lib/
+!demo_scripts/lib/*.sh
 
 # Virtual env
 venv/
