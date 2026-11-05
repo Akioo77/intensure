@@ -310,6 +310,8 @@ python3 env_doctor.py --json     # 机器可读（给脚本用）
 
 ---
 
+| **ci.yml 的一行改动待推送** | 低 | 2026-11-05 发现：本机 gh 的 OAuth token **缺 workflow scope**，任何改 GitHub workflow 文件的推送都会被 GitHub 拒绝（API 侧伪装成 404，git push 才给真相）。那一行改动（pytest 列表补 test_exec_target.py）已摘到分支 keep/ci-workflow-fix。**推送前先跑一次** gh auth refresh -h github.com -s workflow（需浏览器确认，一次性），之后 cherry-pick 该分支即可正常推 |
+
 ## 8. 协作约定
 
 ### 8.1 分工
