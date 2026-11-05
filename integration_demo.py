@@ -191,9 +191,9 @@ def probe_reachability(net) -> dict:
     packet_loss = None
     try:
         out = net.get('h1').cmd('ping -c 3 -W 1 10.0.0.4')
-        m = re.search(r'avg[^=]*= ([\d.]+)', out)
-        if m:
-            latency_ms = float(m.group(1))
+        # 统一解析（RTT 取 avg —— 旧正则取的是 min）
+        import exec_target
+        _, latency_ms = exec_target.parse_ping_output(out)
         # 从 pingall 输出提取 packet_loss（小数）
         m2 = re.search(r'([\d.]+)% packet loss', out)
         if m2:

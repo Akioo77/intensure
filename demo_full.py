@@ -244,11 +244,11 @@ def main():
 
     info("测试时延 (h1 -> h2):")
     result = h1.cmd('ping -c 3 -W 2 10.0.0.2')
-    # 提取平均时延
-    import re
-    m = re.search(r'avg[^=]*= ([\d.]+)', result)
-    if m:
-        rtt = float(m.group(1))
+    # 提取平均时延（RTT 取 avg —— 旧正则取的是 min）
+    import exec_target
+    _, latency_ms = exec_target.parse_ping_output(result)
+    if latency_ms is not None:
+        rtt = latency_ms
         if rtt > 100:
             ok(f"时延生效: avg {rtt}ms")
         else:
