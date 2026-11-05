@@ -32,7 +32,6 @@ import subprocess
 import sys
 import time
 import urllib.request
-from datetime import datetime, timezone
 
 REPO = os.environ.get('GITHUB_REPO', 'Akioo77/intensure')
 API = f'https://api.github.com/repos/{REPO}'
@@ -96,14 +95,32 @@ def git(*args, **kw):
 
 
 def _date(iso_local: str) -> str:
-    """统一转成 UTC（`2026-11-03T03:53:33+08:00` → `2026-11-02T19:53:33Z`）。
+    """**原样返回**，不做任何时区转换。
 
-    GitHub 存 commit 对象时把时间**归一到 UTC**（显示也按 UTC）。
-    所以本地重建必须用 UTC —— 否则本地存 `+0800`、远端存 `+0000`，sha 必然对不齐
-    （踩过：本地 `889f04e` vs 远端 `5a0a94ac`，内容一模一样却对不上）。
+    GitHub 存 commit 对象时，author/committer 的时区偏移**按原样保留**：
+    本地对象是 `... 1793784487 +0800` 就必须发 +08:00 的 ISO 串；
+    转成 UTC 会让远端存成 +0000 -> 字节不同 -> sha 必然对不上（踩过）。
+
+    顺带：`git commit-tree` 重建的 commit 对象里是 +0000，%aI 也会显示 +00:00，
+    原样发就对得上 —— 所以**一律原样发**，不用分类讨论。
     """
-    dt = datetime.fromisoformat(iso_local).astimezone(timezone.utc)
-    return dt.strftime('%Y-%m-%dT%H:%M:%SZ')
+    return iso_local
+
+
+def commit_message(sha: str) -> str:
+    """取 commit 对象里消息的**原始字节**（不做任何 strip）。
+
+    为什么不能用 %B + rstrip 猜尾换行：
+    - git commit 建的 commit，对象里消息**带**尾换行
+    - git commit-tree -F file（文件末尾无换行）建的，对象里**不带**
+    GitHub API 存的是原样字节 —— 猜错就 sha 必然对不上
+    （踩过：本地 232abdfa 消息 542 字节，rstrip 后发 541，远端 sha 一直对不上）。
+    """
+    raw = subprocess.run(['git', 'cat-file', 'commit', sha],
+                        capture_output=True).stdout
+    if b'\n\n' not in raw:
+        return ''
+    return raw.split(b'\n\n', 1)[1].decode('utf-8')
 
 
 def push_chain(token, branch, commits, remote_head):
@@ -121,17 +138,22 @@ def push_chain(token, branch, commits, remote_head):
                                 c).split('\n') if f.strip()]
         items = []
         for path in files:
-            if not os.path.exists(path):
+            # 从 **commit 的树**读内容，不能读工作区：
+            # 读工作区推的是「当前工作区」而非「这个 commit 的内容」，
+            # 工作区一有未提交改动，远端 tree 就和本地 commit 对不上 -> sha 必然不同。
+            content = subprocess.run(
+                ['git', 'cat-file', 'blob', f'{c}:{path}'],
+                capture_output=True).stdout
+            if not content:
                 items.append({'path': path, 'mode': '100644', 'type': 'blob', 'sha': None})
                 continue
-            with open(path, 'rb') as fh:
-                b64 = base64.b64encode(fh.read()).decode()
+            b64 = base64.b64encode(content).decode()
             blob = req(token, 'POST', '/git/blobs', {'content': b64, 'encoding': 'base64'})
             mode = git('ls-files', '-s', '--', path).split()[0]
             items.append({'path': path, 'mode': mode, 'type': 'blob', 'sha': blob['sha']})
         tree = req(token, 'POST', '/git/trees',
                    {'base_tree': parent_tree, 'tree': items})['sha']
-        message = git('log', '-1', '--format=%B', c).rstrip('\n')
+        message = commit_message(c)
         author = {'name': git('log', '-1', '--format=%an', c),
                   'email': git('log', '-1', '--format=%ae', c),
                   'date': _date(git('log', '-1', '--format=%aI', c))}
@@ -158,7 +180,7 @@ def rebuild_local_chain(commits, base):
     mapping = []
     for c in commits:
         tree = git('rev-parse', f'{c}^{{tree}}')
-        message = git('log', '-1', '--format=%B', c).rstrip('\n')
+        message = commit_message(c)
         env = dict(os.environ)
         env.update({
             'GIT_AUTHOR_NAME': git('log', '-1', '--format=%an', c),
@@ -196,7 +218,7 @@ def main():
     # 消息**不带尾换行**：API 会按 git 惯例自己补一个 \n 再存。
     # 本地 commit-tree 也按同一套规范化 → 两边字节一致，sha 相同。
     # （反过来多给一个 \n，远端会变成 body+\n\n，sha 必然对不齐 —— 踩过）
-    message = git('log', '-1', '--format=%B', commit).rstrip('\n')
+    message = commit_message(commit)
     author = {
         'name': git('log', '-1', '--format=%an', commit),
         'email': git('log', '-1', '--format=%ae', commit),
@@ -255,8 +277,10 @@ def main():
     base_tree = req(token, 'GET', f'/git/commits/{parent}')['tree']['sha']
     tree_items = []
     for path in files:
-        with open(path, 'rb') as fh:
-            b64 = base64.b64encode(fh.read()).decode()
+        content = subprocess.run(
+            ['git', 'cat-file', 'blob', f'{commit}:{path}'],
+            capture_output=True).stdout
+        b64 = base64.b64encode(content).decode()
         blob = req(token, 'POST', '/git/blobs',
                    {'content': b64, 'encoding': 'base64'})
         # mode 必须取 git 里的**真实**值：可执行文件是 100755，
