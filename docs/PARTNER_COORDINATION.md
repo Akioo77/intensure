@@ -51,7 +51,7 @@ CI 在 GitHub 上全绿、故障注入 → 一致性判定 → 根因诊断 → 
 | CI | GitHub Actions **success** | 每次 push 必跑 |
 | 契约路径版本 | 我方 `1.0` | `GET /api/capabilities` |
 | 期望对方契约版本 | `0.4.0` | `assurance_bridge.DEFAULT_EXPECTED_VERSION` |
-| 数据库 | 6 schema / 26 逻辑表 / 47 物理表 | `pg_class` 实测 |
+| 数据库 | 6 schema / 26 逻辑表 / 47 物理表（含 21 个分区子表） | `pg_class` 实测 |
 | 心跳与联调状态 | `shared.module_health` / `shared.schema_version` | 对方可查 |
 
 ### 1.3 我们的对外契约（对方按这个调我们）
@@ -173,7 +173,7 @@ v3.21.0 起配置层、只读模式、`flow_rule_write` 开关、能力自检（
 
 - 状态每 5s 全量写库；`state_history` 保留 **7 天**，`port_events` / `link_events` /
   `consistency_checks` / `probe_results` / `audit_log` 保留 **30 天**
-- 历史分区由 systemd timer 每天 04:07 清理（2026-11-06 已装好并验证）
+- 历史分区由 systemd timer 清理：`OnCalendar=04:07` + `RandomizedDelaySec=300`（随机延迟 0~5 分钟，实测 2026-11-06 04:09 触发）；2026-11-06 已装到 VM 并验证 `enabled` + `active`
 - 主机表按 TTL（默认 15 分钟）淘汰，不会无限增长
 
 ---

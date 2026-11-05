@@ -38,6 +38,58 @@
 | `08_verify_recovered.sh` | Step 8 | 验证恢复 → RECOVERED |
 | `99_reset.sh` | 清理 | 清空本地临时文件 |
 | `lib/ui.sh` | UI 库 | 彩色输出 + JSON 解析 + status 徽章 |
+| `demo_db_pipeline.sh` | 本地闭环 | 8 步纯本地闭环（**不依赖对方地址**，对方给不了地址时也能演示我们这侧） |
+| `ovs_attribution_demo.sh` | 证据链 | 故障注入 → 设备侧 OVS 日志 → 我方端口事件 → `/api/ovs/log/correlate` 时间对齐 → 恢复 |
+| `cross_machine_check.py` | 跨机预检 | Mininet 在**对方**机器上时的接入预检（只读检查 / `--inject` 演练） |
+
+---
+
+## 🔀 两个联调用脚本（2026-11-06 新增）
+
+### `cross_machine_check.py` —— 跨机接入预检
+
+**背景**：之前所有命令都跑在本机（隐含假设「跑着 OVS 的机器就是我们这台」）。
+联调时 **Mininet 在对方那台**，能不能跑通没人验证过。现在有可执行的检查了。
+
+```bash
+# 只读：看远端拓扑（不改动任何东西）
+python3 demo_scripts/cross_machine_check.py --host <对方IP> --user <用户>
+
+# 只读自检：命令能不能跑、端口能不能列出来、能不能 ping
+python3 demo_scripts/cross_machine_check.py --host <对方IP> --user <用户> --check-only
+
+# 完整演练：注故障 → 感知 → 恢复（⚠️ 会在对方机器上真的断一条链路）
+python3 demo_scripts/cross_machine_check.py --host <对方IP> --user <用户> --inject
+```
+
+参数也可用环境变量：`INTENSURE_VM_HOST` / `_USER` / `_PORT` / `_KEY`。
+⚠️ 远端机器需要**免密 sudo**（命令带 `sudo -n`，拿不到就立刻失败，不会卡在密码提示上），
+以及 `mnexec`（Mininet 自带，用于进主机命名空间 ping）。
+
+### `ovs_attribution_demo.sh` —— 链路故障的「证据链」演示
+
+**讲的故事：这条链路到底为什么断了？**
+
+```bash
+bash demo_scripts/ovs_attribution_demo.sh          # 默认目标 s1-eth2
+bash demo_scripts/ovs_attribution_demo.sh <端口名>
+```
+
+链路：故障注入 → 设备侧客观事实（OVS 日志）→ 我方端口事件时间线 → 三者对齐 → 恢复。
+
+> ⚠️ **这个 demo 会诚实地讲清边界**（演示时最关心的就是这点）：
+> · OVS 日志提供的是**设备侧客观事实**（端口映射、包处理、协议状态）——
+>   它证明「链路真的 down 了，不是我方数据造假的」
+> · 但「**是谁做的**」（哪个操作、什么时候）来自**我方操作审计**，
+>   OVS 日志**不会写「谁下的命令」**
+> → 归因是「设备侧事实 + 我方操作记录」两条证据**交叉**得出的，
+>   不是单靠 OVS 日志就能指认操作者
+
+> 端口 down 的**权威事实**是交换机给的 OpenFlow 端口状态（`4=UP` → `1=DOWN`），
+> OVS 日志只是同期的设备侧旁证。
+
+依赖：采集层在跑（`start_all.sh`），OVS 日志采集器已启动
+（v3.22.0 起 `state_server` 会自动拉起；用 `INTENSURE_OVS_LOG=0` 可关）。
 
 ---
 

@@ -12,13 +12,13 @@
 - **对外接口**：向同学 A 的"意图保障模块"上报 ActualState（HTTP POST）
 - **采集视角 dashboard**：单文件 SPA（`dashboard.html`）作为加分项
 
-> 📌 **范围沿革**：v2.0（2026-09-03）起本系统收敛为"采集 + 上报"（一致性校验 / 冲突检测 / 自愈决策交给其他模块）；**v3.7（2026-10-08）起重新扩展**——新增 `assurance_mvp.py`（一致性检查 + 根因诊断 + 写库），并配套数据库（6 schema / 25 张逻辑表，物理表 53 张）、alembic 迁移、DB 重连与历史归档等工程能力（v3.10 ~ v3.17）；**v3.18.0（2026-10-29）**起补上可观测性（`metrics.py` + `GET /metrics`）与跨模块契约版本协商。
+> 📌 **范围沿革**：v2.0（2026-09-03）起本系统收敛为"采集 + 上报"（一致性校验 / 冲突检测 / 自愈决策交给其他模块）；**v3.7（2026-10-08）起重新扩展**——新增 `assurance_mvp.py`（一致性检查 + 根因诊断 + 写库），并配套数据库（6 schema / 26 张逻辑表，物理表 47 张，含 21 个分区子表）、alembic 迁移、DB 重连与历史归档等工程能力（v3.10 ~ v3.17）；**v3.18.0（2026-10-29）**起补上可观测性（`metrics.py` + `GET /metrics`）与跨模块契约版本协商。
 
 ---
 
 ## ✅ 完成状态
 
-### ✅ 已完成（v1.0 ~ v3.21, 2026-08-04 ~ 2026-10-31）
+### ✅ 已完成（v1.0 ~ v3.22.0, 2026-08-04 ~ 2026-11-06）
 
 | 任务 | 状态 |
 |---|---|
@@ -29,7 +29,7 @@
 | 故障注入（**9 种**：断链 / 恢复 / 时延 / 丢包 / 限速 / burst / reorder / VLAN mismatch / flow race） | ✅ v1.0 起，v3.17.0 扩展 | `fault_injector.py` |
 | 周期可达性探测（pingall / 流表 dump） | ✅ v1.0 `live_env.py` |
 | 端到端 demo（拓扑 + 流量 + 故障 + 恢复） | ✅ v1.0 `demo_full.py` |
-| 采集视角 dashboard（拓扑 / 链路 / 事件 / 自检 / **联调统计**）| ✅ v1.0 `dashboard.html`；联调统计面板 v3.19.1（上报成功率 / 响应时间 / 当前环境能力）|
+| 采集视角 dashboard（拓扑 / 链路 / 事件 / 自检 / **联调统计**）| ✅ v1.0 `dashboard.html`；联调统计面板 v3.22.0（上报成功率 / 响应时间 / 当前环境能力）|
 | **`actual_state_builder.py`** —— 内部 state → ActualState 格式（联调 §4.2） | ✅ v2.0 (2026-09-03) |
 | **`reporter.py`** —— POST `/check` + `/verify` HTTP 客户端 | ✅ v2.0 (2026-09-03) |
 | **`integration_demo.py`** —— 端到端联调脚本（real/mock/skip 三模式） | ✅ v2.0 (2026-09-03) |
@@ -40,7 +40,7 @@
 | 单元测试：`test_actual_state_builder.py`（8 例通过） | ✅ v2.0 |
 | 单元测试：`test_reporter.py`（9 例通过） | ✅ v2.0 |
 | 归档旧版 Phase 3 探索（冲突 / 自愈 / 异常检测 / **旧版** state_server） | ✅ v2.0 `legacy/` |
-| **数据库架构 Phase 0**（**6 schema + 25 张逻辑表**（物理表 53 张）+ 4 模块 GRANT + 保留策略）| ✅ v3.5 (2026-10-08) |
+| **数据库架构 Phase 0**（**6 schema + 26 张逻辑表**（物理表 47 张，含 21 个分区子表）+ 4 模块 GRANT + 保留策略）| ✅ v3.5 (2026-10-08)；表数量按 v3.22.0 `pg_class` 实测订正 |
 | **intensure 选择性写库**（db_writer.py 21 方法 / 11 个写库接口 + 30s 节流 + 异常才写）| ✅ v3.6 (2026-10-08) |
 | **保障模块 MVP**（`assurance_mvp.py`：一致性检查 + 根因诊断 + `intent_states` 状态轨迹 + 写库 + E2E 演示）| ✅ v3.7 (2026-10-08) |
 | **一键 E2E 演示**（demo_db_pipeline.sh 8 步全绿）+ 汇报材料 | ✅ v3.8 (2026-10-08) |
@@ -56,6 +56,13 @@
 | **契约端点落地**（`/api/intensure/v1/*` 5 个端点 + `contract_api.py` 转换层，旧路径保留）| ✅ v3.20.0 (2026-10-31) |
 | **环境配置化 + 能力自检**（`env_config.py` / `capabilities.py` / `env_doctor.py` / `env.json` + 只读模式）| ✅ v3.21.0 (2026-10-31) |
 | **故障注入 REST 接口**（`POST /api/v1/test/inject-fault` + `GET/DELETE /api/v1/test/faults`，9 种故障全覆盖）| ✅ v3.19.0 (2026-10-29) |
+| **接入适配层**（`exec_target.py`：local / ssh 两种执行目标，远端执行已实测打通）| ✅ v3.22.0 (2026-11-06) |
+| **探测驱动适配层**（`probe_drivers.py`：mininet / icmp / snmp / cli，`env.json` 的 `probe.driver` 真正生效）| ✅ v3.22.0 (2026-11-06) |
+| **OVS 日志采集器**（`state_server` 自动拉起 + `/api/ovs/log*` 三个端点 + 归因证据链 demo）| ✅ v3.22.0 (2026-11-06) |
+| **主机表淘汰**（交换机断开精确清理 + TTL 15 分钟兜底，不再只增不减）| ✅ v3.22.0 (2026-11-06) |
+| **端口事件落库修复**（之前模块级包装漏传 `metadata` → TypeError 被吞 → 表一直是空的）| ✅ v3.22.0 (2026-11-06) |
+| **跨机接入预检**（`cross_machine_check.py`：只读检查 / `--inject` 演练）| ✅ v3.22.0 (2026-11-06) |
+| **换机环境适配**（路径不写死账号 + `ensure_peer_role.sh` 幂等建 PG 角色）| ✅ v3.22.0 (2026-11-06) |
 
 ### 🎯 下一步（我们主动要做）
 
@@ -360,7 +367,7 @@ colima stop
 
 ---
 
-## 📂 文件清单（截至 v3.21）
+## 📂 文件清单（截至 v3.22.0）
 
 ```
 intensure/
@@ -371,7 +378,7 @@ intensure/
 ├── 控制器层
 │   ├── simple_switch_13.py     # 最简 L2
 │   ├── controller_app.py       # 链路事件采集（LLDP + PortStatus）
-│   └── state_server.py         # 自营 REST API（Flask，24 端点，含 /metrics + 契约端点 + /api/capabilities）✅ v3.21.0
+│   └── state_server.py         # 自营 REST API（Flask，24 端点，含 /metrics + 契约端点 + /api/capabilities）✅ v3.22.0
 ├── 采集层
 │   ├── state_model.py          # 内部数据抽象（供 ActualStateBuilder 读）
 │   ├── state_collector.py      # CLI 工具（手工验证）
@@ -413,7 +420,7 @@ intensure/
 │   ├── README.md               # 本文件
 │   ├── REQUIREMENTS.md         # 职责 + 联调契约背景
 │   ├── STATE_MODEL.md          # 统一状态模型
-│   ├── CHANGELOG.md            # 版本历史（v1.0 ~ v3.22）
+│   ├── CHANGELOG.md            # 版本历史（v1.0 ~ v3.22.0）
 │   └── docs/                   # 优化清单 / 架构 / 契约 / 汇报材料
 │       ├── DEVELOPMENT_LOG.md  # ⭐ 开发进度 / 待办 / 交接（先看这个）
 │       └── PARTNER_COORDINATION.md  # ⭐ 给保障模块的联调协作说明（进度/需配合/局限/待开发）
@@ -560,7 +567,7 @@ intensure/
 | 范围说明 | v2.0 起只做「采集 + 上报」，不做一致性/自愈 | 补上 v3.7 起重新扩展（`assurance_mvp.py` + 数据库体系）|
 | 完成状态标题 | v1.0 ~ v3.9（2026-10-08）| v1.0 ~ v3.17（2026-10-29），并补齐 v3.10~v3.17 条目 |
 | 故障注入 | 断链 / 时延 / 丢包 / 限速（4 种）| **9 种**（补 burst / reorder / VLAN mismatch / flow race）|
-| 数据库 | 5 schema + 43 表 | **6 schema + 25 张逻辑表**（物理表 53 张，含分区子表）|
+| 数据库 | 5 schema + 43 表 | **6 schema + 26 张逻辑表**（物理表 47 张，含 21 个分区子表）|
 | `db_writer.py` | 12 方法 | **21 方法**（11 个写库接口）|
 | 单元测试数 | 21/21、24/24 | **8 / 9**（以 pytest 实际收集为准）|
 | `assurance_mvp.py` | 「8 状态机 + 14 guard_checks」| 去掉无法从代码核实的数量，改为描述实际职责 |
