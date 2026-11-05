@@ -47,6 +47,15 @@ def _target_describe(cfg) -> str:
     return f'ssh://{who}{host}{port_part}'
 
 
+def _drivers_status():
+    """各探测驱动在当前环境的可用性（给 /api/capabilities 用）。"""
+    try:
+        import probe_drivers
+        return probe_drivers.list_drivers()
+    except Exception as e:
+        return [{'name': 'unknown', 'available': False, 'reason': str(e)}]
+
+
 def build_capabilities(state: Optional[dict] = None,
                        cfg: Optional[env_config.EnvConfig] = None,
                        fault_api_available: bool = True) -> Dict[str, Any]:
@@ -139,6 +148,8 @@ def build_capabilities(state: Optional[dict] = None,
             'driver': cfg.probe_driver,
             'source': probe.get('source'),
             'destination': probe.get('destination'),
+            # 当前环境下各驱动能不能用（snmp 缺 host / cli 缺模板会在这里说清楚）
+            'available_drivers': _drivers_status(),
         },
         # ---- 接入目标 ----
         # 联调/真实园区时，对方第一句要问的就是「你接的是哪台」。

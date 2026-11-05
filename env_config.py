@@ -39,6 +39,8 @@ MODE_READ_ONLY = 'read-only'
 # 探测驱动
 PROBE_MININET = 'mininet'
 PROBE_ICMP = 'icmp'
+PROBE_SNMP = 'snmp'
+PROBE_CLI = 'cli'
 
 # 内置默认值 —— 与改造前代码里的硬编码常量一一对应
 DEFAULT_CONFIG: Dict[str, Any] = {
@@ -336,6 +338,16 @@ class EnvConfig:
     def probe_destination(self) -> str:
         """探测目标。"""
         return str(self.probe.get('destination') or '')
+
+    @property
+    def probe_snmp(self) -> Dict[str, Any]:
+        """SNMP 驱动的子配置（host / port / community / oid / timeout）。"""
+        return dict(self.probe.get('snmp') or {})
+
+    @property
+    def probe_cli(self) -> Dict[str, Any]:
+        """CLI 驱动的子配置（command 模板 + 两个正则）。"""
+        return dict(self.probe.get('cli') or {})
 
     @property
     def target(self) -> Dict[str, Any]:

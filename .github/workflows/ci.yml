@@ -98,4 +98,6 @@ jobs:
             test_fault_api.py \
             test_contract_api.py \
             test_env_config.py \
+            test_exec_target.py \
+            test_probe_drivers.py \
             -v

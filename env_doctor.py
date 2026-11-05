@@ -23,10 +23,8 @@
 import argparse
 import json
 import os
-import shutil
 import sys
 import urllib.request
-from importlib.util import find_spec
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -114,16 +112,30 @@ def state_age_seconds(state, state_file=None):
 
 
 def probe_driver_available(driver):
-    """探测驱动在当前机器上能不能用。"""
-    if driver == env_config.PROBE_MININET:
-        if find_spec('mininet') is None:
-            return False, 'mininet 没装（VM 内 apt install mininet）'
-        return True, 'mininet 可用'
-    if driver == env_config.PROBE_ICMP:
-        if shutil.which('ping') is None:
-            return False, '系统里没有 ping 命令'
-        return True, 'ICMP 可用'
-    return False, f'未知驱动 {driver}'
+    """探测驱动在当前机器上能不能用。
+
+    统一走 probe_drivers 的 `available()` —— 驱动自己最清楚缺什么
+    （SNMP 缺 host、CLI 缺模板、mininet 缺 mnexec……）。
+    """
+    try:
+        import probe_drivers
+        d = probe_drivers.build_driver(driver, cfg=_probe_sub_cfg(driver))
+        return d.available()
+    except Exception as e:
+        return False, f'检查失败: {e}'
+
+
+def _probe_sub_cfg(driver):
+    """取驱动自己的子配置（snmp / cli 段）。"""
+    try:
+        cfg = env_config.get_config()
+        if driver == env_config.PROBE_SNMP:
+            return cfg.probe_snmp
+        if driver == env_config.PROBE_CLI:
+            return cfg.probe_cli
+    except Exception:
+        pass
+    return {}
 
 
 def run_checks(state, cfg, age_sec=None):

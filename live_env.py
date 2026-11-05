@@ -31,6 +31,7 @@ from actual_state_builder import ActualStateBuilder
 from reporter import AssuranceReporter
 from graceful import install_graceful_shutdown
 import exec_target
+import probe_drivers
 
 # ---- 日志（P1-2: 统一用 logging, 不再用 print）----
 import logging  # noqa: E402
@@ -53,6 +54,10 @@ LOCAL_API = 'http://127.0.0.1:8080'
 #            ssh  = Mininet 是**别人**起的，我们不建拓扑，只在目标上探测。
 TARGET = exec_target.target_from_env_config()
 REMOTE_MODE = TARGET.kind != 'local'
+
+# 探测驱动（env.json 的 probe.driver）—— mininet / icmp / snmp / cli
+# ⚠️ 之前 probe.driver 是死配置（没人读），现在真正生效。
+DRIVER = probe_drivers.driver_from_env_config(target=TARGET)
 
 
 def _probe_endpoints():
@@ -182,14 +187,17 @@ def main():
     )
 
     def _probe(count=3, timeout_s=6):
-        """探测一次。
+        """探测一次 —— 走统一的驱动抽象（probe.driver）。
 
-        本机模式用 Mininet 进程内的 host 对象（PID 最准）；
-        远程模式走适配层 —— 进目标主机上 h1 的命名空间发 ping。
+        mininet 驱动：
+          - 本机模式用 Mininet 进程内的 host 对象（PID 最准，避免 pgrep 误匹配）
+          - 远程模式用主机名（h1），适配层负责解析 PID 并 mnexec 进命名空间
+        icmp / snmp / cli 驱动：source 用配置的 IP，destination 同理。
         """
-        if net is not None:
-            return safe_ping(net.get('h1'), DST_HOST, count=count, timeout_s=timeout_s)
-        return TARGET.ping(SRC_NODE, DST_HOST, count=count, timeout=timeout_s)
+        src = SRC_HOST
+        if DRIVER.name == 'mininet':
+            src = net.get('h1').pid if net is not None else SRC_NODE
+        return DRIVER.probe(src, DST_HOST, timeout=timeout_s)
 
     # 基础时延
     try:
@@ -210,8 +218,8 @@ def main():
 
     # 初次探测（让 L2 学习 + 流表安装）；带超时保护，避免卡死
     time.sleep(3)
-    loss, _ = _probe(count=3, timeout_s=8)
-    logger.info(f'INITIAL_PINGALL: {loss}% loss')
+    first = _probe(count=3, timeout_s=8)
+    logger.info(f'INITIAL_PINGALL: {first.loss_pct}% loss (driver={first.method})')
 
     cycle = 0
     while True:
@@ -219,9 +227,11 @@ def main():
         try:
             t0 = time.time()
 
-            # 探测（只测 h1→h4，带 subprocess 超时保护，故障时不会卡死）
-            loss_pct, latency_ms = _probe(count=3, timeout_s=6)
-            reachable = (loss_pct == 0.0)
+            # 探测（带超时保护，故障时不会卡死；驱动由 probe.driver 决定）
+            probe_res = _probe(count=3, timeout_s=6)
+            loss_pct = probe_res.loss_pct
+            latency_ms = probe_res.latency_ms
+            reachable = probe_res.reachable
 
             # 读 state
             state = read_state_from_controller()
@@ -248,6 +258,9 @@ def main():
                     src_host=SRC_HOST, dst_host=DST_HOST,
                     reachable=reachable, loss_pct=loss_pct / 100.0,
                     latency_ms=latency_ms,
+                    # 记下是**哪套驱动**测的（ping / tcp / udp / snmp / cli）——
+                    # 换探测方式后数据库里分得清
+                    probe_method=probe_res.method or DRIVER.name,
                 )
             except Exception as e:
                 logger.warning(f'  WARN: db probe write failed: {e}')
