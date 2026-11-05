@@ -33,6 +33,15 @@ def _count_ok(actual: int, expected: Optional[int]) -> bool:
     return actual >= int(expected)
 
 
+def _fresh_hosts(hosts: dict) -> int:
+    """TTL 内还"活着"的主机数（与采集侧淘汰口径一致）。"""
+    try:
+        import host_cache
+        return host_cache.count_fresh(hosts or {})
+    except Exception:
+        return len(hosts or {})
+
+
 def _target_describe(cfg) -> str:
     """接入目标的人类可读描述（不泄露私钥路径）。"""
     target = cfg.target or {}
@@ -101,7 +110,7 @@ def build_capabilities(state: Optional[dict] = None,
         except Exception:
             partner_expected = 'unknown'
 
-    ready = bool(switches) and (exp_hosts is None or len(hosts) > 0)
+    ready = bool(switches) and (exp_hosts is None or _fresh_hosts(hosts) > 0)
 
     return {
         # ---- 环境与策略 ----
@@ -130,9 +139,14 @@ def build_capabilities(state: Optional[dict] = None,
             'links_discovered': links_found,
         },
         'hosts': {
-            'discovered': len(hosts),
+            # ⚠️ 只数 TTL 内的（"还活着"的）主机 —— 之前直接 len(hosts)，
+            #    把过期残留的旧 MAC 也算进去，体检读数会是「发现 8 台（期望 4）」。
+            #    淘汰逻辑在 host_cache.evict_stale（采集侧每 5s 跑一次），
+            #    这里再按同一口径过滤一次，保证读数不受落盘延迟影响。
+            'discovered': _fresh_hosts(hosts),
             'expected': exp_hosts,
-            'ok': _count_ok(len(hosts), exp_hosts),
+            'total_tracked': len(hosts),
+            'ok': _count_ok(_fresh_hosts(hosts), exp_hosts),
         },
         'topology': {
             'switches_discovered': len(switches),

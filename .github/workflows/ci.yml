@@ -100,4 +100,5 @@ jobs:
             test_env_config.py \
             test_exec_target.py \
             test_probe_drivers.py \
+            test_host_cache.py \
             -v

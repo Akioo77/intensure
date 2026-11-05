@@ -24,6 +24,7 @@ import state_history
 
 import db_writer
 import env_config
+import host_cache
 
 from graceful import install_graceful_shutdown
 
@@ -83,6 +84,13 @@ def _flow_write_allowed() -> bool:
         logger.warning(f'[env] 读配置失败，禁止下发流表规则: {e}')
         return False
 STATS_INTERVAL = 5   # 秒
+
+# 主机表的维护与淘汰在 host_cache.py（纯逻辑，可单测）：
+#   ① 交换机断开 → 精确删掉属于它的主机
+#   ② TTL 兜底 → 长时间没再见到的主机
+# 之前 hosts 是只增不减的字典，换拓扑后旧 MAC 一直堆着
+# （实测：4 台真实主机 + 4 条残留，体检读数变「发现 8 台（期望 4）」）。
+# TTL 默认 15 分钟：export INTENSURE_HOST_TTL=1800 可调。
 LLDP_INTERVAL = 3    # 秒: LLDP 发送周期
 LINK_TIMEOUT = 30    # 秒: 链路条目超时
 
@@ -228,6 +236,11 @@ class StateCollectorController(app_manager.OSKenApp):
             self.datapaths.pop(dpid, None)
             if dpid_hex in NETWORK_STATE['switches']:
                 NETWORK_STATE['switches'][dpid_hex]['disconnected_at'] = time.time()
+            # 这台交换机学到的主机随之失效 —— 交换机没了，它上面的主机也不在了。
+            # 不清掉的话，hosts 会一直堆着旧条目（换拓扑后最明显）。
+            removed = host_cache.drop_switch(NETWORK_STATE['hosts'], dpid_hex)
+            if removed:
+                self._log_event('hosts_dropped', dpid=dpid_hex, count=len(removed))
             self._log_event('switch_disconnected', dpid=dpid_hex)
             self._mark_updated()
         else:
@@ -492,26 +505,14 @@ class StateCollectorController(app_manager.OSKenApp):
         # 交换机间互联口不是主机接入位置 (泛洪帧会在这里出现)
         if (dpid_hex, port) in self.inter_switch_ports:
             return
-        host = NETWORK_STATE['hosts'].get(mac)
-        if host is None:
-            host = {
-                'mac': mac,
-                'ipv4': [],
-                'dpid': dpid_hex,
-                'port': port,
-                'first_seen': time.time(),
-                'last_seen': time.time(),
-            }
-            NETWORK_STATE['hosts'][mac] = host
+        # 主机表的新增/移动/刷新交给 host_cache（纯逻辑，可单测）
+        event, old = host_cache.touch(NETWORK_STATE['hosts'], mac, dpid_hex, port)
+        host = NETWORK_STATE['hosts'][mac]
+        if event == 'new':
             self._log_event('host_discovered', mac=mac, dpid=dpid_hex, port=port)
-        else:
-            host['last_seen'] = time.time()
-            if host['dpid'] != dpid_hex or host['port'] != port:
-                old = (host['dpid'], host['port'])
-                host['dpid'] = dpid_hex
-                host['port'] = port
-                self._log_event('host_moved',
-                                mac=mac, old=old, new=(dpid_hex, port))
+        elif event == 'moved':
+            self._log_event('host_moved',
+                            mac=mac, old=old, new=(dpid_hex, port))
 
         # 提取 IPv4
         if pkt.get_protocol(ipv4.ipv4) is not None:
@@ -525,12 +526,22 @@ class StateCollectorController(app_manager.OSKenApp):
                 host['ipv4'].append(arp_pkt.src_ip)
         self._mark_updated()
 
+    def _evict_stale_hosts(self, now=None) -> int:
+        """淘汰超时没再见到的主机条目（TTL 兜底），返回淘汰了几条。"""
+        gone = host_cache.evict_stale(NETWORK_STATE['hosts'], now=now)
+        if gone:
+            self._log_event('hosts_evicted', count=len(gone),
+                            ttl=host_cache.host_ttl())
+        return len(gone)
+
     # ---------- 周期 stats 轮询 ----------
     def _stats_loop(self):
         while True:
             eventlet.sleep(STATS_INTERVAL)
             for dp in list(self.datapaths.values()):
                 self._request_stats(dp)
+            # 先淘汰过期主机，再落盘 —— 状态文件与库里都不留幽灵主机
+            self._evict_stale_hosts()
             dump_state_to_file()
             self._record_history()
             # 写入数据库（网络状态 + 选择性 state_history）

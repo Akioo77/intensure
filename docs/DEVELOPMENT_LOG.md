@@ -226,7 +226,7 @@ python3 env_doctor.py --json     # 机器可读（给脚本用）
   ⚠️ **同时查出当前最大的接入风险**（见 §7「控制器不受只读模式约束」）|
 | Dashboard 加联调统计面板 | ✅ 已完成 | **2026-11-05 由 OpenClaw 实现（v3.19.1）**：上报成功率 / 故障注入次数 / 环境能力等，数据源 `/metrics` + `/api/capabilities` |
 | collector 多协议适配器骨架 | ✅ 已完成 | **2026-11-06**：`probe_drivers.py` —— 统一 `ProbeResult`，四个驱动 `mininet` / `icmp` / **`snmp`（纯标准库 BER 编解码，无第三方依赖）** / `cli`（模板 + 可配正则）。`probe.driver` / `probe.source` / `probe.destination` **全部真正生效**（之前是死配置）。SNMP 实测：真实 UDP 收发、取到 sysUpTime ✅<br>⚠️ **还差**：真实设备上的端口名 / dpid 映射验证；`openflow` 驱动（采集层已覆盖 flow stats，不重复实现） |
-| **hosts 表陈旧条目不清理** | 0.5 天 | **2026-11-06 实测发现**：采集到的 `hosts` 是按 MAC 累积的字典，**没有 TTL / 淘汰** → 换过拓扑后旧 MAC 一直留着（实测 4 台真实主机 + 4 条残留，体检读数变成「发现 8 台（期望 4）」）。<br>后果：① 体检读数脏、接真网时会被误读；② dashboard 主机列表出现幽灵主机；③ 状态 payload 每 5s 全量写库 → `state_history` 被撑大；④ **真实园区里主机频繁上下线 → 字典无界增长**（最该修的理由）。<br>→ 修法：给 `hosts` 加最后出现时间 + 过期淘汰（并让 `capabilities` 的 hosts 计数与之一致） |
+| **hosts 表陈旧条目不清理** | ✅ 已完成 | **2026-11-06 修复**：新增 `host_cache.py`（纯逻辑，可单测）+ 两层淘汰 —— ① **交换机断开 → 精确删掉属于它的主机**（立即生效）② **TTL 兜底**（默认 15 分钟，`INTENSURE_HOST_TTL` 可调）。`/api/capabilities` 的主机计数改用同一口径（`count_fresh`）。<br>实测：换拓扑后 hosts 从 8（4 真实 + 4 残留）回到 **4**，体检读数「发现 4 台（期望 4）」；交换机被杀时事件 `hosts_dropped count=4`，主机表归零。 |
 | OVS log → 根因归因 demo | 1 天 | 端点已经齐了（`/api/ovs/log`、`/api/ovs/log/correlate`、`/api/ovs/log/stats`），**但 `demo_scripts/` 里还没有对应的演示脚本** —— 差一个能讲的流程 |
 | **真实 OpenFlow 网络接入验证** | 1-2 天 | v3.21.0 的配置层 + 只读模式（`mode: read-only`）已就位，**但从没在真实网络上跑过**。最终验收环境还没定，这是当前最大的未知数 —— 拿到环境后先 `python3 env_doctor.py` 对一遍能力 |
 
@@ -427,6 +427,17 @@ python3 env_doctor.py --json     # 机器可读（给脚本用）
     自己起的 Mininet（当前用户）不需要 sudo —— 所以是「失败再补 `sudo -n`」。
     ⚠️ 同理：注故障、`ovs-appctl vlog/set` 都需要远端**免密 sudo**，
     命令带 `-n` 是为了「拿不到就立刻失败」，绝不阻塞等密码。
+25. **只增不减的字典 = 体检读数会骗人** ——
+    `hosts`（按 MAC 累积）之前没有淘汰机制，交换机断开时只更新交换机条目、
+    它学到的主机永远留着 → 换拓扑后旧 MAC 堆着，实测体检报「发现 8 台（期望 4）」。
+    真实园区里主机频繁上下线，这个字典还会**无界增长**（状态每 5s 全量写库，
+    `state_history` 跟着被撑大）。
+    → **2026-11-06 已修**：逻辑抽到 `host_cache.py`（纯模块，可单测），
+    两层淘汰：交换机断开精确清理 + TTL 兜底（默认 15 分钟，`INTENSURE_HOST_TTL` 可调）。
+    ⚠️ **教训**：`capabilities` 的计数口径要和采集侧的淘汰口径**用同一个函数**
+    （`host_cache.count_fresh`）——否则采集侧清干净了、读数还是脏的。
+    ⚠️ 顺带：**没有 `last_seen` 的条目不淘汰、也不从读数里抹掉** ——
+    缺字段不等于陈旧，误杀还在线的主机比留一条幽灵更糟。
 
 ---
 
