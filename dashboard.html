@@ -99,6 +99,29 @@
 
   <!-- v2.0 移除：异常检测 / 意图与冲突（由其他同学模块负责） -->
 
+
+  <!-- 联调统计（v3.19.0 新增）：上报成功率 / 响应时间 / 当前环境能力 -->
+  <div class="panel" style="grid-column: 1 / -1;">
+    <h2>联调统计 <span class="sub" id="link-stat-sub"></span></h2>
+    <div class="grid2">
+      <div>
+        <div class="statrow"><span>上报成功率</span><b id="ls-rate">—</b></div>
+        <div class="statrow"><span>上报次数（成功 / 失败）</span><b id="ls-reports" class="num">—</b></div>
+        <div class="statrow"><span>平均上报耗时</span><b id="ls-latency" class="num">—</b></div>
+        <div class="statrow"><span>故障注入次数</span><b id="ls-faults" class="num">—</b></div>
+        <div class="statrow"><span>REST 请求总数</span><b id="ls-http" class="num">—</b></div>
+      </div>
+      <div>
+        <div class="statrow"><span>环境标签</span><b id="ls-env">—</b></div>
+        <div class="statrow"><span>运行模式</span><b id="ls-mode">—</b></div>
+        <div class="statrow"><span>可下发流表规则</span><b id="ls-flow">—</b></div>
+        <div class="statrow"><span>故障注入可用</span><b id="ls-fault">—</b></div>
+        <div class="statrow"><span>契约端点 / 期望版本</span><b id="ls-contract">—</b></div>
+        <div class="statrow"><span>生效配置文件</span><b id="ls-cfgsrc">—</b></div>
+      </div>
+    </div>
+  </div>
+
   <!-- 端口统计 -->
   <div class="panel">
     <h2>端口统计 <span class="sub" id="port-sub"></span></h2>
@@ -823,6 +846,82 @@ renderReporter();
 renderBeforeAfter();  // 自愈前后对比（纯本地数据）
 setInterval(() => { tickReporter(); renderReporter(); }, 1200);
 setInterval(renderBeforeAfter, 6000);  // 6 秒刷新一次
+
+// ============ 联调统计（v3.19.0）：上报成功率 / 响应时间 / 当前环境能力 ============
+function parsePromText(text) {
+  const out = {};
+  for (const line of String(text).split('\n')) {
+    if (!line || line[0] === '#') continue;
+    const sp = line.lastIndexOf(' ');
+    if (sp < 0) continue;
+    const key = line.slice(0, sp).trim();
+    const val = parseFloat(line.slice(sp + 1));
+    if (!isNaN(val)) out[key] = (out[key] || 0) + val;
+  }
+  return out;
+}
+function metricSum(map, name, match) {
+  let sum = 0;
+  for (const k of Object.keys(map)) {
+    if (!k.startsWith(name)) continue;
+    if (match && !match(k)) continue;
+    sum += map[k];
+  }
+  return sum;
+}
+async function renderLinkStats() {
+  const sub = $('link-stat-sub');
+  try {
+    const res = await Promise.all([
+      fetch(API + '/metrics').then(r => r.text()),
+      fetch(API + '/api/capabilities').then(r => r.json()),
+    ]);
+    const m = parsePromText(res[0]);
+    const ct = res[1] || {};
+
+    // err 用 total - ok 推算，不依赖具体 result 标签取值
+    const total = metricSum(m, 'intensure_reports_total');
+    const ok = metricSum(m, 'intensure_reports_total', k => k.indexOf('result="ok"') >= 0);
+    const err = Math.max(0, total - ok);
+    const latSum = metricSum(m, 'intensure_report_duration_seconds_sum');
+    const latCnt = metricSum(m, 'intensure_report_duration_seconds_count');
+
+    $('ls-rate').textContent = total
+      ? (ok / total * 100).toFixed(1) + '%  (' + ok + '/' + total + ')'
+      : '尚无上报';
+    $('ls-reports').textContent = ok + ' / ' + err;
+    $('ls-latency').textContent = latCnt
+      ? (latSum / latCnt * 1000).toFixed(1) + ' ms'
+      : '—';
+    $('ls-faults').textContent = metricSum(m, 'intensure_fault_injections_total');
+    $('ls-http').textContent = metricSum(m, 'intensure_http_requests_total');
+
+    $('ls-env').textContent = ct.environment || '—';
+    const modeEl = $('ls-mode');
+    modeEl.textContent = ct.mode || '—';
+    modeEl.className = ct.read_only ? 'up' : 'down';
+
+    const flowEl = $('ls-flow');
+    flowEl.textContent = ct.flow_rule_write ? '是（会接管转发路径）' : '否';
+    flowEl.className = ct.flow_rule_write ? 'down' : 'up';
+
+    const fi = ct.fault_injection || {};
+    const fiEl = $('ls-fault');
+    fiEl.textContent = fi.available ? '可用' : '不可用';
+    fiEl.className = fi.available ? 'up' : 'down';
+
+    const contract = ct.contract || {};
+    $('ls-contract').textContent =
+      (contract.endpoints || []).length + ' 个 / ' + (contract.partner_expected_version || '?');
+    $('ls-cfgsrc').textContent = ct.config_source || '—';
+
+    if (sub) sub.textContent = '更新于 ' + new Date().toLocaleTimeString();
+  } catch (e) {
+    if (sub) sub.textContent = '联调统计暂不可用';
+  }
+}
+renderLinkStats();
+setInterval(renderLinkStats, 4000);
 </script>
 </body>
 </html>
