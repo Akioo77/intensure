@@ -615,6 +615,97 @@ curl -s http://127.0.0.1:8080/api/capabilities | python3 -m json.tool
 
 ---
 
+### 6.8 接入适配层（2026-11-05 新增）：Mininet 在别的机器上怎么办
+
+之前所有命令都跑在「我们自己起的 Mininet」那台机器上 —— 所以联调时一旦
+**Mininet 是对方起的**，代码里那些「本机特权命令」的假设就会全部失效。
+
+这一节讲清楚：**哪些部件天然跨机、哪些要适配、怎么配、怎么验。**
+
+#### 6.8.1 先分清两类东西
+
+| 类别 | 部件 | 跨机怎么办 |
+|---|---|---|
+| **天然跨机** | 交换机/主机/链路/流表采集（OpenFlow + LLDP）、契约 HTTP 端点、DB 写入 | **不用改任何代码** —— OpenFlow 是网络协议、HTTP 是网络协议、DSN 里换个主机就行 |
+| **本机特权动作** | 探测（ping）、注故障（tc / ovs-ofctl / ip link）、读 OVS 日志 | **要适配** —— 这些命令必须在「跑着 OVS 的那台机器」上执行 |
+
+结论：**采集侧天然跨机，适配层只管那三类本机动作。**
+
+#### 6.8.2 配置怎么写（`env.json`）
+
+```jsonc
+{
+  // 接入目标：要在哪台设备上执行动作
+  "target": {
+    "type": "ssh",              // local（默认）| ssh
+    "host": "10.0.0.9",         // 对方机器
+    "user": "partner",
+    "port": 22,
+    "key": "~/.ssh/id_ed25519", // 私钥（免密）
+    "connect_timeout": 5
+  },
+
+  // 探测参数（现在真正生效了 —— 之前 probe.driver/source/destination 只存在于配置里没人读）
+  "probe": {
+    "driver": "mininet",
+    "source": "10.0.0.1",
+    "destination": "10.0.0.4"
+  },
+
+  // 状态文件（控制器写、REST API 读）。跨机部署时指向共享盘，
+  // 或者让控制器与 API 同机（推荐）
+  "state_file": "/tmp/network_state.json"
+}
+```
+
+`type: "local"` 时行为与改造前**逐字节一致**（演示、自测照旧）。
+
+#### 6.8.3 远端机器的前置条件
+
+1. **免密 sudo** —— 注故障与进命名空间都要 root。命令带 `sudo -n`，
+   拿不到就立刻失败，不会卡在密码提示上把请求线程挂死。
+2. **`mnexec` 在 PATH 里** —— Mininet 自带，用于进主机命名空间发 ping。
+3. **能 SSH** —— 密钥认证，`BatchMode=yes`（不弹密码）。
+
+#### 6.8.4 接入后各部分是否还正常（实测结论）
+
+在「Mininet 在对方 VM、采集侧在另一台机器」的条件下实测（2026-11-05）：
+
+| 部件 | 跨机后 | 实测证据 |
+|---|---|---|
+| 交换机/主机/链路/流表采集 | ✅ 正常 | 采集侧照常看到 `s1-eth1 state=1(DOWN)` |
+| 探测（ping） | ✅ 正常 | 跨机 `h1→h4`：0% 丢包，avg RTT 0.179ms |
+| 注故障 | ✅ 正常 | 从采集侧发命令，对方机器上接口真的 DOWN |
+| 端口事件落库 | ✅ 正常（**修了一个旧 bug**） | `intensure.port_events` 出现 `link_down` / `link_up` |
+| DB 写入 | ✅ 正常 | 改 DSN 主机即可（`INTENSURE_DB_DSN`） |
+| 返回同伴端口结果 | ✅ 正常 | 契约 HTTP 端点，天然跨机 |
+
+> ⚠️ **一个取舍**：如果为了安全把 `flow_rule_write` 关掉（接真实园区必须关），
+> 交换机就不再把未匹配包送回控制器 → **没有 packet-in → 学不到 MAC → 拿不到主机级观测**
+> （链路/端口状态仍可采，走 LLDP + port stats）。这个口径要提前跟对方讲清楚。
+
+#### 6.8.5 联调前的预检（一条命令）
+
+```bash
+# 在采集侧机器上跑；只读检查，不碰对方网络
+python3 demo_scripts/cross_machine_check.py --host 10.0.0.9 --user partner
+
+# 完整演练：注一次故障再恢复（⚠️ 会短暂断链）
+python3 demo_scripts/cross_machine_check.py --host 10.0.0.9 --user partner --inject
+```
+
+它会依次验证：远端命令能执行 → 能列出交换机端口 → 能进命名空间 ping；
+加 `--inject` 还会真的断一次链再恢复。
+
+#### 6.8.6 还没做的
+
+- **AgentExec**（生产网禁 SSH 时用的远端 agent 通道）—— 只留了接口，没实现
+- **SNMP / CLI 采集适配器** —— `probe.driver` 目前只有 `mininet` / `icmp` 两个值有意义
+- **真实设备适配**（端口名映射、dpid→设备名）—— 配置字段已预留（`port_label_map` / `dpid_to_switch`），
+  但没在真实设备上验证过
+
+---
+
 ## 七、联调流程建议
 
 ### 阶段 1：连通性测试（5 分钟）

@@ -38,7 +38,8 @@ alembic 用 `postgresql:///intensure_dev` 走 unix socket + peer 认证，角色
 **INTERNALERROR**（整个进程挂掉，不是用例失败）：`test_recovery.py` 与 `demo_scripts/`
 里的手写脚本在**收集阶段**就 import mininet → `Mininet.init()` → `ensureRoot()` → `SystemExit`。
 现在 `addopts = "--ignore=test_recovery.py --ignore=demo_scripts --ignore=legacy"`，
-VM 里直接 `pytest` 就是 **216 例全绿**，与 CI 的显式清单等价，不用再背那份列表。
+VM 里直接 `pytest` 就跑完（接入适配层那轮后是 **243 例全绿**），与 CI 的显式清单等价，
+不用再背那份列表。
 
 **`metrics.py` 的 `PROJECT_VERSION` 3.19.0 → 3.21.0** —— `GET /api/health` 报的版本
 比 CHANGELOG 落后两版，是老师/联调一眼能看出的口径错误。
@@ -50,13 +51,67 @@ VM 里直接 `pytest` 就是 **216 例全绿**，与 CI 的显式清单等价，
 → 改成「主机侧 `mnexec ip link set` 为主 + 交换机侧 `ovs-ofctl mod-port` 为备」，
 两条都有失败判定；恢复步骤与注入方式**对称**；「恢复后回到 pass」改成**先看证据再喊成功**。
 
+### 接入适配层（`exec_target.py`）
+
+**触发**：联调时 Mininet 是**别人**起的，最终还要接整个园区网络 ——
+而代码里所有特权动作都跑在本机，隐含假设「跑着 OVS 的机器就是我们这台」。
+
+先分清两类东西：**采集侧本来就是跨机的**（OpenFlow/LLDP 采集、契约 HTTP 端点、
+DB 写入，一行代码没改）；**只有三类「本机特权动作」不跨机** ——
+探测（ping）、注故障（tc/ovs-ofctl/ip link）、读 OVS 日志。
+
+新增 `exec_target.py`：
+
+- `ExecTarget` 抽象 + `LocalExec`（行为与改造前**逐字节一致**）+ `SshExec`
+- 远端命令用 `shlex.quote` 拼串，参数转义无损（测试断言往返一致）
+- `ping` 支持进 Mininet 命名空间发包（`mnexec -a <pid>`）
+- 远端 `tail -F` 跟 OVS 日志、`ovs-appctl vlog/set` 也走同一层
+
+接入点改造：`fault_api`（注故障可打到**对方那台机器**）、`live_env`
+（`target.type=ssh` 时**不再自建 Mininet**，只探测）、`ovs_logger`、
+`controller_app` / `state_server`（状态文件路径走 `state_file` 配置）。
+
+新增 `demo_scripts/cross_machine_check.py`：联调前的跨机预检
+（只读检查 / `--inject` 演练）。
+
+### 顺带修掉的 4 个真 bug
+
+1. **端口事件从来没落过库** —— `DBWriter.write_port_event(..., metadata=...)` 有
+   `metadata` 参数，但**模块级包装函数**漏了没转发 → 控制器调用 TypeError →
+   try/except 只记一行 warning → **`intensure.port_events` 表一直是空的**，
+   保障模块拿不到端口事件的原始证据。同款问题还有 `write_link_event` /
+   `write_heartbeat` / `write_probe_with_decision`（后者漏 `probe_method`）。
+   → 修完 + 加**签名比对测试**，整类问题一次挡住。
+2. **延迟取的是 min 不是 avg** —— 旧正则 `avg[^=]*= ([\d.]+)` 匹配到的是
+   "rtt min/avg/max/mdev = 0.045/0.052/…" 里的 **min**，而字段名叫 `latency_ms`。
+   → 统一成 `exec_target.parse_ping_output()`，取第 2 个（avg）。
+3. **`pgrep -f` 匹配到执行命令的 shell 自己** —— 跨机时 `pgrep -f mininet:h1`
+   把 ssh 远端 shell 也匹配上 → 错 PID → `mnexec` 进错命名空间 →
+   **跨机 ping 永远 100% 丢包**。→ 模式锚定结尾 `mininet:h1$`。
+4. **进对方的 Mininet 命名空间需要 sudo** —— 对方用 `sudo python3` 起的
+   Mininet，主机进程是 root 的 → `mnexec` 报 `ns/net: Permission denied`。
+   → 「失败再补 `sudo -n`」（自己起的 Mininet 不需要 sudo）。
+
+### 实测（Mininet 在 VM、采集侧在宿主 macOS，跨机）
+
+远端命令 ✅ 端口清单 ✅ 跨机 ping（0% 丢包，avg 0.179ms）✅
+注故障落到对方机器 ✅ 采集侧感知到端口 DOWN ✅
+端口事件落库 ✅（`port_events` 首次出现 link_down / link_up）
+
 ### 文档
 
-- `docs/DEVELOPMENT_LOG.md` 按 2026-11-04 实测刷新：测试数 211 → **216**、
-  代码量 12212 → **13602 行**、表数量口径统一为实测的 **6 schema / 26 逻辑表 / 47 物理表（21 分区子表）**
-  （原先「25 / 53 / 75」自相矛盾）、CI 清单 13 → **14 个文件**、新增环境坑 18–20。
-- 全库路径刷新：README / REQUIREMENTS / INTEGRATION_* / demo_runbook / presentation /
-  演示手册 / 项目汇报 / migration-strategy 等。**历史文件（CHANGELOG 旧条目、legacy/、压测原始数据）保持原样。**
+- `INTEGRATION_GUIDE.md` 新增 **§6.8 接入适配层**（接入手册）：
+  哪些天然跨机 / 哪些要适配 / 配置怎么写 / 远端前置条件 / 接入后各部件是否还正常 /
+  联调预检命令 / 还没做的部分
+- `docs/DEVELOPMENT_LOG.md`：§1 数字刷新（243 例 / 15 个 CI 文件 / 14509 行）、
+  时间线新增「接入适配层」行、§4.2 多协议适配器条目更新、§8.4 新增环境坑 22–24
+- （2026-11-04 那轮）`docs/DEVELOPMENT_LOG.md` 实测刷新：测试数 211 → **216**、
+  代码量 12212 → 13602 行、表数量口径统一为实测的
+  **6 schema / 26 逻辑表 / 47 物理表（21 分区子表）**（原先「25 / 53 / 75」自相矛盾）、
+  CI 清单 13 → 14 个文件、新增环境坑 18–20；
+  全库路径刷新（README / REQUIREMENTS / INTEGRATION_* / demo_runbook / presentation /
+  演示手册 / 项目汇报 / migration-strategy 等）。**历史文件（CHANGELOG 旧条目、legacy/、
+  压测原始数据）保持原样。**
 
 ### 已知未修（需要环境侧配合）
 

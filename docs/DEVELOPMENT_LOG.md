@@ -21,12 +21,12 @@ intensure 是意图驱动网络管理系统的**采集层**（Mininet + OVS + os
 | 代码版本 | v3.21.0 | `git describe --tags` |
 | 自营 REST 端点 | **24 个** | `grep -c "^@app.route" state_server.py` |
 | 其中跨模块契约端点 | 5 个 | `/api/intensure/v1/*`（v3.20.0 新增） |
-| 单元测试 | **216 例全绿** | VM 内 `pytest`（裸跑即可，见 §3.2） |
-| CI 跑的测试文件 | **14 个** | `.github/workflows/ci.yml` |
+| 单元测试 | **243 例全绿** | VM 内 `pytest`（裸跑即可，见 §3.2） |
+| CI 跑的测试文件 | **15 个** | `.github/workflows/ci.yml` |
 | 代码风格 | `ruff check .` 全过 | 规则 E/W/F，E402 豁免（见 §8） |
 | 环境配置 | `env.json` / `env.yaml`，`$INTENSURE_ENV_FILE` 覆盖 | v3.21.0 起环境差异在配置里，不在代码里 |
-| Python 代码量 | 13602 行（根目录 *.py） | `wc -l *.py` |
-| 提交总数 | 67 个（含本文档 commit） | `git log --oneline \| wc -l` |
+| Python 代码量 | 14509 行（根目录 *.py） | `wc -l *.py` |
+| 提交总数 | 78 个（含本文档 commit） | `git log --oneline \| wc -l` |
 | 数据库 | **6 schema / 26 张逻辑表**（物理表 47 张，其中 21 个是分区子表）| 实测口径见下方脚注 |
 | 对外接口方向 | **只 POST 不读 GET** | 见 §6 边界 |
 
@@ -79,6 +79,7 @@ intensure 是意图驱动网络管理系统的**采集层**（Mininet + OVS + os
 | **v3.19.0** | 10-29 | **故障注入 REST 接口**（9 种故障 + 幂等清理，演示脚本接上真端点）+ 修 `http_proxy` 劫持导致健康检查假失败 |
 | **v3.20.0** | 10-31 | **落地 `/api/intensure/v1/*` 跨模块契约端点**（5 个，旧路径全部保留不破坏现有联调） |
 | **v3.21.0** | 10-31 | **环境配置化 + 能力自检 + 只读模式**（`env_config.py` / `capabilities.py` / `env_doctor.py` / `env.json`；`GET /api/capabilities`）。顺带修 2 个真 bug：状态文件写不进去被静默吞、Python 侧 urllib 也被代理劫持 |
+| **接入适配层**（未发布） | 11-05 | **接入适配层 `exec_target.py`** —— 探测 / 注故障 / 读 OVS 日志这三类「本机特权动作」可以落到**远端设备**上（`target.type=ssh`），联调时 Mininet 是对方起的、接真实园区时采集机与设备不同机，都不再需要改代码。采集侧（OpenFlow/LLDP/契约 HTTP/DB）本来就跨机，一行没改。<br>顺带修 3 个真 bug：**端口事件从来没落过库**（包装函数漏传 metadata）、延迟解析取的是 min 不是 avg、`pgrep` 自匹配导致跨机 ping 永远 100% 丢包 |
 
 ---
 
@@ -224,7 +225,7 @@ python3 env_doctor.py --json     # 机器可读（给脚本用）
 | 真实园区迁移路径文档 | ✅ 已完成 | 2026-11-03 并入 `INTEGRATION_GUIDE.md` §6.7：`env.json` 逐字段对照表、只读模式的真实含义、验证清单、回退方案、6 条风险。
   ⚠️ **同时查出当前最大的接入风险**（见 §7「控制器不受只读模式约束」）|
 | Dashboard 加联调统计面板 | 1 天 | 上报成功率 / 响应时间 / ActualState 样例（数据源 `metrics.py` 已有）；v3.21.0 起还能直接显示 `GET /api/capabilities` 的「当前环境能力」|
-| collector 多协议适配器骨架 | 2-3 天 | SNMP / CLI / OpenFlow。**v3.21.0 已把探测驱动抽成配置项**（`probe.driver`: `mininet` / `icmp` 两个分支代码里已有），SNMP / CLI 适配器还没写 |
+| collector 多协议适配器骨架 | 2-3 天 | SNMP / CLI / OpenFlow。**2026-11-05 进展**：接入适配层（`exec_target.py` + `target.type=ssh`）已落地 —— 「要在哪台设备上执行动作」不再是硬编码本机；`probe.source` / `probe.destination` 也真正生效了（之前是死配置）。<br>⚠️ **还差**：SNMP / CLI **采集**适配器（现在 `probe.driver` 只有 `mininet` / `icmp` 两个值有意义，填别的会被 `env_doctor` 判成「未知驱动」）；以及真实设备上的端口名/dpid 映射验证 |
 | OVS log → 根因归因 demo | 1 天 | `ovs_logger` 已能抓到「是谁下的 ofctl 命令」 |
 | **真实 OpenFlow 网络接入验证** | 1-2 天 | v3.21.0 的配置层 + 只读模式（`mode: read-only`）已就位，**但从没在真实网络上跑过**。最终验收环境还没定，这是当前最大的未知数 —— 拿到环境后先 `python3 env_doctor.py` 对一遍能力 |
 
@@ -402,6 +403,27 @@ python3 env_doctor.py --json     # 机器可读（给脚本用）
     「恢复后回到 pass」改成**先看证据再喊成功**（原来无条件打 ✅）。
     ⚠️ 顺带一条：**`sudo mn -c` 会删掉 /tmp 下的文件**（Mininet 清理会扫 /tmp）——
     调试日志别写在 /tmp，会被下一次 `mn -c` 抹掉。
+22. **端口事件从来没落过库（⚠️ 证据链断的坑）** ——
+    `DBWriter.write_port_event(..., metadata=...)` **有** `metadata` 参数，
+    但**模块级包装函数** `db_writer.write_port_event()` 漏了没转发 →
+    控制器一调用就 `TypeError: unexpected keyword argument 'metadata'` →
+    调用方的 try/except 只记一行 warning → **`intensure.port_events` 表一直是空的**。
+    后果：保障模块拿不到「哪个端口什么时候 down 了」的原始证据。
+    → 2026-11-05 已修（包装函数补齐参数），并加了**签名比对测试**
+    （`test_module_wrappers_accept_class_params`）——用 `inspect` 比对每个模块级包装
+    与类方法的参数集，把整类「包装函数漏参数」的坑一次挡住。
+    ⚠️ **教训**：模块级包装函数是类方法的镜像，改类方法签名时**必须同步改包装函数**，
+    否则调用方一个 TypeError 就把整条写库路径静默废掉。
+23. **`pgrep -f` 会匹配到执行命令的 shell 自己** ——
+    `pgrep -f mininet:h1` 把 ssh 远端 shell 也匹配上了（它的命令行里就含
+    "mininet:h1"）→ 拿到错的 PID → `mnexec` 进错命名空间 → **跨机 ping 永远 100% 丢包**。
+    → 模式要**锚定结尾**：`pgrep -f 'mininet:h1$'`（自己的命令行以 `$` 结尾，匹配不上）。
+24. **进对方的 Mininet 命名空间需要 sudo** ——
+    对方用 `sudo python3` 起的 Mininet，主机进程是 root 的 →
+    `mnexec -a <pid>` 报 `/proc/<pid>/ns/net: Permission denied`。
+    自己起的 Mininet（当前用户）不需要 sudo —— 所以是「失败再补 `sudo -n`」。
+    ⚠️ 同理：注故障、`ovs-appctl vlog/set` 都需要远端**免密 sudo**，
+    命令带 `-n` 是为了「拿不到就立刻失败」，绝不阻塞等密码。
 
 ---
 
