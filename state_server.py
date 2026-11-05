@@ -37,7 +37,12 @@ logger = logging.getLogger(__name__)
 
 # 共享状态: 优先用内存（与控制器同进程），否则读文件
 CONTROLLER_STATE = None  # 由外部注入
-STATE_FILE = '/tmp/network_state.json'
+# 状态文件路径 —— 必须与 controller_app 写的路径一致。
+# env.json 的 state_file 可配（跨机部署时指向共享盘）。
+try:
+    STATE_FILE = env_config.get_config().state_file
+except Exception:          # 配置读不出来 → 用默认路径
+    STATE_FILE = '/tmp/network_state.json'
 
 
 def load_state_from_file():

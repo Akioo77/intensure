@@ -15,7 +15,6 @@
 """
 import json
 import os
-import re
 import sys
 import time
 import urllib.request
@@ -31,6 +30,7 @@ from topo_simple import SimpleTopo
 from actual_state_builder import ActualStateBuilder
 from reporter import AssuranceReporter
 from graceful import install_graceful_shutdown
+import exec_target
 
 # ---- 日志（P1-2: 统一用 logging, 不再用 print）----
 import logging  # noqa: E402
@@ -46,10 +46,38 @@ ASSURANCE_URL = os.environ.get(
     'http://127.0.0.1:8000/api/v1/assurance')
 INTENT_ID = os.environ.get('INTENT_ID', 'REQ-001-CI-001')
 PROBE_INTERVAL = float(os.environ.get('PROBE_INTERVAL', '15'))
-SRC_HOST = os.environ.get('SRC_HOST', '10.0.0.1')
-DST_HOST = os.environ.get('DST_HOST', '10.0.0.4')
 REPORT_MODE = os.environ.get('REPORT_MODE', 'enable')
 LOCAL_API = 'http://127.0.0.1:8080'
+
+# 接入目标：local = Mininet 就在本机（自建 + 进程内探测）；
+#            ssh  = Mininet 是**别人**起的，我们不建拓扑，只在目标上探测。
+TARGET = exec_target.target_from_env_config()
+REMOTE_MODE = TARGET.kind != 'local'
+
+
+def _probe_endpoints():
+    """探测源/目标：环境变量 > env.json 的 probe 段 > 默认值。
+
+    之前 probe.source / probe.destination 只存在于配置里没人读，
+    真正跑的是这里写死的 10.0.0.1 → 10.0.0.4。
+    """
+    src = os.environ.get('SRC_HOST')
+    dst = os.environ.get('DST_HOST')
+    try:
+        import env_config
+        cfg = env_config.get_config()
+        src = src or cfg.probe_source
+        dst = dst or cfg.probe_destination
+    except Exception as e:
+        logger.warning(f'[probe] 读环境配置失败，用默认值: {e}')
+    return (src or '10.0.0.1'), (dst or '10.0.0.4')
+
+
+SRC_HOST, DST_HOST = _probe_endpoints()
+
+# 探测源在目标主机上的名字（Mininet 主机名，如 h1）。
+# 远程模式下用它让适配层进到源主机的命名空间里发 ping。
+SRC_NODE = os.environ.get('SRC_NODE', 'h1')
 
 
 # ============ 探测 ============
@@ -82,19 +110,16 @@ def safe_ping(host, dst_ip, count=3, timeout_s=6):
     except Exception:
         return (100.0, None)
 
-    m = re.search(r'(\d+(?:\.\d+)?)% packet loss', out)
-    loss = float(m.group(1)) if m else 100.0
-    m2 = re.search(r'avg[^=]*= ([\d.]+)', out)
-    latency = float(m2.group(1)) if m2 else None
-    return (loss, latency)
+    # 统一用 exec_target 的解析器 —— 旧正则 `avg[^=]*= ([\d.]+)` 取的是 min 不是 avg
+    return exec_target.parse_ping_output(out)
 
 
 def measure_latency(net):
     """h1 → h4 平均 RTT（跨 s1-s2 骨干链路）。"""
     try:
         out = net.get('h1').cmd('ping -c 3 -W 1 10.0.0.4')
-        m = re.search(r'avg[^=]*= ([\d.]+)', out)
-        return float(m.group(1)) if m else None
+        _, latency = exec_target.parse_ping_output(out)
+        return latency
     except Exception:
         return None
 
@@ -135,26 +160,48 @@ def main():
                 if REPORT_MODE == 'enable' else None)
     builder = ActualStateBuilder()
 
-    # Mininet
-    net = Mininet(
-        topo=SimpleTopo(),
-        controller=lambda n: RemoteController(n, ip='127.0.0.1', port=6653),
-        switch=OVSSwitch, autoSetMacs=True, autoStaticArp=True)
-    net.start()
-    info_lines.append('MININET_STARTED')
+    # Mininet —— 本机模式自己建；**远程模式不建**
+    # （联调场景：Mininet 是对方起的，我们只负责采集 + 探测，不能去动他的拓扑）
+    net = None
+    if REMOTE_MODE:
+        info_lines.append(f'ACCESS_MODE: remote ({TARGET.describe()}) '
+                          f'—— 不创建拓扑，只在目标上探测')
+    else:
+        net = Mininet(
+            topo=SimpleTopo(),
+            controller=lambda n: RemoteController(n, ip='127.0.0.1', port=6653),
+            switch=OVSSwitch, autoSetMacs=True, autoStaticArp=True)
+        net.start()
+        info_lines.append('MININET_STARTED')
 
     # P0-3 优雅退出: 收到 SIGTERM/SIGINT 先停 Mininet 再退, 避免残留拓扑/半截写入
+    # 远程模式下拓扑不是我们建的 → 不负责停它。
     install_graceful_shutdown(
-        [
-            net.stop,
-        ],
+        [net.stop] if net is not None else [],
         name='live_env',
     )
 
+    def _probe(count=3, timeout_s=6):
+        """探测一次。
+
+        本机模式用 Mininet 进程内的 host 对象（PID 最准）；
+        远程模式走适配层 —— 进目标主机上 h1 的命名空间发 ping。
+        """
+        if net is not None:
+            return safe_ping(net.get('h1'), DST_HOST, count=count, timeout_s=timeout_s)
+        return TARGET.ping(SRC_NODE, DST_HOST, count=count, timeout=timeout_s)
+
     # 基础时延
     try:
-        net.get('s1').cmd('tc qdisc replace dev s1-eth3 root netem delay 5ms')
-        net.get('s2').cmd('tc qdisc replace dev s2-eth3 root netem delay 5ms')
+        if net is not None:
+            net.get('s1').cmd('tc qdisc replace dev s1-eth3 root netem delay 5ms')
+            net.get('s2').cmd('tc qdisc replace dev s2-eth3 root netem delay 5ms')
+        else:
+            for sw_if in ('s1-eth3', 's2-eth3'):
+                r = TARGET.run(['sudo', '-n', 'tc', 'qdisc', 'replace', 'dev', sw_if,
+                                'root', 'netem', 'delay', '5ms'])
+                if not r.ok:
+                    raise RuntimeError((r.stderr or '').strip()[:200] or f'rc={r.returncode}')
         info_lines.append('BASELINE_DELAY_APPLIED (5ms on s1-s2)')
     except Exception as e:
         info_lines.append(f'BASELINE_DELAY_FAILED: {e}')
@@ -163,7 +210,7 @@ def main():
 
     # 初次探测（让 L2 学习 + 流表安装）；带超时保护，避免卡死
     time.sleep(3)
-    loss, _ = safe_ping(net.get('h1'), '10.0.0.4', count=3, timeout_s=8)
+    loss, _ = _probe(count=3, timeout_s=8)
     logger.info(f'INITIAL_PINGALL: {loss}% loss')
 
     cycle = 0
@@ -173,7 +220,7 @@ def main():
             t0 = time.time()
 
             # 探测（只测 h1→h4，带 subprocess 超时保护，故障时不会卡死）
-            loss_pct, latency_ms = safe_ping(net.get('h1'), '10.0.0.4', count=3, timeout_s=6)
+            loss_pct, latency_ms = _probe(count=3, timeout_s=6)
             reachable = (loss_pct == 0.0)
 
             # 读 state
@@ -209,7 +256,7 @@ def main():
             try:
                 probe_payload = json.dumps({
                     'reachable': ['all'] if reachable else [],
-                    'unreachable': [] if reachable else ['10.0.0.4'],
+                    'unreachable': [] if reachable else [DST_HOST],
                     'loss_pct': loss_pct,
                     'latency_ms': latency_ms,
                 }).encode('utf-8')
@@ -244,8 +291,16 @@ def main():
                       f'flow={flow_present} (REPORT_MODE=disable, no POST)')
 
             # 触发跨交换机流量
-            net.get('h1').cmd('ping -c 2 -W 1 10.0.0.4 > /dev/null 2>&1')
-            net.get('h2').cmd('ping -c 2 -W 1 10.0.0.3 > /dev/null 2>&1')
+            if net is not None:
+                net.get('h1').cmd('ping -c 2 -W 1 10.0.0.4 > /dev/null 2>&1')
+                net.get('h2').cmd('ping -c 2 -W 1 10.0.0.3 > /dev/null 2>&1')
+            else:
+                # 远程模式：在目标主机上分别从 h1/h2 命名空间发 ping
+                for node, peer in ((SRC_NODE, DST_HOST), ('h2', '10.0.0.3')):
+                    pid = TARGET.resolve_source_pid(node)
+                    argv = (['mnexec', '-a', str(pid), 'ping', '-c', '2', '-W', '1', peer]
+                            if pid else ['ping', '-c', '2', '-W', '1', peer])
+                    TARGET.run(argv, timeout=8)
         except Exception as e:
             logger.error(f'CYCLE_{cycle:04d} ERROR: {e}')
 

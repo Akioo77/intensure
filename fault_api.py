@@ -21,9 +21,10 @@ VM 里是**免密 sudo**，所以统一用 `sudo -n` 前缀（`-n` = 不弹密�
 """
 import logging
 import re
-import subprocess
 import threading
 from typing import Dict, List, Optional
+
+import exec_target
 
 logger = logging.getLogger(__name__)
 
@@ -77,11 +78,23 @@ class FaultApi:
         api = FaultApi()
         api.inject('link_down', 's1-eth1')
         api.inject('clear', 's1')
+
+    命令在**接入目标**上执行（exec_target.ExecTarget）：
+    默认本机（改造前行为），配 env.json 的 target.type=ssh 则打到远端主机
+    —— 联调时 Mininet 是对方起的，注故障必须落在对方那台机器上。
     """
 
-    def __init__(self):
+    def __init__(self, target: Optional[exec_target.ExecTarget] = None):
         self._active: List[Dict[str, object]] = []
         self._lock = threading.Lock()
+        self._target_impl = target
+
+    @property
+    def target(self) -> exec_target.ExecTarget:
+        """接入目标（懒加载 —— 构造时不读配置，避免 import 期就绑死）。"""
+        if self._target_impl is None:
+            self._target_impl = exec_target.target_from_env_config()
+        return self._target_impl
 
     # ------------------------------------------------------------------
     # 公开 API
@@ -254,15 +267,8 @@ class FaultApi:
             port = m.group('port') if m else '1'
 
             def churn():
-                subprocess.run(
-                    ['sudo', '-n', 'ovs-ofctl', '-O', 'OpenFlow13', 'del-flows',
-                     '--priority', '100', sw],
-                    capture_output=True, timeout=CMD_TIMEOUT)
-                subprocess.run(
-                    ['sudo', '-n', 'ovs-ofctl', '-O', 'OpenFlow13', 'add-flow', sw,
-                     'table=0,priority=100,idle_timeout=20,'
-                     f'in_port={port},actions=NORMAL'],
-                    capture_output=True, timeout=CMD_TIMEOUT)
+                self._target_del_flows(sw)
+                self._target_add_flow(sw, port)
 
             for _ in range(rounds):
                 threads = [threading.Thread(target=churn) for _ in range(2)]
@@ -271,6 +277,17 @@ class FaultApi:
                 for t in threads:
                     t.join()
         return intfs
+
+    def _target_del_flows(self, sw: str) -> None:
+        self.target.run(['sudo', '-n', 'ovs-ofctl', '-O', 'OpenFlow13',
+                         'del-flows', '--priority', '100', sw],
+                        timeout=CMD_TIMEOUT)
+
+    def _target_add_flow(self, sw: str, port: str) -> None:
+        self.target.run(['sudo', '-n', 'ovs-ofctl', '-O', 'OpenFlow13', 'add-flow', sw,
+                         'table=0,priority=100,idle_timeout=20,'
+                         f'in_port={port},actions=NORMAL'],
+                        timeout=CMD_TIMEOUT)
 
     # ------------------------------------------------------------------
     # 工具
@@ -326,13 +343,12 @@ class FaultApi:
             out.extend(ports[sw])
         return out
 
-    @staticmethod
-    def _all_switch_ports() -> Dict[str, List[str]]:
-        """扫描当前所有交换机端口 → {switch: [iface, ...]}。
+    def _all_switch_ports(self) -> Dict[str, List[str]]:
+        """扫描接入目标上所有交换机端口 → {switch: [iface, ...]}。
 
         只认 `sN-ethM` 这种命名 —— Mininet 的命名约定。
         """
-        out = FaultApi._run(['ip', '-br', 'link', 'show'], check=False)
+        out = self._run(['ip', '-br', 'link', 'show'], check=False)
         ports: Dict[str, List[str]] = {}
         for line in out.splitlines():
             if not line.strip():
@@ -345,19 +361,21 @@ class FaultApi:
             ports[sw].sort(key=lambda n: int(_IFACE_RE.match(n).group('port')))
         return ports
 
-    @staticmethod
-    def _run(cmd: List[str], check: bool = True) -> str:
-        """跑一条特权命令。失败时抛 FaultInjectionError。"""
+    def _run(self, cmd: List[str], check: bool = True) -> str:
+        """跑一条特权命令（在接入目标上执行）。失败时抛 FaultInjectionError。
+
+        ⚠️ 走 target 而不是直接 subprocess —— 目标可能是**远端主机**
+        （联调时 Mininet 是对方起的）。`sudo -n` 是非交互式：
+        远端没有免密 sudo 时立刻失败，不会卡在密码提示上。
+        """
         full = ['sudo', '-n'] + cmd
-        try:
-            r = subprocess.run(full, capture_output=True, text=True,
-                               timeout=CMD_TIMEOUT)
-        except subprocess.TimeoutExpired as e:
-            raise FaultInjectionError(f"命令超时（{CMD_TIMEOUT}s）: {' '.join(cmd)}") from e
+        r = self.target.run(full, timeout=CMD_TIMEOUT)
+        if r.returncode == 124:
+            raise FaultInjectionError(f"命令超时（{CMD_TIMEOUT}s）: {' '.join(cmd)}")
         if check and r.returncode != 0:
             raise FaultInjectionError(
                 f"命令失败（rc={r.returncode}）: {' '.join(cmd)}\n"
-                f"stderr: {r.stderr.strip()[:300]}")
+                f"stderr: {(r.stderr or '').strip()[:300]}")
         return r.stdout
 
 

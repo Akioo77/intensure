@@ -57,24 +57,36 @@ class OVSLogger:
                  log_file=LOG_FILE,
                  buffer_size=BUFFER_SIZE,
                  sudo=True,
-                 auto_verbosity=True):
+                 auto_verbosity=True,
+                 target=None):
         """
         参数:
             log_file: OVS 日志文件路径
             buffer_size: 内存 buffer 最大条数
             sudo: 是否用 sudo 读日志（默认 True，因为 /var/log/openvswitch/ 是 root 权限）
             auto_verbosity: start() 时是否自动把 OVS 日志级别提升到 dbg
+            target: 执行目标（exec_target.ExecTarget）—— 默认本机。
+                    远端 OVS（联调/真实园区）时传 SshExec，日志走 ssh tail -F。
         """
         self.log_file = log_file
         self.buffer_size = buffer_size
         self.sudo = sudo
         self.auto_verbosity = auto_verbosity
+        self._target_impl = target
         self._buffer = deque(maxlen=buffer_size)
         self._lock = threading.Lock()
         self._proc = None
         self._reader_thread = None
         self._running = False
         self._started_at = None
+
+    @property
+    def target(self):
+        """执行目标（懒加载 —— 不在构造期读配置）。"""
+        if self._target_impl is None:
+            import exec_target
+            self._target_impl = exec_target.target_from_env_config()
+        return self._target_impl
 
     # ============================================================
     # 生命周期
@@ -94,25 +106,11 @@ class OVSLogger:
         if self.auto_verbosity:
             self._set_ovs_verbosity('dbg')
 
-        # 2. 启动 tail subprocess
-        # 用 '--' 分隔选项和参数（防 log_file 含特殊字符被当成选项）
-        cmd = ['tail', '-F', '-n', '+1', '--', self.log_file]
-        if self.sudo:
-            cmd = ['sudo'] + cmd
-
-        try:
-            self._proc = subprocess.Popen(
-                cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-                bufsize=1,  # 行缓冲
-            )
-        except FileNotFoundError as e:
-            print(f"❌ OVSLogger: tail 命令找不到: {e}", file=sys.stderr)
-            return False
-        except Exception as e:
-            print(f"❌ OVSLogger: 启动 tail 失败: {e}", file=sys.stderr)
+        # 2. 启动 tail（走接入目标：本机直接 tail，远端 ssh tail -F）
+        self._proc = self.target.tail_file(self.log_file, sudo=self.sudo)
+        if self._proc is None:
+            print(f"❌ OVSLogger: 启动 tail 失败（目标 {self.target.describe()}）",
+                  file=sys.stderr)
             return False
 
         # 3. 启动 reader 线程
@@ -302,14 +300,12 @@ class OVSLogger:
             print(f"⚠ OVSLogger: 无效级别 {level}", file=sys.stderr)
             return
         for mod in self.DEFAULT_MODULES:
-            cmd = ['sudo', 'ovs-appctl', 'vlog/set', f'{mod}:{level}']
+            cmd = ['sudo', '-n', 'ovs-appctl', 'vlog/set', f'{mod}:{level}']
             try:
-                result = subprocess.run(cmd, capture_output=True, timeout=3, text=True)
-                if result.returncode != 0:
-                    print(f"⚠ OVSLogger: 调整 {mod} 级别失败: {result.stderr.strip()}",
+                result = self.target.run(cmd, timeout=3)
+                if not result.ok:
+                    print(f"⚠ OVSLogger: 调整 {mod} 级别失败: {(result.stderr or '').strip()}",
                           file=sys.stderr)
-            except subprocess.TimeoutExpired:
-                print(f"⚠ OVSLogger: 调整 {mod} 级别超时", file=sys.stderr)
             except Exception as e:
                 print(f"⚠ OVSLogger: 调整 {mod} 级别异常: {e}", file=sys.stderr)
 

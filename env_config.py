@@ -82,6 +82,27 @@ DEFAULT_CONFIG: Dict[str, Any] = {
         'destination': '10.0.0.4',
     },
 
+    # 接入目标 —— 「要在哪台设备上执行动作」（探测 / 注故障 / 读设备日志）
+    #
+    # type=local：就在本机执行（改造前的默认行为，演示/自测照旧）
+    # type=ssh  ：通过 ssh 在目标主机上执行 —— 联调时 Mininet 是对方起的，
+    #             或者采集机与设备不在同一台机器
+    #
+    # ⚠️ 采集本身（OpenFlow / LLDP / 状态 / 契约 HTTP / DB）本来就是跨机的，
+    #    不受这个配置影响。这里只管「要在设备上动手」的那部分。
+    'target': {
+        'type': 'local',
+        'host': '',
+        'user': '',
+        'port': 22,
+        'key': '',
+        'connect_timeout': 5,
+    },
+
+    # 控制器写状态文件、REST API 读状态文件 —— 两者必须指向同一个路径。
+    # 换机器部署时把它指到共享盘，或让控制器与 API 同机部署。
+    'state_file': '/tmp/network_state.json',
+
     # 是否允许注故障（真实网络必须 false）
     'allow_fault_injection': True,
 
@@ -307,6 +328,30 @@ class EnvConfig:
         return str(self.probe.get('driver') or PROBE_MININET)
 
     @property
+    def probe_source(self) -> str:
+        """探测源。空 = 从目标主机自身发起（真实设备场景）。"""
+        return str(self.probe.get('source') or '')
+
+    @property
+    def probe_destination(self) -> str:
+        """探测目标。"""
+        return str(self.probe.get('destination') or '')
+
+    @property
+    def target(self) -> Dict[str, Any]:
+        """接入目标配置（type/host/user/port/key/connect_timeout）。
+
+        决定「探测 / 注故障 / 读设备日志」这些动作在哪台机器上执行。
+        采集链路（OpenFlow / 状态 / 契约 HTTP / DB）不受它影响。
+        """
+        return dict(self._data.get('target') or {})
+
+    @property
+    def state_file(self) -> str:
+        """状态文件路径（控制器写、REST API 读）。"""
+        return str(self._data.get('state_file') or '/tmp/network_state.json')
+
+    @property
     def assurance_expected_version(self) -> Optional[str]:
         """期望的对方契约版本（None = 用 assurance_bridge 的默认值）。"""
         value = self._data.get('assurance_expected_version')
@@ -326,6 +371,9 @@ class EnvConfig:
             'flow_rule_write': self.flow_rule_write,
             'config_source': self.source,
             'probe_driver': self.probe_driver,
+            'target_type': str(self.target.get('type') or 'local'),
+            'target_host': str(self.target.get('host') or ''),
+            'state_file': self.state_file,
             'topology_expect': self.topology_expect,
             'has_dpid_mapping': bool(self.dpid_to_switch),
             'has_port_label_map': bool(self.port_label_map),

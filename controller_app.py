@@ -55,7 +55,12 @@ NETWORK_STATE = {
     'links': {},        # "dpid:port" -> {peer_dpid, peer_port, peer_name, last_seen}  (LLDP 发现)
 }
 
-STATE_FILE = '/tmp/network_state.json'
+# 状态文件路径 —— env.json 的 state_file 可配（默认 /tmp/network_state.json）。
+# 跨机部署时把它指向共享盘，控制器与 REST API 就能分机跑。
+try:
+    STATE_FILE = env_config.get_config().state_file
+except Exception:          # 配置读不出来 → 用默认路径，别让控制器起不来
+    STATE_FILE = '/tmp/network_state.json'
 
 # v3.21.0：写状态文件失败时只报一次（避免每 5s 刷屏）
 _DUMP_ERROR_REPORTED = False
