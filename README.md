@@ -29,7 +29,7 @@
 | 故障注入（**9 种**：断链 / 恢复 / 时延 / 丢包 / 限速 / burst / reorder / VLAN mismatch / flow race） | ✅ v1.0 起，v3.17.0 扩展 | `fault_injector.py` |
 | 周期可达性探测（pingall / 流表 dump） | ✅ v1.0 `live_env.py` |
 | 端到端 demo（拓扑 + 流量 + 故障 + 恢复） | ✅ v1.0 `demo_full.py` |
-| 采集视角 dashboard（拓扑 / 链路 / 事件 / 自检） | ✅ v1.0 `dashboard.html` |
+| 采集视角 dashboard（拓扑 / 链路 / 事件 / 自检 / **联调统计**）| ✅ v1.0 `dashboard.html`；联调统计面板 v3.19.1（上报成功率 / 响应时间 / 当前环境能力）|
 | **`actual_state_builder.py`** —— 内部 state → ActualState 格式（联调 §4.2） | ✅ v2.0 (2026-09-03) |
 | **`reporter.py`** —— POST `/check` + `/verify` HTTP 客户端 | ✅ v2.0 (2026-09-03) |
 | **`integration_demo.py`** —— 端到端联调脚本（real/mock/skip 三模式） | ✅ v2.0 (2026-09-03) |
