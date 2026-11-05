@@ -637,23 +637,37 @@ def write_network_state(payload: dict, version: Optional[int] = None):
     return get_writer().write_network_state(payload, version)
 
 
-def write_state_history_if_needed(payload: dict, summary: dict, reason: str = 'scheduled'):
-    return get_writer().write_state_history_if_needed(payload, summary, reason)
+def write_state_history_if_needed(payload: dict, summary: dict,
+                                  reason: str = 'scheduled',
+                                  force: bool = False):
+    return get_writer().write_state_history_if_needed(payload, summary, reason, force)
 
 
 def write_port_event(dpid: str, port_no: int, port_name: str,
-                     event_type: str, speed_mbps: Optional[int] = None):
-    return get_writer().write_port_event(dpid, port_no, port_name, event_type, speed_mbps)
+                     event_type: str, speed_mbps: Optional[int] = None,
+                     metadata: Optional[dict] = None):
+    # ⚠️ metadata 必须转发 —— 控制器写端口事件时带 metadata={'reason': ...}，
+    #    这里漏了它会 TypeError（unexpected keyword argument 'metadata'），
+    #    而调用方的 try/except 只记一行 warning → **端口事件从来没落过库**。
+    #    （2026-11-05 实测发现：intensure.port_events 表一直是空的）
+    return get_writer().write_port_event(dpid, port_no, port_name, event_type,
+                                         speed_mbps, metadata)
 
 
-def write_link_event(src_dpid: str, src_port: int, dst_dpid: str, dst_port: int, event_type: str):
-    return get_writer().write_link_event(src_dpid, src_port, dst_dpid, dst_port, event_type)
+def write_link_event(src_dpid: str, src_port: int, dst_dpid: str, dst_port: int,
+                     event_type: str, metadata: Optional[dict] = None):
+    return get_writer().write_link_event(src_dpid, src_port, dst_dpid, dst_port,
+                                         event_type, metadata)
 
 
 def write_probe_with_decision(src_host: str, dst_host: str, reachable: bool,
-                               loss_pct: float, latency_ms: Optional[float] = None):
+                              loss_pct: float, latency_ms: Optional[float] = None,
+                              probe_method: str = 'ping'):
+    # probe_method 要转发 —— 它会写进 intensure.probe_results.probe_method 列
+    # （'ping' / 'tcp' / 'udp'）。漏了就只能记默认的 'ping'，
+    # 换探测驱动（SNMP/TCP）时数据库里分不出是哪套驱动测的。
     return get_writer().write_probe_with_decision(
-        src_host, dst_host, reachable, loss_pct, latency_ms
+        src_host, dst_host, reachable, loss_pct, latency_ms, probe_method
     )
 
 
@@ -663,8 +677,9 @@ def write_audit(action: str, target: Optional[str] = None, severity: str = 'INFO
                                     payload, correlation_id)
 
 
-def write_heartbeat(status: str = 'healthy', version: Optional[str] = None):
-    return get_writer().write_heartbeat(status, version)
+def write_heartbeat(status: str = 'healthy', version: Optional[str] = None,
+                    metadata: Optional[dict] = None):
+    return get_writer().write_heartbeat(status, version, metadata)
 
 
 if __name__ == '__main__':

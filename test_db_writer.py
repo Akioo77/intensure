@@ -707,6 +707,61 @@ def test_get_conn_does_not_retry_on_query_error():
         db_writer.time = old_time
 
 
+def test_module_wrappers_accept_class_params():
+    """模块级包装函数的签名必须能接住类方法的全部参数。
+
+    踩过的坑（2026-11-05 发现）：`write_port_event` 的模块级包装漏了 `metadata`
+    → 控制器写端口事件时 `TypeError: unexpected keyword argument 'metadata'`
+    → 调用方 try/except 只记一行 warning → **intensure.port_events 表一直是空的**。
+    端口事件写不进去 = 保障模块拿不到「哪个端口什么时候 down 了」的证据。
+
+    这个测试用签名比对把整类问题一次性挡住（包装函数漏参数/漏转发）。
+    """
+    import inspect
+
+    # 这些参数由包装函数自己固定（不暴露给调用方），不算缺失
+    wrapper_fixed = {
+        'write_audit': {'module_name', 'actor'},
+    }
+    for meth_name in ('write_network_state', 'write_state_history_if_needed',
+                      'write_port_event', 'write_link_event',
+                      'write_probe_with_decision', 'write_audit',
+                      'write_heartbeat'):
+        fn = getattr(db_writer, meth_name)
+        meth = getattr(db_writer.DBWriter, meth_name)
+        fn_params = set(inspect.signature(fn).parameters)
+        meth_params = set(inspect.signature(meth).parameters) - {'self'}
+        missing = meth_params - fn_params - wrapper_fixed.get(meth_name, set())
+        check(f"{meth_name} 的模块级包装缺参数 {sorted(missing)}", not missing,
+              f"包装 {sorted(fn_params)} / 方法 {sorted(meth_params)}")
+
+
+def test_write_port_event_wrapper_forwards_metadata():
+    """端口事件的 metadata 必须真的转发到 DBWriter（否则就是上面那个坑）。"""
+    seen = {}
+
+    class _FakeWriter:
+        def write_port_event(self, dpid, port_no, port_name, event_type,
+                             speed_mbps=None, metadata=None):
+            seen.update(dict(dpid=dpid, port_no=port_no, port_name=port_name,
+                              event_type=event_type, speed_mbps=speed_mbps,
+                              metadata=metadata))
+            return True
+
+    old = db_writer.get_writer
+    db_writer.get_writer = lambda: _FakeWriter()
+    try:
+        db_writer.write_port_event(dpid='0000000000000001', port_no=3,
+                                   port_name='s1-eth3', event_type='link_down',
+                                   speed_mbps=10000,
+                                   metadata={'reason': 'NO_REASON'})
+    finally:
+        db_writer.get_writer = old
+    check("metadata 转发出去了", seen.get('metadata') == {'reason': 'NO_REASON'},
+          str(seen))
+    check("其余字段也转发出去了", seen.get('port_name') == 's1-eth3', str(seen))
+
+
 TESTS = [
     test_connection_lazy_load_and_reuse,
     test_connection_reconnect_when_dead,
@@ -721,6 +776,8 @@ TESTS = [
     test_state_history_failure,
     test_write_port_event,
     test_write_link_event,
+    test_module_wrappers_accept_class_params,
+    test_write_port_event_wrapper_forwards_metadata,
     test_should_write_probe_first,
     test_should_write_probe_reachability_change,
     test_should_write_probe_high_loss,
