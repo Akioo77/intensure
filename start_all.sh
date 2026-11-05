@@ -113,6 +113,7 @@ if [ "$WITH_MININET" -eq 1 ]; then
     cat > /tmp/_start_all_mn.py << PYEOF
 #!/usr/bin/env python3
 """start_all.sh 用的 Mininet 启动脚本（用 Python API，CLI 退出会连带杀进程）。"""
+import os
 import sys
 import time
 
@@ -150,6 +151,12 @@ PYEOF
         info "h1=10.0.0.1 h2=10.0.0.2 h3=10.0.0.3 h4=10.0.0.4"
     else
         warn "Mininet 进程数 $MN_PROCS（预期≥5：c0+s1+h1~h4）—— 看 /tmp/mn.log"
+    fi
+    # 光看进程数会漏判「脚本崩了」：脚本一退出，tmux 窗口随之关闭，拓扑瞬间消失
+    #（v3.22.0 的 import os 缺失就是这样 —— pingall 12/12 通过之后才崩）。
+    # 这里补一道窗口存活检查，崩了当场 fail，别等半小时后才发现拓扑没了。
+    if ! tmux list-windows -t "$SESSION" -F "#{window_name}" 2>/dev/null | grep -qx "mininet"; then
+        fail "Mininet 窗口已消失（启动脚本崩了）—— 看 /tmp/mn.log"
     fi
 else
     step "3/4 跳过 Mininet（--no-mininet）"

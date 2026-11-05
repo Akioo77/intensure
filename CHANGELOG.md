@@ -23,6 +23,26 @@
 
 ### 修复
 
+**🔴 `start_all.sh` 生成的 Mininet 脚本缺 `import os` —— 拓扑「起来就死」**
+
+本版把拓扑存活时长改成可配（`MININET_UPTIME_S`，默认 24h），
+顺手修掉「拓扑每小时自己死一次」。但生成的脚本里写了
+`time.sleep(int(os.environ.get('MININET_UPTIME_S', '86400')))`，
+**整段没有 `import os`** → 脚本 pingall 跑完就抛
+`NameError: name 'os' is not defined` → 进程退出 → tmux 窗口随之关闭
+→ 拓扑「莫名其妙没了」。
+
+- **现象**：pingall 0% 丢包（12/12）**之后立刻消失**，日志只有一行 NameError
+- **影响**：每次 `bash start_all.sh` 起的拓扑都是「秒死」；外部看像「环境不稳定」
+- **修法**：生成的脚本补 `import os`
+- **验证**：补完后拓扑稳定存活（窗口在、6 个进程、pingall 通过、日志无异常）
+- **附带**：启动流程补一道 **tmux 窗口存活检查** —— 只看进程数会漏判「脚本崩了」
+  （崩的那一刻进程也一起没了），现在崩了当场 `fail` 并指向 `/tmp/mn.log`
+
+**教训**：shell heredoc 里生成的 Python **不经过任何静态检查**（`py_compile` 也只查语法，
+查不出 NameError），新增 import 必须自己补齐 —— 否则是运行时才炸，且现象极具迷惑性
+（pingall 全过，看着像好的）。
+
 **硬编码家目录路径（19 处 → 0 处）**
 - Shell 脚本（`start_all.sh` / `status.sh` / `stop_all.sh` / `start_env.sh` / `test_osken.sh` /
   `demo_scripts/demo_db_pipeline.sh`）：`PROJECT_DIR` 改成从脚本自身位置推导
