@@ -33,6 +33,20 @@ def _count_ok(actual: int, expected: Optional[int]) -> bool:
     return actual >= int(expected)
 
 
+def _target_describe(cfg) -> str:
+    """接入目标的人类可读描述（不泄露私钥路径）。"""
+    target = cfg.target or {}
+    t = str(target.get('type') or 'local')
+    if t != 'ssh':
+        return 'local'
+    host = str(target.get('host') or '')
+    user = str(target.get('user') or '')
+    port = target.get('port')
+    who = f'{user}@' if user else ''
+    port_part = f':{port}' if port and int(port) != 22 else ''
+    return f'ssh://{who}{host}{port_part}'
+
+
 def build_capabilities(state: Optional[dict] = None,
                        cfg: Optional[env_config.EnvConfig] = None,
                        fault_api_available: bool = True) -> Dict[str, Any]:
@@ -125,6 +139,16 @@ def build_capabilities(state: Optional[dict] = None,
             'driver': cfg.probe_driver,
             'source': probe.get('source'),
             'destination': probe.get('destination'),
+        },
+        # ---- 接入目标 ----
+        # 联调/真实园区时，对方第一句要问的就是「你接的是哪台」。
+        # 这里如实报出「要在哪台设备上执行动作」（探测/注故障/读 OVS 日志）——
+        # 采集侧本身（OpenFlow/LLDP）走的是网络协议，不受这个影响。
+        'target': {
+            'type': str(cfg.target.get('type') or 'local'),
+            'host': str(cfg.target.get('host') or ''),
+            'describe': _target_describe(cfg),
+            'state_file': cfg.state_file,
         },
         'fault_injection': {
             'available': fault_available,

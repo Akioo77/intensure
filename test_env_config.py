@@ -245,6 +245,14 @@ def test_capabilities_content():
     check('契约路径版本有值', caps['contract']['path_version'] == '1.0')
     check('列出了契约端点', len(caps['contract']['endpoints']) == 5)
     check('ready 为 True', caps['ready'] is True)
+    # 接入目标要如实报出 —— 联调时对方第一句就问「你接的是哪台」
+    check('capabilities 里有 target 段', 'target' in caps, str(list(caps)))
+    check('target.type 默认为 local', caps['target']['type'] == 'local',
+          str(caps['target']))
+    check('target.describe 是 local', caps['target']['describe'] == 'local',
+          str(caps['target']))
+    check('target 里有 state_file', 'state_file' in caps['target'],
+          str(caps['target']))
 
 
 def test_capabilities_degraded_topology():
