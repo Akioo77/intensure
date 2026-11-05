@@ -482,6 +482,45 @@ def api_contract_probe_results():
     })
 
 
+def _start_ovs_logger():
+    """拉起 OVS 日志采集器（链路状态归因用）。
+
+    ⚠️ **2026-11-06 实测发现**：之前只有 `run_all.py` 会启动它，
+    而实际部署（`start_all.sh`）跑的是 `state_server.py` →
+    `/api/ovs/log`、`/api/ovs/log/correlate`、`/api/ovs/log/stats`
+    这三个端点**一直是空的**，功能等于没接上。
+
+    读 OVS 日志要 root（`/var/log/openvswitch/` 是 root 权限）→ 拿不到就降级，
+    **绝不能因为它让 API 起不来**。
+
+    开关：`export INTENSURE_OVS_LOG=0` 关闭。
+    """
+    if os.environ.get('INTENSURE_OVS_LOG', '1') == '0':
+        logger.info('OVS 日志采集：已按 INTENSURE_OVS_LOG=0 关闭')
+        return False
+    try:
+        from ovs_logger import get_instance
+        inst = get_instance()
+        if inst.start():
+            logger.info('OVS 日志采集：已启动（%s）', inst.log_file)
+            return True
+        logger.warning('OVS 日志采集：启动失败 —— 日志端点会返回空，'
+                       '其他功能不受影响')
+        return False
+    except Exception as e:
+        logger.warning('OVS 日志采集：异常 %s —— 其他功能不受影响', e)
+        return False
+
+
+def _stop_ovs_logger():
+    """停止 OVS 日志采集（优雅退出时调）。"""
+    try:
+        from ovs_logger import stop_global
+        stop_global()
+    except Exception:
+        pass
+
+
 def main():
     """主入口: 当单独运行此文件时."""
     global STATE_FILE
@@ -496,9 +535,18 @@ def main():
     # 独立运行时从文件恢复历史
     state_history.load()
 
+    configure_logging()   # P1-2: 统一日志配置
+
+    # OVS 日志采集（归因用）+ 优雅退出时收尾
+    _start_ovs_logger()
+    try:
+        from graceful import install_graceful_shutdown
+        install_graceful_shutdown([_stop_ovs_logger], name='state_server')
+    except Exception:
+        pass
+
     logger.info(f"🌐 State server listening on http://{args.host}:{args.port}")
     logger.info(f"   Reading from: {STATE_FILE}")
-    configure_logging()   # P1-2: 统一日志配置
     app.run(host=args.host, port=args.port, debug=False, use_reloader=False)
 
 

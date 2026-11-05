@@ -227,7 +227,8 @@ python3 env_doctor.py --json     # 机器可读（给脚本用）
 | Dashboard 加联调统计面板 | ✅ 已完成 | **2026-11-05 由 OpenClaw 实现（v3.19.1）**：上报成功率 / 故障注入次数 / 环境能力等，数据源 `/metrics` + `/api/capabilities` |
 | collector 多协议适配器骨架 | ✅ 已完成 | **2026-11-06**：`probe_drivers.py` —— 统一 `ProbeResult`，四个驱动 `mininet` / `icmp` / **`snmp`（纯标准库 BER 编解码，无第三方依赖）** / `cli`（模板 + 可配正则）。`probe.driver` / `probe.source` / `probe.destination` **全部真正生效**（之前是死配置）。SNMP 实测：真实 UDP 收发、取到 sysUpTime ✅<br>⚠️ **还差**：真实设备上的端口名 / dpid 映射验证；`openflow` 驱动（采集层已覆盖 flow stats，不重复实现） |
 | **hosts 表陈旧条目不清理** | ✅ 已完成 | **2026-11-06 修复**：新增 `host_cache.py`（纯逻辑，可单测）+ 两层淘汰 —— ① **交换机断开 → 精确删掉属于它的主机**（立即生效）② **TTL 兜底**（默认 15 分钟，`INTENSURE_HOST_TTL` 可调）。`/api/capabilities` 的主机计数改用同一口径（`count_fresh`）。<br>实测：换拓扑后 hosts 从 8（4 真实 + 4 残留）回到 **4**，体检读数「发现 4 台（期望 4）」；交换机被杀时事件 `hosts_dropped count=4`，主机表归零。 |
-| OVS log → 根因归因 demo | 1 天 | 端点已经齐了（`/api/ovs/log`、`/api/ovs/log/correlate`、`/api/ovs/log/stats`），**但 `demo_scripts/` 里还没有对应的演示脚本** —— 差一个能讲的流程 |
+| OVS log → 根因归因 demo | ✅ 已完成 | **2026-11-06**：新增 `demo_scripts/ovs_attribution_demo.sh`（故障注入 → 设备侧 OVS 日志 → 我方端口事件 → `/api/ovs/log/correlate` 时间对齐 → 恢复），并**把 OVS 日志采集器真正接上**（见下）。<br>⚠️ 演示口径已按实测校准：OVS 日志**不写「谁下的命令」**，端口 down 的权威事实是**交换机给的 OpenFlow 端口状态**，OVS 日志只是同期设备侧旁证；指认操作者要靠我方操作审计，两边交叉才敢下结论 |
+| **OVS 日志采集器从来没被启动过** | ✅ 已完成 | **2026-11-06 修复**：只有 `run_all.py` 会调 `start_global()`，而实际部署（`start_all.sh`）跑的是 `state_server.py` → `/api/ovs/log`、`/api/ovs/log/correlate`、`/api/ovs/log/stats` **三个端点一直是空的**（功能等于没接上）。现在 `state_server` 启动时自动拉起（`INTENSURE_OVS_LOG=0` 可关），失败只降级不影响 API |
 | **真实 OpenFlow 网络接入验证** | 1-2 天 | v3.21.0 的配置层 + 只读模式（`mode: read-only`）已就位，**但从没在真实网络上跑过**。最终验收环境还没定，这是当前最大的未知数 —— 拿到环境后先 `python3 env_doctor.py` 对一遍能力 |
 
 ### 4.3 🔵 已明确的边界（不做）
@@ -438,6 +439,22 @@ python3 env_doctor.py --json     # 机器可读（给脚本用）
     （`host_cache.count_fresh`）——否则采集侧清干净了、读数还是脏的。
     ⚠️ 顺带：**没有 `last_seen` 的条目不淘汰、也不从读数里抹掉** ——
     缺字段不等于陈旧，误杀还在线的主机比留一条幽灵更糟。
+26. **「文件从没进过版本库」比「文件被删了」更难发现** ——
+    `demo_scripts/00~99` 全部 `source "$SCRIPT_DIR/lib/ui.sh"`，
+    而 `lib/ui.sh` **从来没被提交过**（`git log --all -- 'demo_scripts/lib/*'` 是空的，
+    也没有任何提交删过它）→ **整条联调演示脚本链从来没真正跑起来过**，
+    一跑就是一屏 `ui_title: command not found`。
+    而 `demo_db_pipeline.sh` 是自包含的（不依赖 lib）→ 跑得好好的，
+    **掩盖了这个问题**（本地闭环能跑，就以为演示链也能跑）。
+    → 已修（补上 lib/ui.sh）+ 加了 `test_demo_scripts.py` 做回归保护
+    （依赖完整性 / 函数齐备 / 非交互不阻塞 / 预检实跑）。
+    ⚠️ **教训**：自包含的脚本能跑 ≠ 依赖链是好的。**凡是有 source 的，
+    都要有一条测试真的把它 source 起来跑一遍。**
+27. **JSON 里的布尔值 → shell 里的字符串** ——
+    `json_get` 取值时如果直接 `print(val)`，Python 的 `True` 会变成 `"True"`，
+    而调用方普遍拿它跟字符串 `"true"` 比 → 永远判不出来
+    （实测踩过：OVS 采集器的 `running` 是布尔，脚本判成"没在跑"）。
+    → `json_get` 现在把布尔输出成 JSON 形式（`true` / `false`）。
 
 ---
 

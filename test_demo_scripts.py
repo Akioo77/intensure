@@ -161,6 +161,18 @@ def test_json_get():
     check('坏 JSON → 空且不崩', out3.strip() == '' and rc3 == 0, f'{rc3} {out3!r}')
 
 
+def test_json_get_renders_booleans_as_json():
+    """布尔值要输出 true / false，不能是 Python 的 True / False。
+
+    调用方普遍拿它跟字符串 "true" 比 —— 输出 True 就永远判不出来。
+    （实测踩过：OVS 采集器的 running 字段是布尔，脚本判成"没在跑"）
+    """
+    rc, out = _bash(f'source "{UI_SH}"; echo \'{{"running":true}}\' | json_get running')
+    check('true 输出成 true', out.strip() == 'true', repr(out))
+    rc2, out2 = _bash(f'source "{UI_SH}"; echo \'{{"running":false}}\' | json_get running')
+    check('false 输出成 false', out2.strip() == 'false', repr(out2))
+
+
 def test_json_pretty():
     """json_pretty 美化输出，坏 JSON 原样透传。"""
     rc, out = _bash(f'source "{UI_SH}"; echo \'{{"a":1}}\' | json_pretty')
