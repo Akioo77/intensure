@@ -65,7 +65,7 @@ jobs:
       - name: Shell 脚本语法检查
         run: |
           fail=0
-          for sh in start_env.sh test_osken.sh demo_scripts/*.sh; do
+          for sh in start_env.sh test_osken.sh demo_scripts/*.sh demo_scripts/lib/*.sh db_maintenance/*.sh; do
             if [ -f "$sh" ]; then
               if bash -n "$sh"; then
                 echo "OK: $sh"
@@ -101,4 +101,5 @@ jobs:
             test_exec_target.py \
             test_probe_drivers.py \
             test_host_cache.py \
+            test_demo_scripts.py \
             -v
