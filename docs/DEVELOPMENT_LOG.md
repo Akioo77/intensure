@@ -14,19 +14,19 @@ intensure 是意图驱动网络管理系统的**采集层**（Mininet + OVS + os
 
 ---
 
-## 1. 当前状态速览（2026-11-04 实测）
+## 1. 当前状态速览（2026-11-06 实测）
 
 | 指标 | 数值 | 怎么核的 |
 |---|---|---|
 | 代码版本 | v3.22.0 | `git describe --tags` |
 | 自营 REST 端点 | **24 个** | `grep -c "^@app.route" state_server.py` |
 | 其中跨模块契约端点 | 5 个 | `/api/intensure/v1/*`（v3.20.0 新增） |
-| 单元测试 | **243 例全绿** | VM 内 `pytest`（裸跑即可，见 §3.2） |
-| CI 跑的测试文件 | **15 个** | `.github/workflows/ci.yml` |
+| 单元测试 | **301 例全绿** | VM 内 `pytest`（裸跑即可，见 §3.2）；Mac 本地同样 301 例（2026-11-06 实测） |
+| CI 跑的测试文件 | **18 个** | `.github/workflows/ci.yml` |
 | 代码风格 | `ruff check .` 全过 | 规则 E/W/F，E402 豁免（见 §8） |
 | 环境配置 | `env.json` / `env.yaml`，`$INTENSURE_ENV_FILE` 覆盖 | v3.21.0 起环境差异在配置里，不在代码里 |
-| Python 代码量 | 14509 行（根目录 *.py） | `wc -l *.py` |
-| 提交总数 | 78 个（含本文档 commit） | `git log --oneline \| wc -l` |
+| Python 代码量 | 16288 行（根目录 *.py） | `wc -l *.py` |
+| 提交总数 | 101 个（含本文档 commit） | `git log --oneline \| wc -l` |
 | 数据库 | **6 schema / 26 张逻辑表**（物理表 47 张，其中 21 个是分区子表）| 实测口径见下方脚注 |
 | 对外接口方向 | **只 POST 不读 GET** | 见 §6 边界 |
 
@@ -378,8 +378,10 @@ python3 env_doctor.py --json     # 机器可读（给脚本用）
 3. VM 的 `/etc/environment` 设了 `http_proxy` 但没设 `no_proxy` → 本地地址被劫持 →
    脚本里已加 `export no_proxy` + `curl --noproxy '*'`（v3.19.0 修的，别删）
 4. **macOS 上没有 `python` 这个命令**（只有 `python3`）；`/usr/bin/python3` 是系统自带的 **3.9.6**，
-   但 PATH 里 `python3` 优先命中 `/usr/local/bin/python3` = **3.14.8**。
-   VM 里的 **3.12.3** 是权威环境；**Mac 上也能跑** —— 用 `~/tools/testenv/bin/pytest`（3.14.8）实测 196 例全绿。
+   但 PATH 里 `python3` 优先命中 `~/.local/bin/python3` = **3.13.18**。
+   ⚠️ **环境迁移后 `/usr/local/bin/python3` 已不存在**（2026-11-06 实测），别再按老路径找。
+   VM 里的 **3.12.3** 是权威环境；**Mac 上也能跑** —— 用 `~/tools/testenv/bin/pytest`（3.13.18）
+   实测 **301 例全绿**（2026-11-06）。
    但 `pip install --user` 会被 PEP 668 拒（externally-managed-environment），**别在 Mac 上临时装包**
 5. `eventlet.monkey_patch()` 必须在 `import os_ken` 之前 → ruff 的 **E402 不能开**
 6. `rsync --delete` 会删掉 alembic 旧 revision → multiple heads
