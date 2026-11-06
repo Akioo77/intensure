@@ -26,7 +26,7 @@ intensure 是意图驱动网络管理系统的**采集层**（Mininet + OVS + os
 | 代码风格 | `ruff check .` 全过 | 规则 E/W/F，E402 豁免（见 §8） |
 | 环境配置 | `env.json` / `env.yaml`，`$INTENSURE_ENV_FILE` 覆盖 | v3.21.0 起环境差异在配置里，不在代码里 |
 | Python 代码量 | 16288 行（根目录 *.py） | `wc -l *.py` |
-| 提交总数 | 101 个（含本文档 commit） | `git log --oneline \| wc -l` |
+| 提交总数 | 102 个（含本文档 commit） | `git log --oneline \| wc -l` |
 | 数据库 | **6 schema / 26 张逻辑表**（物理表 47 张，其中 21 个是分区子表）| 实测口径见下方脚注 |
 | 对外接口方向 | **只 POST 不读 GET** | 见 §6 边界 |
 
@@ -498,8 +498,7 @@ python3 env_doctor.py --json     # 机器可读（给脚本用）
 **环境迁移把旧的 `~/tools/testenv` 清掉了**（迁移前按 AGENTS.md 建的）→ 重建：
 `pytest==8.3.5`（**对齐 CI 的版本**，别升到 9.x）+ `pytest-cov` + `psycopg2-binary`
 + `Flask==3.1.3` + `flask-cors` + `requests`。
-重建后 CI 清单 + `test_exec_target.py` = **243 passed**（与 CHANGELOG 记录的
-「接入适配层后 243 例」一致）。
+重建后 CI 清单 + `test_exec_target.py` = **301 passed**（2026-11-06 实测）。
 
 **🔴 踩坑：本地 13 个用例红，CI 却全绿** —— `test_db_writer.py` 里 13 个写库用例
 在本地 FAIL，CI 是绿的。根因不是代码 bug：
