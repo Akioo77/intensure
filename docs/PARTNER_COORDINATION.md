@@ -34,6 +34,7 @@ CI 在 GitHub 上全绿、故障注入 → 一致性判定 → 根因诊断 → 
 | 流表采集 | OpenFlow flow stats | ✅ |
 | 端口状态 | 端口 up/down、流量计数、丢包 | ✅ |
 | **端口事件落库** | `intensure.port_events` 带精确时间戳（link_down / link_up） | ✅ |
+| **操作审计** | `shared.audit_log`（append-only：各模块角色只有 SELECT+INSERT）—— `inject_fault` / `clear_faults` | ✅ |
 | 连通性探测 | 4 种驱动：mininet / icmp / **snmp** / cli | ✅ |
 | 故障注入 | **9 种故障 + clear**：link_down / link_up / delay / loss / rate_limit / burst / reorder / vlan_mismatch / flow_race（业务别名 high_latency→delay、packet_loss→loss、flow_missing→flow_race） | ✅ |
 | OVS 日志采集 | `/var/log/openvswitch/ovs-vswitchd.log` 实时 tail + 解析 | ✅ |
@@ -69,6 +70,17 @@ CI 在 GitHub 上全绿、故障注入 → 一致性判定 → 根因诊断 → 
 
 **版本协商**：对方的契约版本与我们不匹配时，**我们自动降级、不上报**
 （避免用错格式的字段污染对端）。状态可在 `GET /api/capabilities` 里查。
+
+### 1.4 证据链三环（回答"这条链路到底怎么断的"）
+
+| 环 | 出处 | 回答什么 |
+|---|---|---|
+| ① 设备侧事实 | 交换机给的 OpenFlow 端口状态（`4=UP` → `1=DOWN`）+ OVS 日志 | 链路**真的**断了，不是我方数据造假 |
+| ② 我方事件 | `intensure.port_events`（带精确时间戳） | **什么时候**断的、哪个接口 |
+| ③ 操作记录 | `shared.audit_log`（`inject_fault` / `clear_faults`） | **谁**在什么时候动了哪个接口 |
+
+> ⚠️ ②③ 在 **2026-11-06 之前一直是空的**（模块级包装函数漏传参数 / 审计根本没接线），
+> 是这一轮挖出来并修好的 —— 对方若拿到旧版本的数据，会看到空表。
 
 ---
 

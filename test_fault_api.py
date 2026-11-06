@@ -175,6 +175,79 @@ def test_active_faults_tracked():
     assert active[0]['mode'] == 'test', active
 
 
+def test_injection_writes_audit_record():
+    """注故障要写操作审计（证据链第三环：谁在什么时候动了哪个接口）。
+
+    ⚠️ 之前 write_audit 存在、shared.audit_log 表也在，但**没有任何生产代码调用**
+    → 审计表一直是空的 → "指认操作者"这件事我们其实做不到。
+    """
+    calls = []
+
+    class _FakeWriter:
+        @staticmethod
+        def write_audit(action, target=None, severity='INFO', payload=None,
+                        correlation_id=None):
+            calls.append({'action': action, 'target': target,
+                          'severity': severity, 'payload': payload})
+            return True
+
+    import db_writer
+    old = db_writer.write_audit
+    db_writer.write_audit = _FakeWriter.write_audit
+    try:
+        api = _make_api()
+        api.inject('link_down', 's1-eth1')
+    finally:
+        db_writer.write_audit = old
+    assert len(calls) == 1, calls
+    assert calls[0]['action'] == 'inject_fault', calls
+    assert calls[0]['target'] == 's1-eth1', calls
+    assert calls[0]['severity'] == 'WARN', calls
+    assert calls[0]['payload']['fault_type'] == 'link_down', calls
+    assert calls[0]['payload']['interfaces'] == ['s1-eth1'], calls
+
+
+def test_clear_also_writes_audit():
+    """清理也要留审计 —— 否则事后只知道"故障被清了"，不知道谁清的。"""
+    calls = []
+
+    class _FakeWriter:
+        @staticmethod
+        def write_audit(action, target=None, severity='INFO', payload=None,
+                        correlation_id=None):
+            calls.append({'action': action, 'target': target, 'severity': severity})
+            return True
+
+    import db_writer
+    old = db_writer.write_audit
+    db_writer.write_audit = _FakeWriter.write_audit
+    try:
+        api = _make_api()
+        api.clear_all('s1-eth1')
+    finally:
+        db_writer.write_audit = old
+    assert len(calls) == 1, calls
+    assert calls[0]['action'] == 'clear_faults', calls
+
+
+def test_audit_failure_does_not_break_injection():
+    """审计写失败**不能**让注故障报失败（故障已经打进去了）。"""
+    import db_writer
+
+    def _boom(*a, **kw):
+        raise RuntimeError('db down')
+
+    old = db_writer.write_audit
+    db_writer.write_audit = _boom
+    try:
+        api = _make_api()
+        result = api.inject('link_down', 's1-eth1')
+    finally:
+        db_writer.write_audit = old
+    assert result['fault_type'] == 'link_down', result
+    assert result['interfaces'] == ['s1-eth1'], result
+
+
 if __name__ == '__main__':
     failed = 0
     for name, fn in sorted(list(globals().items())):

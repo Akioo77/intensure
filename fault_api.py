@@ -145,6 +145,14 @@ class FaultApi:
                                     and set(f['interfaces']) & set(applied))]
             self._active.append(record)
         logger.info(f"💥 fault injected: {key} on {applied} (mode={mode})")
+        # 写操作审计 —— 证据链的第三环：
+        #   ① 设备侧事实（交换机给的 OpenFlow 端口状态）
+        #   ② 我方事件（intensure.port_events，带时间戳）
+        #   ③ 操作记录（shared.audit_log，谁在什么时候动了哪个接口）
+        # 没有 ③ 就没法回答"这条链路是谁弄断的"。
+        self._audit('inject_fault', target, applied, severity='WARN',
+                    payload={'fault_type': key, 'requested_type': fault_type,
+                             'params': params, 'mode': mode})
         return record
 
     def clear_all(self, target: str = '') -> Dict[str, object]:
@@ -172,8 +180,37 @@ class FaultApi:
             else:
                 self._active = []
         logger.info(f"✅ cleared faults on {cleaned}")
+        # 清理也要留审计 —— 否则事后只能看到"有故障被清了"，不知道谁清的
+        self._audit('clear_faults', target, cleaned, severity='INFO',
+                    payload={'cleared': len(cleaned)})
         return {'fault_type': 'clear_all', 'interfaces': cleaned,
                 'mode': 'test', 'cleared': len(cleaned)}
+
+    def _audit(self, action: str, target: str, interfaces: List[str],
+               severity: str = 'INFO',
+               payload: Optional[Dict[str, object]] = None) -> bool:
+        """写一条操作审计到 shared.audit_log。
+
+        ⚠️ 审计写不进去**不能影响主流程**（故障已经打进去了，不能因为审计失败
+        就把接口报成失败）→ 吞掉异常，只记 warning。
+
+        actor 目前固定为 'api'（注故障是 REST 触发的，没有用户身份）；
+        真要区分人，得在 REST 层带上操作者 —— 那是接口演进的事，先不扩契约。
+        """
+        try:
+            import db_writer
+            body = {
+                'fault_type': action,
+                'target': target,
+                'interfaces': list(interfaces),
+            }
+            if payload:
+                body.update(payload)
+            return bool(db_writer.write_audit(
+                action=action, target=target, severity=severity, payload=body))
+        except Exception as e:
+            logger.warning(f'审计写入失败（不影响故障注入本身）: {e}')
+            return False
 
     def active_faults(self) -> List[Dict[str, object]]:
         """当前活跃故障列表。"""
