@@ -88,7 +88,7 @@
 
 ### 4.1 数据库基础设施（Phase 0）
 
-✅ **6 schema + 18 base 表 + 25 月分区 + 32 索引 + 1 物化视图** = 43 张表
+✅ **6 schema + 26 张逻辑表 + 21 个分区子表 = 47 张物理表 + 218 个索引 + 1 个物化视图**（2026-11-07 `pg_class` 实测）
 ✅ **4 个模块用户**（intensure_user / translation_user / implementation_user / assurance_user）+ **RLS 行级安全**
 ✅ **访问控制矩阵**：翻译对 implementation.policies 仅 SELECT ✅（你提的核心约束）
 ✅ **保留清理函数**：`drop_old_partitions()` 已验证
@@ -197,7 +197,7 @@ DELETE FROM implementation.policies WHERE intent_id = 'test';
 ### 6.4 演示中可展示的文档
 
 - `docs/database-architecture.md`（架构原则）
-- `docs/database-schema.sql`（完整 DDL，45 张表）
+- `docs/database-schema.sql`（完整 DDL，47 张物理表）
 - `docs/access-control-matrix.md`（访问控制矩阵）
 - `docs/cross-module-api-contract.md`（API 契约）
 
@@ -249,6 +249,11 @@ _详情见 `speaker_notes.md`（讲稿）和 `demo_runbook.md`（演示照本宣
 ---
 
 ## 🕘 最近更新
+
+**2026-11-07 · 库表数字按实测再刷新**
+
+6 schema / 26 张逻辑表 / 47 张物理表（21 个分区子表）/ 218 索引 / 1 物化视图 —— `pg_class` 实测。
+原因：分区表落地后，**父表算逻辑表、子表算物理表**，两个口径混用会让总数对不上。
 
 **2026-10-29 · 文档同步至当前实现状态**
 

@@ -310,7 +310,12 @@ python3 state_collector.py http://127.0.0.1:8080 validate
 
 ## 11. 持久化层（2026-10-08 v3.5+ 新增）
 
-> **本文档聚焦"对外 JSON 契约"。v3.5 起,intensure 把这些字段持久化到本地 PostgreSQL（`intensure` schema + `shared` schema 共 8 张表）,供跨模块读取。**
+> **本文档聚焦"对外 JSON 契约"。v3.5 起,intensure 把这些字段持久化到本地 PostgreSQL（`intensure` schema + `shared` schema）,供跨模块读取。**
+>
+> **表数按 2026-11-07 `pg_class` 实测**：这两个 schema 合计 **9 张逻辑表 + 20 张物理表**
+> （`intensure`：network_state、flows_snapshot + 5 张已分区的事件/历史表 → 逻辑 2 / 物理 14；
+> `shared`：schema_version、module_health、audit_log_error_archive + audit_log 父表及 3 个分区 → 逻辑 3 / 物理 6）。
+> **分区表的父表算逻辑表、子表算物理表** —— 早期写的「共 8 张表」是分区落地前的口径。
 
 **详细架构**:见 [`docs/database-architecture.md`](./docs/database-architecture.md)（架构总览 + 决策记录）
 
