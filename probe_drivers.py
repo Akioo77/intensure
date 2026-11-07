@@ -472,11 +472,26 @@ def driver_from_env_config(target=None) -> ProbeDriver:
 
 
 def list_drivers() -> List[Dict[str, Any]]:
-    """所有驱动 + 当前环境下能不能用（给 /api/capabilities 用）。"""
+    """所有驱动 + 当前环境下能不能用（给 /api/capabilities 用）。
+
+    ⚠️ 必须把**真实子配置**传给驱动 —— 之前一律用 `cls(cfg={})` 空配置造，
+    于是 SnmpDriver 永远报「probe.snmp.host 没配」、CliDriver 永远报
+    「probe.cli.command 没配」，哪怕 env.json 里已经配好了。
+    （而 env_doctor 传了真实配置 → 同一个驱动两个工具给出矛盾结论。）
+    """
+    sub_cfgs: Dict[str, Dict[str, Any]] = {}
+    try:
+        import env_config
+        cfg = env_config.get_config()
+        sub_cfgs[DRIVER_SNMP] = dict(cfg.probe_snmp or {})
+        sub_cfgs[DRIVER_CLI] = dict(cfg.probe_cli or {})
+    except Exception as e:
+        logger.warning('[probe] 读配置失败，驱动可用性按未配置判定: %s', e)
+
     out = []
     for name, cls in DRIVER_CLASSES.items():
         try:
-            driver = cls(cfg={})
+            driver = cls(cfg=sub_cfgs.get(name, {}))
             ok, reason = driver.available()
         except Exception as e:
             ok, reason = False, f'检查失败: {e}'

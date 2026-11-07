@@ -162,11 +162,21 @@ class FaultApi:
         """
         intfs = self._resolve_interfaces(target) if target else self._all_interfaces()
         cleaned = []
+        errors: List[str] = []
         for intf in intfs:
             sw = intf.split('-eth')[0]
-            # 链路必须恢复（这步失败是真问题 → 报错）
-            self._run(['ip', 'link', 'set', intf, 'up'])
-            self._run(['ovs-ofctl', '-O', 'OpenFlow13', 'mod-port', sw, intf, 'up'])
+            # ⚠️ 单个接口失败**不能中断整个清理**。
+            #    之前这里是 check=True 直接抛异常 → 第一个接口失败（比如该接口
+            #    已经不存在了），后面所有交换机都不再清理（故障还挂在网上），
+            #    而且末尾的审计也不会写 —— 事后既不知道清了一半，也不知道谁清的。
+            #    现在：逐个接口记录错误、继续清，最后把错误一起报出去。
+            for cmd in (['ip', 'link', 'set', intf, 'up'],
+                        ['ovs-ofctl', '-O', 'OpenFlow13', 'mod-port', sw, intf, 'up']):
+                try:
+                    self._run(cmd)
+                except FaultInjectionError as e:
+                    errors.append(str(e))
+                    logger.warning(f'清理 {intf} 失败（继续清其余接口）: {e}')
             # 下面两步是「清理」语义 —— 没有东西可清是**正常**的，
             # 不能因为「本来就没 qdisc」就让整个清理失败（踩过：
             # tc qdisc del 报 "Cannot delete qdisc with handle of zero"）。
@@ -179,12 +189,16 @@ class FaultApi:
                                 if not (set(f['interfaces']) & set(cleaned))]
             else:
                 self._active = []
-        logger.info(f"✅ cleared faults on {cleaned}")
+        logger.info(f"✅ cleared faults on {cleaned}"
+                    + (f'（{len(errors)} 个接口清理失败）' if errors else ''))
         # 清理也要留审计 —— 否则事后只能看到"有故障被清了"，不知道谁清的
         self._audit('clear_faults', target, cleaned, severity='INFO',
-                    payload={'cleared': len(cleaned)})
-        return {'fault_type': 'clear_all', 'interfaces': cleaned,
-                'mode': 'test', 'cleared': len(cleaned)}
+                    payload={'cleared': len(cleaned), 'errors': len(errors)})
+        result = {'fault_type': 'clear_all', 'interfaces': cleaned,
+                  'mode': 'test', 'cleared': len(cleaned)}
+        if errors:
+            result['errors'] = errors
+        return result
 
     def _audit(self, action: str, target: str, interfaces: List[str],
                severity: str = 'INFO',

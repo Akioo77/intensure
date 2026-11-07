@@ -25,6 +25,7 @@ import state_history
 import db_writer
 import env_config
 import host_cache
+import contract_api
 
 from graceful import install_graceful_shutdown
 
@@ -304,7 +305,12 @@ class StateCollectorController(app_manager.OSKenApp):
                             port_no=desc.port_no,
                             port_name=port_name,
                             event_type=event_type,
-                            speed_mbps=desc.curr_speed,
+                            # ⚠️ os-ken 的 curr_speed 单位是 **kbps**
+                            #    （ofproto_v1_3_parser: "Current port bitrate in kbps"），
+                            #    而列名是 speed_mbps → 直接存会放大 1000 倍
+                            #    （10G 链路记成 10000000 "Mbps"）。
+                            #    换算函数与契约层共用同一个（contract_api.to_mbps）。
+                            speed_mbps=contract_api.to_mbps(desc.curr_speed),
                             metadata={'reason': msg.reason},
                         )
                     except Exception as e:
@@ -656,7 +662,15 @@ class StateCollectorController(app_manager.OSKenApp):
             # 2) 验证摘要 (供"自愈前后"时间线)
             try:
                 from state_model import validate_state
-                report = validate_state(NETWORK_STATE)
+                # ⚠️ 必须注入环境配置里的期望拓扑 —— 不注入就用 state_model 里
+                #    写死的 2 交换机基线，而默认 env.json 是 1 交换机 →
+                #    同一个状态，/api/validate 说 OK、这里却记一条
+                #    "expected 2 switches, got 1" 的 warning，两个口径互相打架。
+                try:
+                    _expect = env_config.get_config().topology_expect
+                except Exception:
+                    _expect = None
+                report = validate_state(NETWORK_STATE, topology_expect=_expect or None)
                 state_history.add_validation({
                     'time': now,
                     'ok': report['ok'],

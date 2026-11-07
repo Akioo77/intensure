@@ -384,3 +384,34 @@ def test_probe_result_as_dict():
     d = r.as_dict()
     check('字段齐', d['reachable'] is True and d['method'] == 'icmp', str(d))
     check('extra 合并进去了', d['x'] == 1, str(d))
+
+
+def test_list_drivers_uses_real_sub_config():
+    """capabilities 报的驱动可用性必须按**真实配置**判。
+
+    ⚠️ 之前 list_drivers 一律用空配置造驱动 → snmp/cli 永远报"没配"，
+    而 env_doctor 传了真实配置 → 同一个驱动两个工具结论矛盾。
+    """
+    import os
+    import tempfile
+    import env_config
+
+    old = env_config.get_config()
+    tmp = tempfile.NamedTemporaryFile(prefix='_env_', suffix='.json', delete=False)
+    tmp.close()
+    with open(tmp.name, 'w') as f:
+        f.write('{"probe": {"snmp": {"host": "10.0.0.9"}, '
+                '"cli": {"command": "ping -c 1 {dst}"}}}')
+    env_config._config = env_config.EnvConfig.load(tmp.name)
+    try:
+        drivers = {d['name']: d for d in probe_drivers.list_drivers()}
+        check('snmp 按真实配置判为可用', drivers['snmp']['available'] is True,
+              str(drivers['snmp']))
+        check('cli 按真实配置判为可用', drivers['cli']['available'] is True,
+              str(drivers['cli']))
+    finally:
+        env_config._config = old
+        try:
+            os.unlink(tmp.name)
+        except OSError:
+            pass

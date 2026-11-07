@@ -32,6 +32,19 @@ import capabilities  # noqa: E402
 import env_config  # noqa: E402
 
 DEFAULT_STATE_FILE = '/tmp/network_state.json'
+
+
+def default_state_file() -> str:
+    """状态文件默认路径：优先用环境配置（env.json 的 state_file）。
+
+    ⚠️ 之前这里写死 /tmp/network_state.json，而控制器写的是 env 配置的路径
+    → 跨机部署时体检会误报"采集层没跑起来"（其实文件在别的路径）。
+    """
+    try:
+        import env_config
+        return env_config.get_config().state_file or DEFAULT_STATE_FILE
+    except Exception:
+        return DEFAULT_STATE_FILE
 DEFAULT_URL = 'http://127.0.0.1:8080'
 
 
@@ -82,7 +95,7 @@ def fetch_state(url=None, state_file=None):
         except Exception as exc:
             http_error = f'{exc.__class__.__name__}'
 
-    path = state_file or DEFAULT_STATE_FILE
+    path = state_file or default_state_file()
     if os.path.isfile(path):
         try:
             with open(path, 'r', encoding='utf-8') as fh:
@@ -278,7 +291,7 @@ def main():
     parser.add_argument('--url', default=None,
                         help=f'采集层 REST 地址（默认试 {DEFAULT_URL}）')
     parser.add_argument('--state-file', default=None,
-                        help=f'状态文件（默认 {DEFAULT_STATE_FILE}）')
+                        help='状态文件（默认取环境配置 env.json 的 state_file）')
     parser.add_argument('--config', default=None,
                         help='环境配置文件路径')
     parser.add_argument('--json', action='store_true',
@@ -311,7 +324,7 @@ def main():
             print('=' * 68)
         return 2
 
-    age = state_age_seconds(state, args.state_file or DEFAULT_STATE_FILE)
+    age = state_age_seconds(state, args.state_file or default_state_file())
     checks = run_checks(state, cfg, age_sec=age)
 
     if args.json:

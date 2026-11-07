@@ -122,6 +122,21 @@ def extract_actual_down_ports(network_state_payload: dict) -> list:
     return out
 
 
+def _split_link_key(key):
+    """把 links 的 key（"dpid:port"）拆成本端 (dpid_hex, port_no)。
+
+    controller_app 写 links 时 key 就是本端的 "dpid:port"，
+    value 里放的是**对端** peer_dpid / peer_port。
+    """
+    if not isinstance(key, str) or ':' not in key:
+        return '', None
+    dpid_hex, _, port = key.partition(':')
+    try:
+        return dpid_hex, int(port)
+    except (TypeError, ValueError):
+        return dpid_hex, None
+
+
 def extract_actual_down_links(network_state_payload: dict) -> list:
     """从 network_state.links 计算 down 的链路。
 
@@ -143,10 +158,17 @@ def extract_actual_down_links(network_state_payload: dict) -> list:
     for key, link in links.items():
         if not isinstance(link, dict):
             continue
-        src_dpid = link.get('src_dpid') or link.get('dpid_a') or ''
-        src_port = link.get('src_port') or link.get('port_a')
-        dst_dpid = link.get('dst_dpid') or link.get('peer_dpid') or link.get('dpid_b') or ''
-        dst_port = link.get('dst_port') or link.get('peer_port') or link.get('port_b')
+        # ⚠️ 真实结构（controller_app.py 写入的）：
+        #      links 的 key 是 **本端** "dpid:port"，
+        #      value 里只有对端 peer_dpid / peer_port / peer_name。
+        #    之前这里找的是 src_dpid / src_port（另一套结构，真实数据里没有）→
+        #      src_dpid 恒为 ''、src_port 恒为 None →
+        #      ① 本端端口 down 时**整条链路不判 down**（漏判）
+        #      ② 判为 down 时输出 "?:None-s2:eth3" 这种畸形值
+        #      → 进了 diagnose 的 affected_devices 就是垃圾。
+        src_dpid, src_port = _split_link_key(key)
+        dst_dpid = link.get('peer_dpid') or link.get('dst_dpid') or link.get('dpid_b') or ''
+        dst_port = link.get('peer_port') or link.get('dst_port') or link.get('port_b')
 
         a_down = (src_dpid, src_port) in down_port_keys
         b_down = (dst_dpid, dst_port) in down_port_keys
@@ -163,8 +185,8 @@ def extract_actual_down_links(network_state_payload: dict) -> list:
         except (ValueError, TypeError):
             sw_b = '?'
 
-        ep_a = f'{sw_a}:{src_port}'
-        ep_b = f'{sw_b}:{dst_port}'
+        ep_a = f'{sw_a}:{src_port if src_port is not None else "?"}'
+        ep_b = f'{sw_b}:{dst_port if dst_port is not None else "?"}'
 
         pair = frozenset([ep_a, ep_b])
         if pair in seen:

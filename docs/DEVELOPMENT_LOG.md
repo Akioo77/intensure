@@ -478,6 +478,24 @@ python3 env_doctor.py --json     # 机器可读（给脚本用）
     （`host_cache.count_fresh`）——否则采集侧清干净了、读数还是脏的。
     ⚠️ 顺带：**没有 `last_seen` 的条目不淘汰、也不从读数里抹掉** ——
     缺字段不等于陈旧，误杀还在线的主机比留一条幽灵更糟。
+28. **多进程 + 文件通信 = 三类经典坑（2026-11-05 一次性挖出 6 个）** ——
+    采集层是**控制器进程 + API 进程**两个进程，靠 `/tmp/network_*.json` 通信。
+    凡是"一个进程写、另一个进程读"的场景，都要检查这四条：
+
+    | 坑 | 现象 | 修法 |
+    |---|---|---|
+    | 读方只在启动时 load 一次 | `/api/history` **永久冻结**（实测恒为 0 条）→ 对方每 5s 轮询拿到的都是同一份旧数据 | 读之前按 mtime 判断并重读（`state_history.reload_if_changed()`）|
+    | 两个进程共用同一个 `.tmp` 路径 | 抢写 → 写坏文件；而且读方把自己**陈旧**的内存快照写回去，覆盖对方刚写的 | tmp 文件名带 pid；写之前先重读 |
+    | 单位换算在两处各写一遍 | 控制器写 `speed_mbps` 存的是 **kbps**（放大 1000 倍），契约层却换了 → 两处口径不一致 | 收敛成 `contract_api.to_mbps()` 一个函数，两边共用 |
+    | "变化"的判定包含易变字段 | summary 里含 `rx_bytes/tx_bytes` → 流量一动就判"变了" → **30s 节流永远失效**（实测写入量是文档预估的 6 倍）| 只比拓扑维度（`DBWriter._summary_shape`）|
+
+    ⚠️ 另外两条同源：
+    - **测试 fixture 用的是不存在的结构**：`assurance_mvp` 的单测 fixture 用
+      `src_dpid/src_port`，而控制器真实写的是 key=`"dpid:port"` + value=`peer_dpid/peer_port`
+      → 单测全绿、运行期却**漏判本端 down** + 输出 `"?:None-s2:eth3"` 畸形值
+      → **fixture 必须用真实结构**（这次已改）
+    - **`limit=0` 的切片语义**：`lst[-0:]` == `lst[0:]`（**全部**），不是"不要数据"
+      → 三处口径不一，统一成"非正数 = 不限"
 26. **「文件从没进过版本库」比「文件被删了」更难发现** ——
     `demo_scripts/00~99` 全部 `source "$SCRIPT_DIR/lib/ui.sh"`，
     而 `lib/ui.sh` **从来没被提交过**（`git log --all -- 'demo_scripts/lib/*'` 是空的，

@@ -212,19 +212,90 @@ def test_history_endpoint():
     """/api/history 读 state_history。"""
     if _skip_if_no_flask():
         return
-    state_history.HISTORY["connectivity"] = []
-    for i in range(5):
-        state_history.add_connectivity({"time": float(i), "loss_pct": 0.0})
+    # ⚠️ 隔离历史文件 —— 端点现在会重读文件（修"历史永久冻结"那个 bug），
+    #    不隔离的话会读到真机上 /tmp/network_history.json 的真实内容，测的就不是 fixture 了。
+    import tempfile
+    old_file = state_history.HISTORY_FILE
+    tmp = tempfile.NamedTemporaryFile(prefix='_hist_', suffix='.json', delete=False)
+    tmp.close()
+    state_history.HISTORY_FILE = tmp.name
+    try:
+        state_history.HISTORY["connectivity"] = []
+        for i in range(5):
+            state_history.add_connectivity({"time": float(i), "loss_pct": 0.0})
+        c = _client()
+        r = c.get("/api/history?key=connectivity&limit=2")
+        check("状态码 200", r.status_code == 200, r.status_code)
+        arr = r.get_json()
+        check("limit=2 返回 2 条", len(arr) == 2, arr)
+        check("取的是最近 2 条", arr[-1]["time"] == 4.0, arr)
+        allk = c.get("/api/history").get_json()
+        check("不带 key 返回全部 key 的 dict", isinstance(allk, dict), type(allk))
+        check("含 connectivity 键", "connectivity" in allk, list(allk.keys()))
+        state_history.HISTORY["connectivity"] = []
+    finally:
+        state_history.HISTORY_FILE = old_file
+        try:
+            os.unlink(tmp.name)
+        except OSError:
+            pass
+
+
+def test_history_endpoint_picks_up_external_file():
+    """端点必须能看到**别的进程**写进历史文件的新数据。
+
+    ⚠️ 这是 2026-11-05 修掉的真 bug：控制器和 API 是两个进程，控制器每 5s 写一次
+    历史文件，API 进程只在启动时 load 一次 → 对方每 5s 轮询 /api/history
+    拿到的永远是同一份旧数据（实测恒为 0 条）。
+    """
+    if _skip_if_no_flask():
+        return
+    import json
+    import tempfile
+    old_file = state_history.HISTORY_FILE
+    tmp = tempfile.NamedTemporaryFile(prefix='_hist2_', suffix='.json', delete=False)
+    tmp.close()
+    state_history.HISTORY_FILE = tmp.name
+    try:
+        # 模拟"另一个进程（控制器）写了历史文件"
+        with open(tmp.name, 'w') as f:
+            json.dump({'summary': [{'time': 111.0, 'switches': 1}],
+                       'connectivity': [], 'port_stats': [], 'validation': []}, f)
+        c = _client()
+        arr = c.get("/api/history?key=summary").get_json()
+        check("读到外部进程写的新数据", any(e.get('time') == 111.0 for e in arr), arr)
+    finally:
+        state_history.HISTORY_FILE = old_file
+        try:
+            os.unlink(tmp.name)
+        except OSError:
+            pass
+
+
+def test_events_limit_zero_returns_all_not_slice_bug():
+    """limit=0 之前是 `events[-0:]` → 反而返回**全部**（切片语义 bug）。
+
+    统一口径：非正数 = 不限。
+    """
+    if _skip_if_no_flask():
+        return
     c = _client()
-    r = c.get("/api/history?key=connectivity&limit=2")
-    check("状态码 200", r.status_code == 200, r.status_code)
-    arr = r.get_json()
-    check("limit=2 返回 2 条", len(arr) == 2, arr)
-    check("取的是最近 2 条", arr[-1]["time"] == 4.0, arr)
-    allk = c.get("/api/history").get_json()
-    check("不带 key 返回全部 key 的 dict", isinstance(allk, dict), type(allk))
-    check("含 connectivity 键", "connectivity" in allk, list(allk.keys()))
-    state_history.HISTORY["connectivity"] = []
+    state_server.CONTROLLER_STATE = {
+        "meta": {"update_count": 1},
+        "switches": {},
+        "hosts": {},
+        "ports": [],
+        "flows": [],
+        "links": {},
+        "events": [{"time": 1.0}, {"time": 2.0}],
+    }
+    try:
+        arr = c.get("/api/events?limit=0").get_json()
+        check("limit=0 返回全部（不被切片语义坑）", len(arr) == 2, arr)
+        arr2 = c.get("/api/events?limit=1").get_json()
+        check("limit=1 仍然只返回 1 条", len(arr2) == 1, arr2)
+    finally:
+        state_server.CONTROLLER_STATE = None
 
 
 # ============ 8. POST /api/probe ============
@@ -283,6 +354,8 @@ TESTS = [
     test_events_since_and_limit,
     test_validate_endpoint,
     test_history_endpoint,
+    test_history_endpoint_picks_up_external_file,
+    test_events_limit_zero_returns_all_not_slice_bug,
     test_probe_post_records,
     test_probe_post_empty_body,
     test_index_route,

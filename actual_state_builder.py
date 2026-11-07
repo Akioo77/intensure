@@ -36,13 +36,17 @@ OFPP_LOCAL = 0xfffffffe
 class ActualStateBuilder:
     """将内部网络状态转换为联调契约的 ActualState 格式。"""
 
-    def __init__(self, dpid_to_switch: Optional[Dict[str, str]] = None):
+    def __init__(self, dpid_to_switch: Optional[Dict[str, str]] = None,
+                 port_label_map: Optional[Dict[str, str]] = None):
         """初始化。
 
         参数:
             dpid_to_switch: dpid_hex → 逻辑交换机名映射表，例如：
                 {'0000000000000001': 's1', '0000000000000002': 's2'}
                 如果不传，则使用默认推断（dpid 末位 → "sN"，Mininet 约定）
+            port_label_map: 真实端口名 → 契约短标签，例如：
+                {'GigabitEthernet0/1': 'eth1'}
+                不传则从环境配置读（env.json 的 port_label_map）
         """
         # v3.21.0：没显式传映射表时，从环境配置读（env.json 的 dpid_to_switch）。
         # 真实设备 dpid 没规律时靠这张表；Mininet 环境留空即可（末位推断）。
@@ -53,6 +57,17 @@ class ActualStateBuilder:
             except Exception:
                 dpid_to_switch = {}
         self.dpid_to_switch = dpid_to_switch or {}
+
+        # ⚠️ 端口名映射同理：真实设备端口名是 GigabitEthernet0/1 这种长名，
+        #    契约要的是短标签 eth1。**这个配置项之前从没被任何运行时代码读过**
+        #    → INTEGRATION_GUIDE 承诺的"短标签格式"在真机上不成立。
+        if port_label_map is None:
+            try:
+                import env_config
+                port_label_map = env_config.get_config().port_label_map
+            except Exception:
+                port_label_map = {}
+        self.port_label_map = port_label_map or {}
 
     # ============================================================
     # 公开 API
@@ -213,9 +228,10 @@ class ActualStateBuilder:
         """从 port 字典提取端口标签（用于联调契约的"ethN"部分）。
 
         优先级:
-          1. 从 port['name'] 分割得到 ('s1-eth2' → 'eth2')
-          2. port['name'] 已经是短格式 ('eth2')
-          3. fallback 到 'p{port_no}'
+          1. **env.json 的 port_label_map**（真实设备：GigabitEthernet0/1 → eth1）
+          2. 从 port['name'] 分割得到 ('s1-eth2' → 'eth2')
+          3. port['name'] 已经是短格式 ('eth2')
+          4. fallback 到 'p{port_no}'
 
         参数:
             port: {'port_no': int, 'name': str, 'state': int, ...}
@@ -224,6 +240,11 @@ class ActualStateBuilder:
             端口标签字符串（不含设备名前缀）
         """
         name = port.get('name', '')
+        # ⚠️ 先查映射表 —— 真实设备的端口名是 GigabitEthernet0/1 这种长名，
+        #    契约要求的是短标签 eth1。之前这个配置项从没被读过，
+        #    真机上 down_ports 会是 ["sw-core-1:GigabitEthernet0/1"]。
+        if name and name in self.port_label_map:
+            return self.port_label_map[name]
         if name and '-' in name:
             # Mininet 格式: 's1-eth2' → 取最后一段 'eth2'
             return name.split('-')[-1]

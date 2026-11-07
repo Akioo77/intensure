@@ -1,0 +1,29 @@
+# Docker 构建时忽略的文件
+# ⚠️ 千万别忽略 docker/ 目录 —— Dockerfile 里 COPY 了 docker/start-services.sh
+.git
+.github
+.gitignore
+.venv
+venv
+__pycache__
+*.pyc
+*.pyo
+.pytest_cache
+.ruff_cache
+.mypy_cache
+.coverage
+htmlcov
+*.egg-info
+build
+dist
+legacy
+test_reports
+test_osken.sh
+demo_screenshots
+docs/loadtest_raw
+*.log
+.DS_Store
+# 本地环境与密钥
+.env
+.env.*
+env.json.bak

@@ -23,7 +23,14 @@ PROJECT_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, PROJECT_DIR)
 
 # 状态文件: 用于与外部 demo.py / fault_injector 等通信
-STATE_FILE = '/tmp/network_state.json'
+# ⚠️ 必须跟 controller_app / state_server 用**同一个**路径 ——
+#    之前这里写死 /tmp/network_state.json，而控制器写的是 env.json 配的路径
+#    → 跨机部署时清错文件、真正要清的那份残留，启动后 API 先返回上次的旧状态。
+try:
+    import env_config
+    STATE_FILE = env_config.get_config().state_file
+except Exception:
+    STATE_FILE = '/tmp/network_state.json'
 
 
 def start_http_server(host='0.0.0.0', port=8080):

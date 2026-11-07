@@ -123,6 +123,29 @@ DB 写入，一行代码没改）；**只有三类「本机特权动作」不跨
 注故障落到对方机器 ✅ 采集侧感知到端口 DOWN ✅
 端口事件落库 ✅（`port_events` 首次出现 link_down / link_up）
 
+### 接入适配层与多进程一致性修复（2026-11-05）
+
+一次只读代码审查（覆盖 controller_app / state_server / db_writer / contract_api /
+assurance_mvp / fault_api / env_config / exec_target 等运行路径）挖出 **6 个真缺陷**，
+全部逐条复核后修掉：
+
+| 缺陷 | 后果 | 修法 |
+|---|---|---|
+| `/api/history` **永久冻结** | 控制器是另一个进程、每 5s 写历史文件，API 进程只在启动时 load 一次 → 对方每 5s 轮询拿到的永远是同一份旧数据（实测恒为 0 条）| 读之前按 mtime 重读（`state_history.reload_if_changed()`）|
+| 两进程共用同一个 `.tmp` 路径 | 抢写 → 写坏文件；读方还把**陈旧**快照写回去覆盖对方刚写的 | tmp 文件名带 pid；写前先重读；解析失败不再静默吞 |
+| `port_events.speed_mbps` 存的是 **kbps** | 列名写 Mbps、值放大 1000 倍（10G 链路记成 10000000）| 换算收敛成 `contract_api.to_mbps()`，两边共用 |
+| `assurance_mvp` 取错 links 结构 | fixture 用的是不存在的 `src_dpid/src_port`，真实结构是 key=`dpid:port` + value=`peer_dpid` → **漏判本端 down** + 输出 `"?:None-s2:eth3"` 畸形值进 diagnoses | 按真实结构解析 key；**单测 fixture 一并改成真实结构** |
+| `port_label_map` **从没被任何代码读过** | 真实设备端口名（`GigabitEthernet0/1`）原样进契约，`down_ports` 不是承诺的短标签 → 对方自愈判定受影响 | `actual_state_builder` 查表（`ActualStateBuilder(port_label_map=...)`）|
+| `state_history` 的 30s 节流被字节计数绕过 | summary 含 `rx_bytes/tx_bytes` → 流量一动就判"变了" → 实测每 5s 写一行（文档预估的 6 倍）| 只比拓扑维度（`DBWriter._summary_shape`）|
+
+另修：`limit=0` 的切片语义（`lst[-0:]` 是**全部**不是空）统一成"非正数 = 不限"；
+`/api/capabilities` 的驱动可用性改用真实子配置（之前一律空配置 → snmp/cli 永远误报"没配"，
+而 `env_doctor` 传真实配置 → 同一驱动两个工具矛盾）；`state_file` 配置在 `run_all.py` /
+`env_doctor.py` 里不再写死；控制器写进历史的校验摘要改用 env 的期望拓扑（之前用写死的
+2 交换机基线，和 `/api/validate` 结论相反）；状态文件权限错误不再变成 500；
+`fault_api.clear_all` 单个接口失败不再中断其余清理（之前第一个失败就抛，
+后面所有交换机都不清、审计也不写）。
+
 ### 文档
 
 - **新增 `docs/PARTNER_COORDINATION.md`** —— 给意图保障模块的联调协作说明：

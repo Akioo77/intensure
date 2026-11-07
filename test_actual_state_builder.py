@@ -245,6 +245,35 @@ def test_iso_timestamp():
           f"got: {actual['checked_at']}")
 
 
+def test_port_label_map_applied():
+    """真实设备端口名 → 契约短标签（env.json 的 port_label_map）。
+
+    ⚠️ 这个配置项之前**从没被任何运行时代码读过** → 真机上 down_ports 会是
+    ["sw-core-1:GigabitEthernet0/1"]，而不是契约要求的 ["sw-core-1:eth1"]
+    （INTEGRATION_GUIDE §3.2② 明确说过"不映射会导致对方自愈判定受影响"）。
+    """
+    print('\n[9] 端口名映射（port_label_map）')
+    builder = ActualStateBuilder(
+        dpid_to_switch={'0000000000000001': 'sw-core-1'},
+        port_label_map={'GigabitEthernet0/1': 'eth1'},
+    )
+    state = make_state(
+        switches={
+            '0000000000000001': {'ports': [
+                {'port_no': 1, 'name': 'GigabitEthernet0/1', 'state': OFPPS_LINK_DOWN},
+            ]},
+        },
+    )
+    actual = builder.build(
+        intent_id='REQ-001', source_host=None, destination_host=None,
+        state=state,
+        reachability_result={'reachable': False},
+        expected_flow_present=False,
+    )
+    downs = actual.get('down_ports') or []
+    check('映射生效：长名 → 短标签', 'sw-core-1:eth1' in downs, downs)
+
+
 def main():
     print('=' * 60)
     print('ActualStateBuilder 单元测试')
@@ -257,6 +286,7 @@ def main():
     test_dpid_to_switch_mapping()
     test_dedup_bidirectional_link()
     test_iso_timestamp()
+    test_port_label_map_applied()
     print('\n' + '=' * 60)
     print(f'测试结果: {passed} 通过 / {failed} 失败')
     print('=' * 60)

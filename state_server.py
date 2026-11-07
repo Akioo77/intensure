@@ -52,6 +52,12 @@ def load_state_from_file():
             return json.load(f)
     except (FileNotFoundError, json.JSONDecodeError):
         return {}
+    except OSError as e:
+        # ⚠️ PermissionError 之类也是 OSError —— 不捕获的话会变成 500，
+        #    调用方连"状态读不到"这个事实都看不到。
+        #    典型场景：状态文件属主是别的用户（控制器专门为这种场景打了修复建议的日志）
+        logger.warning(f'状态文件读不了（{STATE_FILE}）: {e}')
+        return {}
 
 
 def get_state():
@@ -174,7 +180,10 @@ def api_events():
     since = request.args.get('since', default=0, type=float)
     limit = request.args.get('limit', default=100, type=int)
     filtered = [e for e in events if e.get('time', 0) > since]
-    return jsonify(filtered[-limit:])
+    # ⚠️ limit=0 时 `filtered[-0:]` 等于 `filtered[0:]`（**全部**），
+    #    不是"不要数据"。契约端点用的是 `if limit and limit > 0` 的口径，
+    #    这里统一成一样的（0 / 负数 → 不限）。
+    return jsonify(filtered[-limit:] if limit and limit > 0 else filtered)
 
 
 @app.route('/api/validate')
@@ -193,6 +202,10 @@ def api_history():
     """历史状态. ?key=summary|port_stats|validation|connectivity&limit=N"""
     key = request.args.get('key')
     limit = request.args.get('limit', default=100, type=int)
+    # ⚠️ 必须先重读文件 —— 控制器是**另一个进程**，每 5s 写一次历史；
+    #    不重读的话内存里那份永远停在启动时刻（实测恒为 0 条），
+    #    对方每 5s 轮询这个端点拿到的都是同一份旧数据。
+    state_history.reload_if_changed()
     return jsonify(state_history.get(key, limit))
 
 
@@ -203,6 +216,9 @@ def api_probe():
     body: {"reachable": [...], "unreachable": [...], "loss_pct": 0.0}
     """
     data = request.get_json(force=True, silent=True) or {}
+    # ⚠️ 先重读再写 —— 否则这里 dump 出去的是**我们自己那份陈旧快照**，
+    #    会把控制器刚写的整段历史覆盖掉（两个进程共用同一个历史文件）。
+    state_history.reload_if_changed()
     state_history.add_connectivity({
         'time': time.time(),
         'reachable': data.get('reachable', []),

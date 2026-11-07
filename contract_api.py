@@ -56,6 +56,21 @@ def _port_label(port: dict) -> str:
     return f'p{port.get("port_no", "?")}'
 
 
+def to_mbps(curr_speed) -> int:
+    """os-ken 的 curr_speed（kbps）→ Mbps。
+
+    ⚠️ OpenFlow 端口速率的单位是 **kbps**（os-ken 协议注释：
+    "Current port bitrate in kbps"）。直接当成 Mbps 存/发会**放大 1000 倍**
+    （10G 链路会变成 10000000 "Mbps"）。
+    控制器写 port_events 与契约层输出必须用**同一个**换算，
+    所以收敛到这里来 —— 之前是两处各写一遍，控制器那处漏了。
+    """
+    try:
+        return int(curr_speed) // 1000 if curr_speed else 0
+    except (TypeError, ValueError):
+        return 0
+
+
 def build_switches(state: dict) -> List[Dict[str, Any]]:
     """内部 switches dict → 契约的 list。
 
@@ -68,12 +83,11 @@ def build_switches(state: dict) -> List[Dict[str, Any]]:
         for p in sw.get('ports', []):
             if p.get('port_no') == OFPP_LOCAL:
                 continue
-            curr_speed = p.get('curr_speed')
             ports.append({
                 'port_no': p.get('port_no'),
                 'name': p.get('name'),
                 'state': p.get('state', 0),
-                'speed_mbps': int(curr_speed) // 1000 if curr_speed else 0,
+                'speed_mbps': to_mbps(p.get('curr_speed')),
             })
         result.append({'dpid': dpid, 'ports': ports})
     return result

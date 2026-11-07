@@ -193,7 +193,9 @@ class OVSLogger:
                 continue
             result.append(entry)
 
-        return result[-limit:]
+        # ⚠️ limit=0 / 负数时 `result[-limit:]` 会变成"全部"或错位切片
+        #    （`lst[-0:]` == `lst[0:]`）。统一成"非正数 = 不限"。
+        return result[-limit:] if limit and limit > 0 else result
 
     def get_stats(self):
         """获取采集器统计（给 dashboard 显示用）.

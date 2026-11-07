@@ -260,3 +260,55 @@ if __name__ == '__main__':
                 print(f'  [FAIL] {name}: {e}')
     print(f'\n{"全部通过" if not failed else f"{failed} 个失败"}')
     sys.exit(1 if failed else 0)
+
+
+def test_clear_all_continues_after_one_interface_fails():
+    """一个接口清理失败，**不能中断**其余接口的清理，且审计仍要写。
+
+    ⚠️ 之前这里是 check=True 直接抛异常 → 第一个接口失败（比如该接口已经不存在了），
+    后面所有交换机都不再清理（故障还挂在网上），而且末尾的审计也不会写
+    → 事后既不知道清了一半，也不知道是谁清的。
+    """
+    import fault_api
+    cleaned_cmd = []
+
+    def _fake_run(cmd, check=True):
+        cleaned_cmd.append(list(cmd))
+        if cmd[:3] == ['ip', 'link', 'set'] and 's1-eth1' in cmd:
+            raise fault_api.FaultInjectionError('模拟：接口不存在')
+        return 'ok\n'
+
+    audited = []
+    import db_writer
+    old_audit = db_writer.write_audit
+    db_writer.write_audit = lambda **kw: audited.append(kw) or True
+    try:
+        api = _make_api()
+        api._run = staticmethod(_fake_run)
+        result = api.clear_all('s1')
+    finally:
+        db_writer.write_audit = old_audit
+
+    assert 's1-eth2' in result['interfaces'], result
+    assert 's1-eth3' in result['interfaces'], result
+    assert result.get('errors'), f'应该有 errors 字段: {result}'
+    # 失败接口之后的也要清过
+    assert any('s1-eth4' in c for c in cleaned_cmd), cleaned_cmd
+    # 审计仍然要写
+    assert audited, '审计没有写'
+    assert audited[0]['action'] == 'clear_faults', audited
+
+
+def test_clear_all_writes_audit_even_on_success():
+    """清理成功也要写审计（否则事后只知道"故障被清了"，不知道谁清的）。"""
+    audited = []
+    import db_writer
+    old_audit = db_writer.write_audit
+    db_writer.write_audit = lambda **kw: audited.append(kw) or True
+    try:
+        api = _make_api()
+        api.clear_all('s1-eth1')
+    finally:
+        db_writer.write_audit = old_audit
+    assert audited, '审计没有写'
+    assert audited[0]['action'] == 'clear_faults', audited

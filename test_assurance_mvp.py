@@ -146,9 +146,11 @@ def test_extract_down_links_empty():
 def test_extract_down_links_one_end_down():
     """链路一端 down → 整条算 down。"""
     ports = [{"port_no": 3, "state": OFPPS_LINK_DOWN, "name": "s1-eth3"}]
+    # ⚠️ 必须用**真实结构**：key = 本端 "dpid:port"，value 里是对端 peer_*
+    #    （controller_app 写 links 的方式）。之前的 fixture 用 src_dpid/src_port
+    #    —— 真实数据里根本没这两个键 → 单测全绿、运行期却漏判 + 输出畸形值。
     links = {
-        "k1": {"src_dpid": DPID1, "src_port": 3,
-               "dst_dpid": DPID2, "dst_port": 3},
+        f"{DPID1}:3": {"peer_dpid": DPID2, "peer_port": 3, "peer_name": "s2"},
     }
     out = m.extract_actual_down_links(state(ports=ports, links=links))
     check("一端 down → 链路 down", len(out) == 1, out)
@@ -159,8 +161,7 @@ def test_extract_down_links_both_up():
     """两端都 up → 不算 down。"""
     ports = [{"port_no": 3, "state": 0, "name": "s1-eth3"}]
     links = {
-        "k1": {"src_dpid": DPID1, "src_port": 3,
-               "dst_dpid": DPID2, "dst_port": 3},
+        f"{DPID1}:3": {"peer_dpid": DPID2, "peer_port": 3, "peer_name": "s2"},
     }
     out = m.extract_actual_down_links(state(ports=ports, links=links))
     check("两端都 up → []", out == [], out)
@@ -170,10 +171,8 @@ def test_extract_down_links_dedup():
     """双向描述同一条链路 → 只算一次。"""
     ports = [{"port_no": 3, "state": OFPPS_LINK_DOWN, "name": "s1-eth3"}]
     links = {
-        "k1": {"src_dpid": DPID1, "src_port": 3,
-               "dst_dpid": DPID2, "dst_port": 3},
-        "k2": {"src_dpid": DPID2, "src_port": 3,
-               "dst_dpid": DPID1, "dst_port": 3},
+        f"{DPID1}:3": {"peer_dpid": DPID2, "peer_port": 3, "peer_name": "s2"},
+        f"{DPID2}:3": {"peer_dpid": DPID1, "peer_port": 3, "peer_name": "s1"},
     }
     out = m.extract_actual_down_links(state(ports=ports, links=links))
     check("双向去重 → 只 1 条", len(out) == 1, out)
@@ -247,8 +246,7 @@ def test_check_policy_link_down():
     m1, h1 = host_entry(ip="10.0.0.1/32")
     m4, h4 = host_entry(ip="10.0.0.4/32", mac="aa:bb:cc:dd:ee:04", port=4)
     ports = [{"port_no": 3, "state": OFPPS_LINK_DOWN, "name": "s1-eth3"}]
-    links = {"k1": {"src_dpid": DPID1, "src_port": 3,
-                     "dst_dpid": DPID2, "dst_port": 3}}
+    links = {f"{DPID1}:3": {"peer_dpid": DPID2, "peer_port": 3, "peer_name": "s2"}}
     st = state(hosts={m1: h1, m4: h4}, ports=ports, links=links)
     r = m.check_one_policy(policy(), st)
     check("链路 down → violated", r["result"] == "violated", r)

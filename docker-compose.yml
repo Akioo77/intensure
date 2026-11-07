@@ -1,0 +1,88 @@
+# intensure 采集层 —— 三服务编排
+#
+#   postgres    数据库（初始化时自动建 6 schema / 4 角色 / 35 条授权）
+#   intensure   采集层（os-ken 控制器 + REST API）
+#   dashboard   静态看板（nginx 托管 dashboard.html）
+#
+# ⚠️ 容器里**不造拓扑**。Mininet 跑在宿主 Colima VM 或对方机器上，
+#    起拓扑时把控制器指向 intensure 容器：
+#        mn --controller remote,ip=<intensure 容器 IP>,port=6653 ...
+#    详见 docker/README.md
+#
+# 起法：
+#    docker compose up -d
+#    docker compose logs -f intensure
+#
+services:
+  postgres:
+    image: postgres:16
+    container_name: intensure-pg
+    environment:
+      POSTGRES_DB: intensure_dev
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      # 初始化脚本按文件名顺序执行
+      POSTGRES_INITDB_ARGS: "--data-checksums"
+    volumes:
+      # 初始化：建表 + 建角色授权（幂等）
+      - ./docs/database-schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+      - ./docs/access-control-grants.sql:/docker-entrypoint-initdb.d/02-grants.sql:ro
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d intensure_dev"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 10s
+    networks:
+      - intensure-net
+
+  intensure:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: intensure-collector
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      # 容器内连库用服务名
+      INTENSURE_DB_DSN: "postgresql://intensure_user:intensure_dev_pwd@postgres:5432/intensure_dev"
+      ASSURANCE_DB_DSN: "postgresql://assurance_user:assurance_dev_pwd@postgres:5432/intensure_dev"
+      # 对方保障模块地址：联调时用对方的联调测试地址（运行前改这里或用 env_file）
+      ASSURANCE_BASE: "${ASSURANCE_BASE:-}"
+      ASSURANCE_BASE_FALLBACK: "${ASSURANCE_BASE_FALLBACK:-}"
+      # 接入目标：本容器直连交换机 OpenFlow，不需要 ssh 跳板
+      INTENSURE_ENV_FILE: "/app/env.json"
+    ports:
+      # 8080 采集层 API；6653 OpenFlow（交换机/控制器互联）
+      - "8080:8080"
+      - "6653:6653"
+    # OpenFlow 控制器要等交换机来连，不需要特权；保留 NET_ADMIN 以便必要时本机加接口
+    cap_add:
+      - NET_ADMIN
+    restart: unless-stopped
+    networks:
+      - intensure-net
+
+  dashboard:
+    image: nginx:alpine
+    container_name: intensure-dashboard
+    depends_on:
+      - intensure
+    volumes:
+      - ./dashboard.html:/usr/share/nginx/html/dashboard.html:ro
+      # 看板要调采集层 API → 走 nginx 反代，前端就不用管跨域
+      - ./docker/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    ports:
+      - "18080:80"
+    restart: unless-stopped
+    networks:
+      - intensure-net
+
+volumes:
+  pgdata:
+
+networks:
+  intensure-net:
+    driver: bridge

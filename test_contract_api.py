@@ -303,3 +303,16 @@ def test_contract_probe_results_endpoint():
 if __name__ == '__main__':
     import pytest
     sys.exit(pytest.main([__file__, '-v']))
+
+
+def test_to_mbps_converts_kbps():
+    """os-ken 的 curr_speed 是 kbps → 必须除 1000 才是 Mbps。
+
+    ⚠️ 之前控制器写 port_events 时漏了换算（放大 1000 倍），
+    而契约层换了 → 两处口径不一致。现在统一走 contract_api.to_mbps。
+    """
+    assert contract_api.to_mbps(10000000) == 10000, '10G 链路应是 10000 Mbps'
+    assert contract_api.to_mbps(1000) == 1
+    assert contract_api.to_mbps(0) == 0
+    assert contract_api.to_mbps(None) == 0
+    assert contract_api.to_mbps('bad') == 0

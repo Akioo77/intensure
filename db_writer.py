@@ -93,6 +93,17 @@ def get_assurance_writer():
 class DBWriter:
     """DB 写入器 · 懒加载连接、自动重连。"""
 
+    # summary 里"每周期都会变"的字段（字节计数器、时间戳）。
+    # 判"变化"时必须排除它们 —— 否则流量一动就判"变了"，
+    # 30s 节流永远用不上（实测每 5s 写一行，是文档预估的 6 倍）。
+    _VOLATILE_SUMMARY_KEYS = ('rx_bytes', 'tx_bytes', 'time', 'ts')
+
+    @classmethod
+    def _summary_shape(cls, summary: Optional[dict]) -> Dict[str, object]:
+        """只保留拓扑维度（交换机/主机/流表/down 端口数）用于变化判定。"""
+        return {k: v for k, v in (summary or {}).items()
+                if k not in cls._VOLATILE_SUMMARY_KEYS}
+
     def __init__(self, dsn: Optional[str] = None):
         self.dsn = dsn or DSN
         self._conn = None
@@ -257,12 +268,17 @@ class DBWriter:
                                        reason: str = 'scheduled',
                                        force: bool = False) -> bool:
         """选择性写库：
-        - summary 变化 → 写（reason='on-change'）
+        - summary **拓扑维度**变化 → 写（reason='on-change'）
         - 距上次 > 30s → 写（reason='scheduled'）
         - 否则跳过
         """
         now = time.time()
-        summary_changed = (self._last_state_summary != summary)
+        # ⚠️ 「变化」的判定口径 = **拓扑维度**（交换机/主机/流表/down 端口数），
+        #    不能拿整个 summary 比 —— summary 里含 rx_bytes/tx_bytes，
+        #    流量一动就判"变了" → 30s 节流永远用不上
+        #    （实测每 5s 写一行 ≈ 17,280 行/天，是文档预估的 6 倍）。
+        summary_changed = (self._summary_shape(self._last_state_summary)
+                           != self._summary_shape(summary))
         time_passed = (now - self._last_state_history_at) > STATE_HISTORY_MIN_INTERVAL
 
         if not force and not summary_changed and not time_passed:

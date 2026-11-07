@@ -823,3 +823,20 @@ if __name__ == "__main__":
     if FAILURES:
         print(f"FAILED: {FAILURES}")
     sys.exit(1 if FAILURES else 0)
+
+
+def test_summary_shape_ignores_byte_counters():
+    """「变化」判定只看拓扑维度，字节计数不算变化。
+
+    ⚠️ 之前拿整个 summary 比 → rx_bytes/tx_bytes 一变就判"变了"
+    → 30s 节流永远用不上（实测每 5s 写一行，是文档预估的 6 倍）。
+    """
+    s1 = {'switches': 1, 'hosts': 4, 'flows': 2, 'ports_down': 0,
+          'rx_bytes': 100, 'tx_bytes': 200}
+    s2 = dict(s1, rx_bytes=999999, tx_bytes=888888)
+    check('只有字节计数变化 → 判定为没变',
+          db_writer.DBWriter._summary_shape(s1) == db_writer.DBWriter._summary_shape(s2),
+          str(db_writer.DBWriter._summary_shape(s2)))
+    s3 = dict(s1, hosts=5)
+    check('主机数变了 → 判定为变了',
+          db_writer.DBWriter._summary_shape(s1) != db_writer.DBWriter._summary_shape(s3))
