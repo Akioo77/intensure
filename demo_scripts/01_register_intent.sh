@@ -9,9 +9,10 @@ export NO_PROXY="${NO_PROXY:-127.0.0.1,localhost,::1}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "$SCRIPT_DIR/lib/ui.sh"
 
-BASE="${ASSURANCE_BASE:-https://westminster-accounts-permitted-pursuant.trycloudflare.com}"
-
 ui_title "Step 1: 注册演示意图"
+
+# BASE 由 lib/ui.sh 统一解析（$BASE > $ASSURANCE_BASE > 默认联调临时地址）
+ui_check_base
 
 # 1. 尝试用一个新 intent_id（每次跑前先 register 一个新的）
 INTENT_NEW="demo-$(date +%Y%m%d-%H%M%S)-$$"

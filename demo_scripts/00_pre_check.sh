@@ -60,7 +60,8 @@ fi
 
 # 4. A 同学 assurance-agent（重试 3 次，应对 cloudflared 抖动）
 ui_section "[4/5] A 同学 assurance-agent"
-BASE="${ASSURANCE_BASE:-https://westminster-accounts-permitted-pursuant.trycloudflare.com}"
+# BASE 由 lib/ui.sh 统一解析（$BASE > $ASSURANCE_BASE > 默认联调临时地址）
+ui_check_base
 HEALTH=""
 for i in 1 2 3; do
   HEALTH=$(curl -s -m 10 "$BASE/api/health" 2>&1 || echo "")

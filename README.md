@@ -314,7 +314,8 @@ python3 live_env.py
 | `ASSURANCE_BASE` | `assurance_bridge.py` | 保障模块的**基础地址**（不带路径），bridge 用它拼 `/check` / `/verify` |
 | `ASSURANCE_BASE_FALLBACK` | `assurance_bridge.py` | 备用地址。A 同学 cloudflared 重启会换域名，演示前先 `export ASSURANCE_BASE=新域名`，旧域名存进 fallback |
 
-> ⚠️ **演示前必做**：找 A 同学拿最新 URL（他重启 cloudflared 域名就变），
+> ⚠️ **演示前必做**：找 A 同学拿**联调测试用的**最新 URL
+> （他重启 cloudflared 域名就变，那个域名**不是最终部署地址**），
 > `export ASSURANCE_BASE=https://xxx.trycloudflare.com`。
 > 两个变量都没配时：`assurance_bridge` 走 no-op（不推送也不报错），
 > `live_env.py` 的上报会失败并打 warning —— **不会静默丢数据**。

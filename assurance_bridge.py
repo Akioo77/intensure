@@ -35,9 +35,13 @@ logger = logging.getLogger(__name__)
 # 请求超时（秒）— cloudflared 较慢，给 8s
 DEFAULT_TIMEOUT = 8
 
-# 注意：不再硬编码 assurance-agent URL——演示前必须通过环境变量配置：
-#   export ASSURANCE_BASE=https://xxx.trycloudflare.com
-# 原因：A 同学 cloudflared 重启会换域名，硬编码会演示现场掉连。
+# 注意：不再硬编码 assurance-agent URL —— 必须通过环境变量配置：
+#   export ASSURANCE_BASE=<地址>
+# 原因有二：
+#   ① A 同学 cloudflared 重启会换域名，硬编码会演示现场掉连；
+#   ② 地址分两个阶段 —— **联调测试地址**（临时隧道，现在就要）
+#      与 **最终环境地址**（对方正式部署后给），
+#      两者都用同一个环境变量，切换只改配置不改代码。
 
 # Proxy 探测超时（秒）
 PROXY_PROBE_TIMEOUT = 3
@@ -178,7 +182,8 @@ class AssuranceBridge:
         if not self.base_url:
             logger.warning(
                 "AssuranceBridge 未配置 ASSURANCE_BASE 环境变量，将作为 no-op 运行。"
-                "演示/联调前必须 export ASSURANCE_BASE=https://xxx.trycloudflare.com"
+                "联调/演示前必须 export ASSURANCE_BASE=<对方给的地址>"
+                "（联调测试地址或最终环境地址都行，切换只改配置）"
             )
 
         # 创建带 proxy bypass 的 requests session
@@ -619,7 +624,8 @@ if __name__ == "__main__":
         print("未启用（设 ASSURANCE_BASE 环境变量启用）")
         print()
         print("示例:")
-        print("  ASSURANCE_BASE=https://xxx.trycloudflare.com python3 assurance_bridge.py")
+        print("  ASSURANCE_BASE=<对方给的地址> python3 assurance_bridge.py")
+        print("  （地址分两阶段：联调测试用的临时隧道 / 正式部署后的最终地址，都用这个变量）")
         sys.exit(0)
 
     print(f"健康检查: {'✓' if bridge.health() else '✗'}")

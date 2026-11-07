@@ -280,8 +280,12 @@ REGISTERED → ACTIVE → VIOLATED → DIAGNOSING → [HEALING] → VERIFYING �
 
 ## 📞 联系信息
 
-- **assurance-agent 地址**：`https://westminster-accounts-permitted-pursuant.trycloudflare.com`（⚠️ 临时域名，可能变）
-- **环境变量覆盖**：`ASSURANCE_BASE=https://新地址 bash demo_all.sh`
+- **assurance-agent 地址**：⚠️ 下面这个是**联调测试用的临时隧道**（cloudflared 起的，重启就换），
+  **不是最终部署地址** —— 2026-11-06 复测已是 HTTP 000（隧道失效）。
+  `https://westminster-accounts-permitted-pursuant.trycloudflare.com`
+- **环境变量覆盖**：`ASSURANCE_BASE=<联调测试地址> bash demo_all.sh`
+  （正式地址到位后换成正式地址即可，脚本与代码都不用改）
+- **最终环境地址**：等对方服务正式部署后另行提供，形态待定（固定域名 / 内网 IP / 服务发现）
 - **A 同学**：负责 assurance-agent，故障找他
 
 ---

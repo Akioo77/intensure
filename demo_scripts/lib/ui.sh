@@ -39,9 +39,26 @@ SCRIPT_DIR="${SCRIPT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 PROJECT_DIR="${PROJECT_DIR:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 export SCRIPT_DIR PROJECT_DIR
 
-# 对方保障模块地址（临时域名，变了用 ASSURANCE_BASE 覆盖）
-BASE="${BASE:-${ASSURANCE_BASE:-https://westminster-accounts-permitted-pursuant.trycloudflare.com}}"
+# 对方保障模块地址。
+#
+# ⚠️ 默认值是**联调测试期的临时隧道地址**（cloudflared 起的临时域名，重启就换），
+#    **不是最终部署要用的地址** —— 最终地址要等对方服务正式部署后另行提供。
+#    2026-11-06 复测：这个默认地址已经是 HTTP 000（隧道本身失效，直连也是 000）。
+#    → 联调前请务必 export ASSURANCE_BASE=<对方给的新地址>
+#
+# 优先级：$BASE > $ASSURANCE_BASE > 默认联调临时地址
+# （地址是运行时配置，从测试地址切到正式地址不用改任何代码）
+BASE_DEFAULT="https://westminster-accounts-permitted-pursuant.trycloudflare.com"
+BASE="${BASE:-${ASSURANCE_BASE:-$BASE_DEFAULT}}"
 export BASE
+
+# 用的是默认（很可能已失效）的联调地址 → 脚本据此提醒，别让人以为是网络问题
+if [ -z "${ASSURANCE_BASE:-}" ] && [ "$BASE" = "$BASE_DEFAULT" ]; then
+    BASE_IS_DEFAULT=1
+else
+    BASE_IS_DEFAULT=0
+fi
+export BASE_IS_DEFAULT
 
 # ---------- UI ----------
 ui_title() {
@@ -80,6 +97,16 @@ ui_pause() {
     # 非交互（管道 / CI / 自动化）时直接跳过，否则会挂死
     if [[ -t 0 ]]; then
         read -r -p "  ${C_DIM}按回车继续...${C_RESET}" _ || true
+    fi
+}
+
+# ui_check_base —— 联调脚本开跑前提醒：现在用的地址是不是那个已失效的默认值
+ui_check_base() {
+    if [[ "${BASE_IS_DEFAULT:-0}" == "1" ]]; then
+        ui_warn "当前用的是**默认的联调临时隧道地址**（大概率已失效，2026-11-06 实测 HTTP 000）"
+        ui_step "正式地址要等对方部署后给；联调前请先 export ASSURANCE_BASE=<对方给的新地址>"
+    else
+        ui_kv "保障模块地址" "$BASE"
     fi
 }
 

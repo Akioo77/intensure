@@ -50,7 +50,7 @@
 | 模式 | 触发 | 用途 | 命令 |
 |---|---|---|---|
 | **mock** | `integration_demo.py --mode mock` | 离线端到端验证，不依赖外部模块 | `python integration_demo.py --mode mock` |
-| **real** | `integration_demo.py --mode real` | 调用 A 同学真实 assurance-agent | `python integration_demo.py --mode real --assurance-url https://xxx.trycloudflare.com` |
+| **real** | `integration_demo.py --mode real` | 调用 A 同学真实 assurance-agent | `python integration_demo.py --mode real --assurance-url <对方给的地址>` |
 | **skip** | `integration_demo.py --mode skip` | 只跑采集部分，不上报 | （开发采集模块用） |
 
 > 💡 真实联调必须保证：① A 同学 `cloudflared tunnel` 在跑 ② DNS 域名能解析 ③ `/api/health` 返回 200
