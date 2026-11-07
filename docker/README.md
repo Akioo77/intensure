@@ -29,14 +29,20 @@
 ```bash
 cd ~/projects/intensure
 
-# 国内网络：Docker Hub 直连不通，用镜像源
-docker build --build-arg BASE_IMAGE=docker.m.daocloud.io/library/python:3.12-slim \
+# Colima 的 docker daemon 配了代理（/etc/docker/daemon.json → 192.168.5.2:1082），
+# 所以拉基础镜像能走代理。但**构建过程里的 pip 不会自动继承 daemon 的代理**
+# → 必须显式把代理传进去，否则 pip 会直连 PyPI 超时。
+docker build \
+  --build-arg HTTP_PROXY=http://192.168.5.2:1082 \
+  --build-arg HTTPS_PROXY=http://192.168.5.2:1082 \
+  --build-arg NO_PROXY=localhost,127.0.0.1,192.168.5.0/24 \
   -t intensure:local .
 ```
 
-> `BASE_IMAGE` 是 build-arg，默认 `python:3.12-slim`。
-> Colima 的 docker daemon 本身配了代理（`/etc/docker/daemon.json` → `192.168.5.2:1082`），
-> 所以官方源在代理正常时也能直接拉；代理抖动时换镜像源更稳。
+> 基础镜像是 build-arg（默认 `python:3.12-slim`）。
+> Docker Hub 直连不通时换镜像源：
+> `--build-arg BASE_IMAGE=docker.m.daocloud.io/library/python:3.12-slim`
+> （实测 daocloud 的 manifest 能通，但 blob CDN 503 —— 代理正常时直接用官方源更稳）
 
 ### 2.2 三服务一起起
 

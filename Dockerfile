@@ -34,20 +34,26 @@ RUN apt-get update \
 WORKDIR /app
 
 # 依赖先装（改代码不用重装依赖）
+#
+# ⚠️ PyPI 走代理会**传输截断**（实测索引 JSON 被截 → pip 报
+#    "Unterminated string"），所以这里默认用**国内镜像直连**，
+#    不经过代理。镜像源可用 --build-arg PIP_INDEX_URL 覆盖。
+ARG PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
 COPY requirements.txt ./
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir --retries 8 --timeout 120 \
+        --index-url ${PIP_INDEX_URL} -r requirements.txt
 
 # 代码
 COPY . /app
 
 # 非 root 运行
+# ⚠️ 日志目录必须在切用户**之前**建好并交权 —— 切过去再 mkdir 会
+#    Permission denied（实测构建卡在这）。
 RUN useradd --create-home --shell /bin/bash intensure \
-    && chown -R intensure:intensure /app \
+    && mkdir -p /var/log/intensure /tmp \
+    && chown -R intensure:intensure /app /var/log/intensure \
     && chmod +x docker/start-services.sh
 USER intensure
-
-# 状态文件与日志的落点（容器内 /tmp，与 state_server 的 --state-file 一致）
-RUN mkdir -p /var/log/intensure /tmp
 
 EXPOSE 8080
 
