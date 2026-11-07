@@ -24,6 +24,17 @@
 
 ## 二、起法
 
+### 2.0 先说三个实测踩过的坑
+
+1. **本机没有 compose 插件**（只有 `docker` CLI）→ 要么装 compose 插件，要么用下面的
+   `docker run` 等价命令。
+2. **宿主 VM 的 os-ken 控制器占着 6653、state_server 占着 8080** → 直接映射会
+   `address already in use`。要么先 `bash stop_all.sh` 停掉 VM 那套，要么换端口
+   （`-p 18081:8080 -p 16653:6653`）。
+3. **构建时 pip 不继承 docker daemon 的代理** → 必须显式传 `--build-arg HTTP_PROXY=...`；
+   而且**代理会把 PyPI 索引 JSON 传输截断**（pip 报 "Unterminated string"），
+   所以 pip 走国内镜像直连更稳（见 2.1）。
+
 ### 2.1 构建镜像
 
 ```bash
@@ -39,10 +50,12 @@ docker build \
   -t intensure:local .
 ```
 
-> 基础镜像是 build-arg（默认 `python:3.12-slim`）。
-> Docker Hub 直连不通时换镜像源：
-> `--build-arg BASE_IMAGE=docker.m.daocloud.io/library/python:3.12-slim`
-> （实测 daocloud 的 manifest 能通，但 blob CDN 503 —— 代理正常时直接用官方源更稳）
+> 基础镜像与 PyPI 源都是 build-arg：
+> `BASE_IMAGE`（默认 `python:3.12-slim`）、`PIP_INDEX_URL`（默认清华源，
+> 因为代理会截断 PyPI 索引）。
+>
+> 实测：官方源经 daemon 代理拉基础镜像可以；国内镜像源（daocloud）manifest 能通但
+> **blob CDN 503**，代理正常时用官方源更稳。
 
 ### 2.2 三服务一起起
 
@@ -58,22 +71,43 @@ docker compose logs -f intensure
 | `dashboard` | 18080 | 静态看板 + 反代采集层 API（同源，无跨域问题）|
 
 > ⚠️ 本机**没装 compose 插件**（只有 `docker` CLI）→ 用 `docker-compose` 独立版，
-> 或手工跑等价命令：
+> 或手工跑等价命令（**已实测跑通**）：
 > ```bash
+> docker network create intensure-net
+>
 > docker run -d --name intensure-pg --network intensure-net \
 >   -e POSTGRES_DB=intensure_dev -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=postgres \
 >   -v "$PWD/docs/database-schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro" \
 >   -v "$PWD/docs/access-control-grants.sql:/docker-entrypoint-initdb.d/02-grants.sql:ro" \
 >   postgres:16
 >
-> docker run -d --name intensure-collector --network intensure-net \
->   -p 8080:8080 -p 6653:6653 --cap-add NET_ADMIN \
+> # ⚠️ --network-alias intensure：nginx 反代要按这个名字找采集层
+> docker run -d --name intensure-collector --network intensure-net --network-alias intensure \
+>   -p 18081:8080 -p 16653:6653 --cap-add NET_ADMIN \
 >   -e INTENSURE_DB_DSN="postgresql://intensure_user:intensure_dev_pwd@intensure-pg:5432/intensure_dev" \
 >   -e ASSURANCE_DB_DSN="postgresql://assurance_user:assurance_dev_pwd@intensure-pg:5432/intensure_dev" \
 >   intensure:local
+>
+> docker run -d --name intensure-dashboard --network intensure-net -p 18080:80 \
+>   -v "$PWD/dashboard.html:/usr/share/nginx/html/dashboard.html:ro" \
+>   -v "$PWD/docker/nginx.conf:/etc/nginx/conf.d/default.conf:ro" \
+>   nginx:alpine
 > ```
 
-### 2.3 把拓扑接进容器
+### 2.3 实测验证结果（2026-11-08）
+
+| 检查项 | 结果 |
+|---|---|
+| postgres 初始化 | ✅ 5 个业务 schema + `intensure` 18 张表 + `assurance_user` **107 条授权**（与线上一致）|
+| 采集层容器 | ✅ `healthy`（HEALTHCHECK 过）、`/api/health` → `version 3.22.0` |
+| 控制器持续写库 | ✅ `intensure.network_state` 的 version 每 5s +1（实测 34 → 37 → 47）|
+| 看板 | ✅ 首页 HTTP 200 |
+| nginx 反代 | ✅ `/api/health`、`/api/state` 均 200（走容器网络内的 `intensure` 别名）|
+
+> 💡 查"容器里的库有没有数据"时注意**时序**：控制器第一次写库在启动约 5 秒后，
+> 刚起就查会看到 0 行 —— 那是还没写，不是写不进去。
+
+### 2.4 把拓扑接进容器
 
 容器里的控制器**等交换机来连**（OpenFlow 是反向连接模型），所以要起一个
 **把控制器指向容器**的拓扑：
@@ -91,7 +125,7 @@ colima ssh -- bash -lc 'cd /path/to/intensure && \
 > 如果拓扑在**对方机器**上：对方起 Mininet 时指向我们容器的可达地址
 > （容器要有对外可达的端口映射，或走 host 网络 / 反向隧道）。
 
-### 2.4 联调时记得加 `--no-assurance`
+### 2.5 联调时记得加 `--no-assurance`
 
 容器内**不会**起 `assurance_mvp.py`（本地 mock 保障模块）——
 它写的表正是对方真模块要写的，联调时两个进程抢写会污染对方看到的记录。
