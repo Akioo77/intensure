@@ -201,7 +201,7 @@ v3.21.0 起配置层、只读模式、`flow_rule_write` 开关、能力自检（
 
 - 状态每 5s 全量写库；`state_history` 保留 **7 天**，`port_events` / `link_events` /
   `consistency_checks` / `probe_results` / `audit_log` 保留 **30 天**
-- 历史分区由 systemd timer 清理：`OnCalendar=04:07` + `RandomizedDelaySec=300`（随机延迟 0~5 分钟，实测 2026-11-06 04:09 触发）；2026-11-06 已装到 VM 并验证 `enabled` + `active`
+- 历史分区由 systemd timer 清理：`OnCalendar=04:07` + `RandomizedDelaySec=300`（随机延迟 0~5 分钟）；**已实测自动触发**（2026-11-06 04:09、2026-11-07 04:11 两次，`Result=success`）
 - 主机表按 TTL（默认 15 分钟）淘汰，不会无限增长
 
 ---
@@ -283,6 +283,14 @@ bash demo_scripts/ovs_attribution_demo.sh  # 证据链演示（故障 → 设备
 - [ ] `08` → `status=RECOVERED`，`healing_verdict=SUCCESS`
 - [ ] 我方侧：`intensure.port_events` 里有对应时间戳的 `link_down` / `link_up` 记录
 - [ ] 我方侧：`GET /api/intensure/v1/state/current` 的 `down_ports` 在故障窗口内非空
+
+> 💡 **这 8 条判据已在我们这边本地逐条实测过**（2026-11-06/07），
+> 不用等联调才知道成不成。实测样例：
+> - 注入前 `down_ports = []`；注入 `link_down @ s1-eth2` 后 `down_ports = ['s1:eth2']`
+> - `down_ports` 用的是**契约短标签**（`s1:eth2`，冒号分隔），
+>   不是 OpenFlow 原始端口名（`s1-eth2`）—— 对方按短标签匹配
+> - 端口事件落库：`intensure.port_events` 里 `s1-eth2 | link_down` / `link_up` 带精确时间戳
+> - 操作审计落库：`shared.audit_log` 里 `inject_fault` / `clear_faults` 各一条
 
 ---
 
