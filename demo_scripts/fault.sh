@@ -29,7 +29,11 @@ BACKBONE="s1-eth3 s2-eth3"   # 骨干链路接口（演示默认目标）
 R=$'\033[31m'; G=$'\033[32m'; Y=$'\033[33m'; B=$'\033[34m'; N=$'\033[0m'; BOLD=$'\033[1m'
 
 run_vm() {
-  colima ssh -- bash -c "sudo $VM_SCRIPT $*"
+  # ⚠️ 不能写成 bash -c "sudo $VM_SCRIPT $*" —— $* 不转义：
+  #    带空格的参数会被拆开（"s1 eth3" → 两个参数），
+  #    带 ; | & 的参数会被远端 shell 当命令执行。
+  # 正确姿势：脚本路径当 $0，参数原样用 "$@" 传进去。
+  colima ssh -- bash -c 'sudo "$0" "$@"' "$VM_SCRIPT" "$@"
 }
 
 ACTION="${1:-}"
