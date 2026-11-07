@@ -179,6 +179,48 @@ postgresql://assurance_user:<密码>@<主机>:5432/intensure_dev
 > 📌 这一条**建议在联调前就问清楚**，别等跑 `01_register_intent.sh` 才发现 404/400。
 > mock 三套现在都能响应（2026-11-07 已补齐），所以**我们这边随时能自测**。
 
+### 2.5 数据库也是联调通道 —— 而且联调前有一件事必须做
+
+联调不只走 HTTP，还有**共享数据库**这条通道。三方表归属：
+
+| 通道 | 谁写 | 谁读 | 表 |
+|---|---|---|---|
+| ① 我们的观测 | 采集模块（`intensure_user`） | 对方 | `intensure.*`（network_state / state_history / port_events / probe_results）|
+| ② 对方的判定 | 对方（`assurance_user`） | 我们 | `assurance.*`（consistency_checks / diagnoses / healing_intents / intent_states）|
+| ③ 公共 | 双方 | 双方 | `shared.*`（audit_log / module_health / schema_version）|
+
+**权限现状（实测，全部就位）**：
+
+- 对方 `assurance_user`：`assurance.*` 14 张逻辑表全套 DML（**107 条授权**）；
+  `shared.audit_log` 只有 INSERT+SELECT（**append-only 在权限层成立**）；
+  `shared.module_health` INSERT/SELECT/UPDATE；`shared.schema_version` 只读
+- 我们 `intensure_user`：能读对方写的 `assurance.*`（联调时用来核对对方落库结果）
+
+**🔴 联调前必须做的两件事**：
+
+**① 采集层要用 `--no-assurance` 起** —— 我们自带的 `assurance_mvp.py`（本地 mock 保障模块）
+写的正是**对方要写的表**（`consistency_checks` / `diagnoses` / `intent_states`）。
+不关掉的话两个进程抢写同一张表，对方会看到我们的假记录、假状态机轨迹。
+
+```bash
+bash start_all.sh --no-assurance
+```
+
+**② 清掉我们 mock 留下的记录** —— 那张表里现在有 **13217 行**是 mock 写的
+（`intent_id` 形如 `live-AC-demo-001/002`），`assurance.diagnoses` 里 332 行也是。
+表里**没有 source 字段能区分谁写的**，只能按 intent_id 区分：
+
+```sql
+-- 只删我们自己 mock 写的那几行（对方的数据不动）
+DELETE FROM assurance.consistency_checks WHERE intent_id LIKE 'live-AC-demo-%';
+DELETE FROM assurance.intent_states    WHERE intent_id LIKE 'live-AC-demo-%';
+DELETE FROM assurance.diagnoses       WHERE intent_id LIKE 'live-AC-demo-%';
+```
+
+**联调时怎么验 DB 通道**：对方 check 一次 → `assurance.consistency_checks` 应该多一行
+（`intent_id` = 联调用的那个 intent，不是 `live-AC-demo-*`）；
+我们这边 `GET /api/intensure/v1/state/current` 的 `down_ports` 在故障窗口内非空。
+
 ---
 
 ## 3. 我们的局限与边界（请对方心里有数）
@@ -270,6 +312,9 @@ bash 00_pre_check.sh
 
 检查：Colima VM / Dashboard 隧道 / 采集层服务 / **对方保障模块** / Mininet 环境。
 预期输出 `4/5` 或 `5/5` 通过（**唯一可能不通的就是对方的联调测试地址**）。
+
+> ⚠️ **联调时采集层要用 `bash start_all.sh --no-assurance` 起** ——
+> 原因见 §2.5①：我们自带的本地 mock 保障模块会跟对方抢写 `assurance.*` 那几张表。
 
 ### 5.2 全链路（9 步，每步都有产物）
 

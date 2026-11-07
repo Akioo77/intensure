@@ -28,12 +28,24 @@ DB_NAME="intensure_dev"
 
 WITH_LIVE=0
 WITH_MININET=1
+WITH_ASSURANCE=1
 for arg in "$@"; do
     case "$arg" in
         --with-live) WITH_LIVE=1 ;;
         --no-mininet) WITH_MININET=0 ;;
+        --no-assurance) WITH_ASSURANCE=0 ;;
         --help|-h)
-            echo "用法: bash start_all.sh [--with-live] [--no-mininet]"
+            echo "用法: bash start_all.sh [--with-live] [--no-mininet] [--no-assurance]"
+            echo ""
+            echo "  --with-live     额外起 live_env.py（周期探测 + 上报）"
+            echo "  --no-mininet    不起 Mininet（只要控制器 + API）"
+            echo "  --no-assurance  不起本地 mock 保障模块 assurance_mvp.py"
+            echo ""
+            echo "  ⚠️ 【联调时必须加 --no-assurance】"
+            echo "     assurance_mvp.py 会写 assurance.consistency_checks / diagnoses /"
+            echo "     intent_states —— 这些正是对方真实保障模块要写的表。"
+            echo "     联调时两个进程抢写同一张表，对方会看到我们的 mock 记录"
+            echo "     （intent_id 形如 live-AC-demo-001），状态机轨迹也是假的。"
             exit 0
             ;;
     esac
@@ -164,9 +176,15 @@ fi
 
 # ============ 4. 保障模块 / live_env ============
 step "4/4 启动保障模块 MVP + 可选 live_env"
-tmux new-window -t "$SESSION" -n assurance -c "$PROJECT_DIR" \
-    "python3 -u assurance_mvp.py 2>&1 | tee /tmp/assurance.log"
-ok "保障模块已起（窗口 assurance）"
+if [ "$WITH_ASSURANCE" -eq 1 ]; then
+    tmux new-window -t "$SESSION" -n assurance -c "$PROJECT_DIR" \
+        "python3 -u assurance_mvp.py 2>&1 | tee /tmp/assurance.log"
+    ok "保障模块已起（窗口 assurance）"
+else
+    # ⚠️ 联调时必须这样：assurance_mvp 写的表正是对方真模块要写的表
+    warn "未起本地 mock 保障模块（--no-assurance）—— 联调时的正确姿势"
+    info "assurance.consistency_checks / diagnoses / intent_states 留给对方写"
+fi
 
 if [ "$WITH_LIVE" -eq 1 ]; then
     tmux new-window -t "$SESSION" -n live -c "$PROJECT_DIR" \
