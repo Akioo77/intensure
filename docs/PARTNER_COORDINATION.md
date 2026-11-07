@@ -154,6 +154,31 @@ postgresql://assurance_user:<密码>@<主机>:5432/intensure_dev
 2. 对方按 §1.3 的 5 个契约路径调我们，返回结构以
    `docs/cross-module-api-contract.md` 为准。
 
+### 2.4 ⚠️ 最容易在第一步就 404 的地方：**接口形态有三套并存**
+
+2026-11-07 对账时发现：仓库里关于"对方的接口"有**三种写法**，前缀和动词都不一样。
+我们脚本与 `assurance_bridge.py` 用的是**第二套**（2026-09-12 真实联调跑通过的那套），
+但契约文档 §5.4 写的是**第三套**，而我们自带的 mock 原本实现的是**第一套**。
+
+| 动作 | ② 我们脚本 / bridge 实调（09-12 真实联调验证过） | ③ 契约文档 §5.4 的写法 | ① mock 原实现 |
+|---|---|---|---|
+| 注册意图 | `POST /api/v1/assurance/register`<br>body：`{"intent":{...},"deployment_id":...,"devices":[...]}` | `POST /api/assurance/v1/intents/register` | `POST /api/v1/assurance/register-request`<br>body：`{"request":{"child_intents":[...]}}`（注册一棵**意图树**） |
+| 激活 | `POST /api/v1/assurance/activate` | `POST /api/assurance/v1/intents/{id}/activate` | 同② |
+| 一致性检查 | `POST /api/v1/assurance/check` | `GET /api/assurance/v1/checks?intent_id=` | 同② |
+| 根因诊断 | `POST /api/v1/assurance/diagnose?intent_id=` | `POST /api/assurance/v1/diagnoses` | 原先没有（已补） |
+| 自愈决策 | `POST /api/v1/assurance/heal?intent_id=` | `POST /api/assurance/v1/healings` | 原先没有（已补） |
+| 验证恢复 | `POST /api/v1/assurance/verify` | `POST /api/assurance/v1/healings/{id}/execute` | 同② |
+
+**请对方明确回答一句**：0.4.0 线上实际暴露的是哪一套？
+- 若是我们用的 **②**（扁平 `/api/v1/assurance/...`）→ 直接联调，无改动
+- 若是契约文档里的 **③**（RESTful `/api/assurance/v1/...`）→ 我们改 `assurance_bridge.py`
+  与 8 个演示脚本的路径（**是改我们，不是改对方**），半天工作量
+- 若注册接口其实是"注册意图树"那种形态（①）→ 我们要改注册请求体结构，
+  同时确认 `child_intent_id` 与 `intent_id` 的对应关系
+
+> 📌 这一条**建议在联调前就问清楚**，别等跑 `01_register_intent.sh` 才发现 404/400。
+> mock 三套现在都能响应（2026-11-07 已补齐），所以**我们这边随时能自测**。
+
 ---
 
 ## 3. 我们的局限与边界（请对方心里有数）
@@ -226,6 +251,7 @@ v3.21.0 起配置层、只读模式、`flow_rule_write` 开关、能力自检（
 |---|---|
 | ⚠️ **① 联调测试地址**（新起一个临时隧道即可） | §2.1，现在唯一的硬阻塞 |
 | ⚠️ **② 最终环境地址**（正式部署后长期使用） | §2.1，形态（固定域名 / 内网 IP / 服务发现）请先告知，我们据此定接入方式 |
+| 🔴 **接口形态确认（哪一套？）** | §2.4 —— 仓库里有三套写法（路径前缀 + 动词都不一样）。**这是最容易在第一步就 404 的地方**，建议联调前就问清；确认是我们用的那套就不用改代码 |
 | ⚠️ **`assurance_user` 密码回传 + 连通性确认** | 授权已就位，只差密码 |
 | 契约版本号确认（期望 0.4.0） | 不一致我们改期望值，但请先告知 |
 | 对方的 intent 语义 / `expected_state` 结构 | 我们构造 ActualState 时要用到 |
@@ -268,10 +294,41 @@ bash 99_reset.sh              # 清理
 > 导致整条链一跑就报 `command not found`）——**现在可以正常跑了**。
 
 ### 5.3 不依赖对方的本地闭环（对方一时给不了地址时也能演示我们这侧）
+
 ```bash
 bash demo_scripts/demo_db_pipeline.sh     # 8 步闭环，纯本地
 bash demo_scripts/ovs_attribution_demo.sh  # 证据链演示（故障 → 设备侧日志 → 事件 → 对齐）
 ```
+
+**⭐ 联调前的自检（强烈建议先做这一步）** —— 用本地 mock 把 8 步链路先跑一遍，
+这样联调时**出问题能立刻分清是"我方脚本"还是"对方服务"**：
+
+```bash
+cd ~/projects/intensure
+python3 mock_assurance_server.py --port 8000 &     # 本地 mock 保障模块（version 0.4.0）
+export ASSURANCE_BASE=http://127.0.0.1:8000
+cd demo_scripts
+for s in 01_register_intent 02_collect_state 03_check_baseline 04_inject_fault \
+         05_check_violated 06_diagnose 07_heal 08_verify_recovered; do
+  bash $s.sh
+done
+```
+
+期望输出（2026-11-07 实测，8 步全绿）：
+
+```
+01 → register 成功: REGISTERED  →  activate 成功（ACTIVE）
+02 → ActualState 已保存
+03 → 基线正常，状态: ACTIVE
+04 → 故障态已保存
+05 → 检测到违规！状态: VIOLATED（violations 3 条）
+06 → 诊断完成，状态: DIAGNOSING
+07 → 自愈决策: ALLOW
+08 → 恢复成功！状态: RECOVERED  ✅ 端到端闭环演示完成！
+```
+
+> mock 已于 2026-11-07 补齐到与脚本一致（单意图注册 / query 参数 / diagnose / heal），
+> 所以它现在可以当作**联调前的回归工具**，不只是离线演示。
 
 ### 5.4 联调成功判据（建议双方按这个验收）
 
