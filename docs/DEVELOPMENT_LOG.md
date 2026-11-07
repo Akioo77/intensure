@@ -21,7 +21,7 @@ intensure 是意图驱动网络管理系统的**采集层**（Mininet + OVS + os
 | 代码版本 | v3.22.0 | `git describe --tags` |
 | 自营 REST 端点 | **24 个** | `grep -c "^@app.route" state_server.py` |
 | 其中跨模块契约端点 | 5 个 | `/api/intensure/v1/*`（v3.20.0 新增） |
-| 单元测试 | **301 例全绿** | VM 内 `pytest`（裸跑即可，见 §3.2）；Mac 本地同样 301 例（2026-11-06 实测） |
+| 单元测试 | **309 例全绿** | VM 内 `pytest`（裸跑即可，见 §3.2）；Mac 本地同源测试文件，同样 309 例（2026-11-08 实测） |
 | CI 跑的测试文件 | **18 个** | `.github/workflows/ci.yml` |
 | 代码风格 | `ruff check .` 全过 | 规则 E/W/F，E402 豁免（见 §8） |
 | 环境配置 | `env.json` / `env.yaml`，`$INTENSURE_ENV_FILE` 覆盖 | v3.21.0 起环境差异在配置里，不在代码里 |
@@ -221,7 +221,7 @@ python3 env_doctor.py --json     # 机器可读（给脚本用）
 | 事项 | 工作量 | 说明 |
 |---|---|---|
 | Dashboard 单文件 SPA 拆分 | 3-5 天 | 1600+ 行 HTML/JS/CSS 混在一起。**演示是加分项，拆错会伤演示**，建议演示后再做 |
-| Docker 化 | 3 天 | `Dockerfile` + compose（intensure / postgres / dashboard 三服务） |
+| Docker 化 | ✅ 已完成 | **2026-11-07 落地**：`Dockerfile` + compose（intensure / postgres / dashboard 三服务）+ `docker/README.md`。⚠️ **还差**：CI 里的 `docker build` 验证还没接 |
 | 真实园区迁移路径文档 | ✅ 已完成 | 2026-11-03 并入 `INTEGRATION_GUIDE.md` §6.7：`env.json` 逐字段对照表、只读模式的真实含义、验证清单、回退方案、6 条风险。
   ⚠️ **同时查出当前最大的接入风险**（见 §7「控制器不受只读模式约束」）|
 | Dashboard 加联调统计面板 | ✅ 已完成 | **2026-11-05 由 OpenClaw 实现（v3.19.1）**：上报成功率 / 故障注入次数 / 环境能力等，数据源 `/metrics` + `/api/capabilities` |
@@ -385,7 +385,7 @@ python3 env_doctor.py --json     # 机器可读（给脚本用）
    但 PATH 里 `python3` 优先命中 `~/.local/bin/python3` = **3.13.18**。
    ⚠️ **环境迁移后 `/usr/local/bin/python3` 已不存在**（2026-11-06 实测），别再按老路径找。
    VM 里的 **3.12.3** 是权威环境；**Mac 上也能跑** —— 用 `~/tools/testenv/bin/pytest`（3.13.18）
-   实测 **301 例全绿**（2026-11-06）。
+   实测 **309 例全绿**（2026-11-08）。
    但 `pip install --user` 会被 PEP 668 拒（externally-managed-environment），**别在 Mac 上临时装包**
 5. `eventlet.monkey_patch()` 必须在 `import os_ken` 之前 → ruff 的 **E402 不能开**
 6. `rsync --delete` 会删掉 alembic 旧 revision → multiple heads

@@ -304,21 +304,37 @@ def test_probe_post_records():
     """POST /api/probe 记录连通性并返回 ok。"""
     if _skip_if_no_flask():
         return
-    state_history.HISTORY["connectivity"] = []
-    c = _client()
-    r = c.post("/api/probe", json={"reachable": ["10.0.0.4"],
-                                  "unreachable": [],
-                                  "loss_pct": 0.0,
-                                  "latency_ms": 12})
-    check("状态码 200", r.status_code == 200, r.status_code)
-    d = r.get_json()
-    check("status=ok", d["status"] == "ok", d)
-    check("recorded=True", d["recorded"] is True, d)
-    arr = state_history.get("connectivity")
-    check("历史里记了 1 条", len(arr) == 1, arr)
-    check("reachable 正确入库", arr[0]["reachable"] == ["10.0.0.4"], arr)
-    check("latency 正确入库", arr[0]["latency_ms"] == 12, arr)
-    state_history.HISTORY["connectivity"] = []
+    # ⚠️ 隔离历史文件（同本文件其他用例的写法）—— 端点会按 mtime 重读文件，
+    #    且 state_history.load() 是**合并**语义（按 time 去重）。
+    #    不隔离的话，磁盘上 /tmp/network_history.json 的旧记录会被合并回来，
+    #    断言「恰好 1 条」在本地复跑必挂 —— 而 CI 每次是新机器所以一直绿（假绿）。
+    import tempfile
+    old_file = state_history.HISTORY_FILE
+    tmp = tempfile.NamedTemporaryFile(prefix='_hist_', suffix='.json', delete=False)
+    tmp.close()
+    state_history.HISTORY_FILE = tmp.name
+    try:
+        state_history.HISTORY["connectivity"] = []
+        c = _client()
+        r = c.post("/api/probe", json={"reachable": ["10.0.0.4"],
+                                      "unreachable": [],
+                                      "loss_pct": 0.0,
+                                      "latency_ms": 12})
+        check("状态码 200", r.status_code == 200, r.status_code)
+        d = r.get_json()
+        check("status=ok", d["status"] == "ok", d)
+        check("recorded=True", d["recorded"] is True, d)
+        arr = state_history.get("connectivity")
+        check("历史里记了 1 条", len(arr) == 1, arr)
+        check("reachable 正确入库", arr[0]["reachable"] == ["10.0.0.4"], arr)
+        check("latency 正确入库", arr[0]["latency_ms"] == 12, arr)
+    finally:
+        state_history.HISTORY["connectivity"] = []
+        state_history.HISTORY_FILE = old_file
+        try:
+            os.unlink(tmp.name)
+        except OSError:
+            pass
 
 
 def test_probe_post_empty_body():

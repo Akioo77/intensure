@@ -87,6 +87,10 @@
 ---
 
 ### P3-2 · Docker 化
+
+**状态**: ✅ **已落地**（2026-11-07）—— `Dockerfile` + `docker-compose.yml` + `docker/`（nginx.conf、start-services.sh、README.md）。
+⚠️ **还差**：下面第 3 步「CI 验证（`docker build .` + `docker run smoke_test`）」**还没接进 ci.yml**。
+
 **问题**:部署 = 手动 colima + 手动 SSH + 手动 sudo。新机器复现要 30+ 分钟。
 
 **怎么开发**:
@@ -487,7 +491,7 @@ _下次更新:每完成一项,把该项从原优先级移到底部"已完成"段
 - 待办 **4 → 2**，已完成 **16 → 18**；总览表与工作量汇总表同步
 - P3-4（Metrics / Observability）与 P3-3（跨模块 API 版本管理）从待办段移到已完成段，
   并写清实现方式与实测结论（详见 `CHANGELOG.md` v3.18.0 条目）
-- 剩余待办：**P2-2 dashboard 单文件 SPA 拆分**、**P3-2 Docker 化**
+- 剩余待办：**P2-2 dashboard 单文件 SPA 拆分**（**P3-2 Docker 化已于 2026-11-07 落地**，仅 CI 里的 `docker build` 验证未接）
 
 **2026-10-29 · 文档同步至当前实现状态**
 

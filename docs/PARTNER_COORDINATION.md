@@ -9,7 +9,7 @@
 
 ## 0. 一分钟版
 
-我们（采集模块）**已经可联调**：24 个 REST 端点、5 个跨模块契约端点、301 例单测全绿、
+我们（采集模块）**已经可联调**：24 个 REST 端点、5 个跨模块契约端点、309 例单测全绿、
 CI 在 GitHub 上全绿、故障注入 → 一致性判定 → 根因诊断 → 恢复的**完整闭环在本地已跑通**
 （8 步脚本，实测注入故障 → 2 条 VIOLATED → 根因 `port_failure` 置信度 0.85 → 恢复 `pass=2`）。
 
@@ -50,7 +50,7 @@ CI 在 GitHub 上全绿、故障注入 → 一致性判定 → 根因诊断 → 
 | 代码版本 | v3.22.0 | `git describe --tags` |
 | 自营 REST 端点 | **24 个** | `grep -c "^@app.route" state_server.py` |
 | 其中跨模块契约端点 | **5 个** | `/api/intensure/v1/*` |
-| 单元测试 | **301 例全绿** | VM 内 `pytest` / GitHub CI |
+| 单元测试 | **309 例全绿** | VM 内 `pytest` / GitHub CI |
 | CI | GitHub Actions **success** | 每次 push 必跑 |
 | 契约路径版本 | 我方 `1.0` | `GET /api/capabilities` |
 | 期望对方契约版本 | `0.4.0` | `assurance_bridge.DEFAULT_EXPECTED_VERSION` |
@@ -285,7 +285,6 @@ v3.21.0 起配置层、只读模式、`flow_rule_write` 开关、能力自检（
 | `AgentExec`（生产网禁 SSH 时的远端 agent 通道） | 🟡 中 | 真实环境形态 |
 | SNMP / CLI 驱动在真机上的输出适配 | 🟡 中 | 对方的 SNMP 团体名 / CLI 样例 |
 | Dashboard 单文件拆分（1600+ 行） | 🟢 低 | 演示之后做，拆错伤演示 |
-| Docker 化 | 🟢 低 | 无 |
 
 ### 4.2 需要对方推进 / 提供的
 
