@@ -131,8 +131,9 @@ CI 在 GitHub 上全绿、故障注入 → 一致性判定 → 根因诊断 → 
 
 - 账号：`assurance_user`
 - 库：`intensure_dev`
-- 授权范围：`assurance` schema 的**全部 14 张逻辑表**（含分区子表共 **107 条授权**，
-  实测每张表都是 SELECT / INSERT / UPDATE / DELETE 四件套）
+- 授权范围：`assurance` schema 的**全部 20 张表**（18 张普通表 = 12 逻辑表 + 6 个分区子表，
+  加 2 张分区父表），共 **80 条授权** —— 实测每张表都是 SELECT / INSERT / UPDATE / DELETE 四件套
+  （2026-11-06 `information_schema.role_table_grants` 实测：20 张表 × 4 件套 = 80）
 - **现状：授权已经在库里就位，对方拿到密码即可直接连**
 
 请对方确认收到了密码；连接串形如：
