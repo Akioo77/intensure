@@ -41,17 +41,22 @@
 
 ## 【三、6 个 schema · 2 分钟】
 
-> 具体做法是 **5 个 PostgreSQL schema**：
+> 具体做法是 **6 个 PostgreSQL schema**：
 >
 > | schema | 表数 | 角色 |
 > |---|---|---|
 > | `intensure` | 18 | **采集层**（我做的）|
 > | `translation` | 3 | 翻译层 |
 > | `implementation` | 5 | 实现层（**核心权威表**：已部署的策略就在这）|
-> | `assurance` | 11 | 保障层（**重点投入**）|
+> | `assurance` | 20 | 保障层（**重点投入**）|
 > | `shared` | 7 | 公共（审计 + 心跳）|
+> | `public` | 1 | 默认 schema（兼容旧路径）|
 >
-> 整套 DDL 加起来 **545 行**，**43 张表**。
+> （表数含分区子表与分区父表；`intensure` 18 = 2 基础 + 12 分区子表 + 4 分区父表）
+>
+> 整套 DDL 加起来 **791 行**，**26 张逻辑表 + 21 个分区子表（物理表 47 张）**。
+> 数字来源：`docs/database-schema.sql`（791 行 / CREATE TABLE 54 处 / PARTITION BY 7 处 / CREATE SCHEMA 6 处）
+> + VM 内 `pg_class` 实测（2026-11-10）。
 
 ---
 
@@ -104,7 +109,7 @@
 
 ## 【六、保障模块 MVP · 4 分钟】
 
-> 我写了 `assurance_mvp.py`（350 行）：
+> 我写了 `assurance_mvp.py`（540 行）：
 >
 > - 每 5 秒读 `intensure.network_state`（当前实际状态）
 > - 读 `implementation.policies`（期望状态）
@@ -394,7 +399,7 @@
 
 > A: 三层闸门：
 >
-> 1. **单元测试 211 例**（`test_*.py`），CI 里每次 push 都跑
+> 1. **单元测试 338 例**（`test_*.py`，2026-11-10 实测），CI 里每次 push 都跑
 > 2. **CI 闸门**：ruff 风格检查 + pytest 全绿才合入 master。我们被它拦过好几次 ——
 >    有一次 43 个错误全是我自己新加的 alembic 文件（生成器把 SQL 长行原样灌进 .py），
 >    还有一次是 5 处 E501。**CI 不是形式，是真的会拦人**
@@ -456,13 +461,13 @@
 >
 > 1. **目标**：把 4 个智能体的数据持久化 + 约定好数据归属和接口
 > 2. **方法**：6 schema + 4 模块用户 + A+B 保留策略 + 选择性写库 + 端口标签
-> 3. **结果**：43 张表 + 完整 MVP 闭环跑通（故障 → 检测 → 诊断 → 证据 → 恢复 → 通过）
+> 3. **结果**：47 张物理表 + 完整 MVP 闭环跑通（故障 → 检测 → 诊断 → 证据 → 恢复 → 通过）
 > 4. **未做**：自愈触发、跨智能体对接文档、录制视频
 >
 > 核心交付物：
 >
 > - `docs/database-architecture.md`（架构原则）
-> - `docs/database-schema.sql`（545 行 DDL）
+> - `docs/database-schema.sql`（791 行 DDL）
 > - `docs/access-control-matrix.md`（权限矩阵）
 > - `docs/cross-module-api-contract.md`（API 契约）
 > - `docs/retention-policy.md`（保留策略）
