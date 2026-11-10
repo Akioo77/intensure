@@ -269,7 +269,8 @@ python3 env_doctor.py --json     # 机器可读（给脚本用）
 3. **共享库权限** —— `assurance_user` 密码 + 5 张 `assurance.*` 表的读写授权
    （我们已经替他建好了，历史核对文档在 `docs/partner_schema_*.md`）
    > 📌 **2026-11-10 对方答复：本轮不接入共享数据库** —— 保持 HTTP 对接 + 各自持久化，
-   > 指定表落库后续再推进。表结构与授权**已就位**（`assurance.*` 80 条授权实测通过），届时不用改代码。
+   > 指定表落库后续再推进。表结构与授权**已就位**
+   > （`assurance_user` 在 `assurance` schema 内 80 条授权、全库共 107 条，均实测通过），届时不用改代码。
 
 ### 5.0 2026-11-10 对方答复后，已关闭的悬念 ✅
 
@@ -624,6 +625,7 @@ python3 env_doctor.py --json     # 机器可读（给脚本用）
 | `CHANGELOG.md` | 每个版本做了什么（v1.0 ~ v3.20，按版本号降序） |
 | `REQUIREMENTS.md` | 职责划分、模块边界、测试清单 |
 | `docs/cross-module-api-contract.md` | **跨模块契约**（§4.1/§5.1 端点定义、§5.6 契约 vs 实现映射、§5.7 版本协商） |
+| `docs/DB_ACCESS_HANDOFF.md` | **数据库交接**（库在本地的事实 / 对方接库的隧道+授权+验收步骤，含实测记录）|
 | `docs/architecture.html` / `.png` | 一张图看懂三个智能体怎么连、缺什么 |
 | `docs/OPTIMIZATION.md` | 优化清单：什么已完成、什么待做 |
 | `docs/our_tables_and_methods.md` | 我们写哪些表、读不读别人的表 |

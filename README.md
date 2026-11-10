@@ -424,7 +424,8 @@ intensure/
 │   ├── CHANGELOG.md            # 版本历史（v1.0 ~ v3.22.0）
 │   └── docs/                   # 优化清单 / 架构 / 契约 / 汇报材料
 │       ├── DEVELOPMENT_LOG.md  # ⭐ 开发进度 / 待办 / 交接（先看这个）
-│       └── PARTNER_COORDINATION.md  # ⭐ 给保障模块的联调协作说明（进度/需配合/局限/待开发）
+│       ├── PARTNER_COORDINATION.md  # ⭐ 给保障模块的联调协作说明（进度/需配合/局限/待开发）
+│       └── DB_ACCESS_HANDOFF.md  # ⭐ 数据库交接（库在本地的事实 / 对方接库的隧道+授权+验收步骤）
 └── legacy/                     # 历史探索材料（不接入主流程）
     ├── intent_registry.py / conflict_detector.py / conflict_resolver.py
     ├── healing_engine.py / healing_intent_generator.py

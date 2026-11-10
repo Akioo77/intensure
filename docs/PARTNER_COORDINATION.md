@@ -203,7 +203,7 @@ postgresql://assurance_user:<密码>@<主机>:5432/intensure_dev
 bash start_all.sh --no-assurance
 ```
 
-**② 清掉我们 mock 留下的记录** —— 那张表里现在有 **13217 行**是 mock 写的
+**② 清掉我们 mock 留下的记录** —— 那张表里现在有 **21241 行**是 mock 写的
 （`intent_id` 形如 `live-AC-demo-001/002`），`assurance.diagnoses` 里 332 行也是。
 表里**没有 source 字段能区分谁写的**，只能按 intent_id 区分：
 
@@ -221,7 +221,13 @@ DELETE FROM assurance.diagnoses       WHERE intent_id LIKE 'live-AC-demo-%';
 > 📌 **2026-11-10 对方答复：本轮不接入共享数据库**。
 > 保持 **HTTP 对接 + 各自持久化**，指定表落库的事后续再推进。
 > → 上面这套 DB 通道的验证方式**本轮用不上**，联调时**只看 HTTP**；
-> 但表结构与权限**已经就位**（`assurance.*` 80 条授权实测通过），后续接入时不用再改代码。
+> 但表结构与权限**已经就位**（`assurance_user` 在 `assurance` schema 内 80 条、全库共 107 条，均实测通过），
+> 后续接入时不用再改代码。
+>
+> 📖 **后续要接库时怎么做的完整步骤**（隧道 + 换密码 + 验收 + 越权自检 + 排错表）
+> 见 **`docs/DB_ACCESS_HANDOFF.md`** —— 那份文档里每条命令都实测过。
+> 一句话：数据库在我方本地（Colima VM 的 PG16，只监听 `127.0.0.1:5432`），
+> 对方在自己机器上开 SSH 隧道（`-L 15432:127.0.0.1:5432`）即可接入。
 
 ---
 
