@@ -68,8 +68,36 @@ def get_state():
 
 
 # 创建 Flask app
-app = Flask(__name__)
+#
+# ⚠️ static_folder=None —— 关掉 Flask 默认的 /static/<path> 路由。
+#    默认路由指向 `<包目录>/static/`（我们的文件不在那儿），
+#    而且它**先注册、优先级更高** → 会把请求截走，
+#    我们的白名单路由永远匹配不上（实测 CSS/JS 全 404）。
+app = Flask(__name__, static_folder=None)
 CORS(app)
+
+
+# Dashboard 的静态资源（v3.23.0：从单文件拆出 dashboard.css / dashboard.js）
+#
+# ⚠️ Flask 默认的 static 路由指向 `<包目录>/static/`，而我们的文件在仓库根目录，
+#    所以默认路由服务不到 → 页面会「样式全丢、JS 全不跑」。
+#    这里显式挂一个路由，但**只放行白名单文件** ——
+#    不能用「把整个目录暴露出去」的做法（那等于让任何人下载 .env / 私钥）。
+_DASHBOARD_STATIC = {
+    'dashboard.css': 'dashboard.css',
+    'dashboard.js': 'dashboard.js',
+}
+
+
+@app.route('/static/<path:filename>')
+def dashboard_static(filename):
+    """提供 Dashboard 的 CSS / JS（仅限白名单文件）。"""
+    real = _DASHBOARD_STATIC.get(filename)
+    if not real:
+        return Response('not found', status=404,
+                        mimetype='text/plain; charset=utf-8')
+    return send_from_directory(
+        os.path.dirname(os.path.abspath(__file__)), real)
 
 
 @app.route('/')

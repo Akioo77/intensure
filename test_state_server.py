@@ -361,6 +361,55 @@ def test_index_route():
     check("根路由 200 或 404", r.status_code in (200, 404), r.status_code)
 
 
+# ============ 10. Dashboard 静态资源（v3.23.0 拆分后）============
+
+def test_dashboard_static_assets_served():
+    """dashboard.css / dashboard.js 必须能取到。
+
+    ⚠️ 拆分后如果这两个 404，页面会「样式全丢、JS 全不跑」——
+    但**不会报错**，只是看着像「数据不刷新」，很难一眼看出是资源没加载。
+    """
+    if _skip_if_no_flask():
+        return
+    c = _client()
+    for path, ctype in (("/static/dashboard.css", "text/css"),
+                         ("/static/dashboard.js", "javascript")):
+        r = c.get(path)
+        check(f"{path} 返回 200", r.status_code == 200, r.status_code)
+        check(f"{path} 内容类型正确", ctype in r.content_type, r.content_type)
+        check(f"{path} 内容非空", len(r.data) > 100, len(r.data))
+
+
+def test_dashboard_html_references_static_assets():
+    """dashboard.html 必须引用外置的 CSS / JS（且不再有内联 style/script 块）。"""
+    if _skip_if_no_flask():
+        return
+    c = _client()
+    r = c.get("/")
+    if r.status_code != 200:
+        return          # 文件不在（源码态）→ 跳过
+    html = r.data.decode("utf-8")
+    check("引用了 dashboard.css", "/static/dashboard.css" in html, html[:200])
+    check("引用了 dashboard.js", "/static/dashboard.js" in html, html[:200])
+    check("没有残留内联 <style>", "<style>" not in html, html[:200])
+    check("没有残留内联 <script>", "<script>" not in html, html[:200])
+
+
+def test_dashboard_static_rejects_non_whitelisted():
+    """静态路由只放行白名单文件 —— 不能把整个目录暴露出去。
+
+    ⚠️ 否则任何人访问 /static/env.json 就能拿到配置，
+    /static/xxx 还能摸到仓库里的文件。
+    """
+    if _skip_if_no_flask():
+        return
+    c = _client()
+    for path in ("/static/env.json", "/static/state_server.py",
+                 "/static/dashboard.html", "/static/../env.json"):
+        r = c.get(path)
+        check(f"{path} 被拒（404）", r.status_code == 404, r.status_code)
+
+
 TESTS = [
     test_health,
     test_state_endpoint,
@@ -375,6 +424,9 @@ TESTS = [
     test_probe_post_records,
     test_probe_post_empty_body,
     test_index_route,
+    test_dashboard_static_assets_served,
+    test_dashboard_html_references_static_assets,
+    test_dashboard_static_rejects_non_whitelisted,
 ]
 
 
