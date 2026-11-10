@@ -5,6 +5,94 @@
 
 ---
 
+## v3.24.0 - 2026-11-10 联调口径对齐 + 数据库交接文档
+
+**触发**：对方第一次给出**实质性技术答复**（此前一直卡在"契约版本 / 接口形态 /
+字段口径"三个未知）。答复里带出了两处我方跟对方对不上的地方，
+以及一个之前没想清楚的问题：**数据库到底在哪、对方怎么接**。
+
+### 修复
+
+**🔴 自愈结论是 `APPROVED`/`BLOCKED`，我方用的却是 `ALLOW`**
+
+- mock 返回 `verdict='ALLOW'`、`07_heal.sh` 判 `"$VERDICT" == "ALLOW"`
+  → 打到对方真实接口会落到「未知决策」分支
+- ⚠️ 关键区分：**`ALLOW` 是意图里的 `action` 字段**（动作类型），
+  跟自愈结论 `verdict` 是两个字段。我们的数据库 schema 本来就是
+  `verdict IN ('APPROVED','BLOCKED','PENDING')` —— **是 mock 和脚本跑偏了**
+- 所以只改 mock 和 2 个脚本；`action: "ALLOW"` 的四处
+  （`assurance_bridge` / `seed_policies` / `01_register_intent.sh` /
+  `integration_demo.py`）一律没动
+
+**🔴 恢复成功看 `status=RECOVERED`，不是 `healing_verdict=SUCCESS`**
+
+- `08_verify_recovered.sh` 原本两个都判、且把 `SUCCESS` 当主要依据
+- **对方接口根本不返回 `healing_verdict`** —— 拿它当判据就永远判不出恢复
+- 现在以 `status` 为唯一判据，`healing_verdict` 只作展示
+
+**🟡 期望版本 0.4.0 → 0.4.1**
+
+- 对方服务版本是 0.4.1（健康接口已带 `version` 字段）
+- ⚠️ **版本字符串不同不会停止上报**：`_version_key()` 只取 (major, minor)，
+  `0.4.1` 与 `0.4.0` 同为 `(0, 4)` → 判定 `compatible` → 继续推送；
+  只有 major/minor 不同才 `mismatch` 阻断
+
+**🟡 `ui.sh` 必须在解析 `BASE` 之前加载 `.env`（既有 bug）**
+
+- 8 个演示脚本的顺序都是 `source lib/ui.sh` → `source .env`，
+  而 **BASE 是在 ui.sh 里解析的** → `.env` 里写的
+  `BASE=http://127.0.0.1:8000` **从来没生效过**，
+  脚本一直去打那个已失效的 cloudflared 默认地址
+- 症状极具误导性：本地起了 mock，第一步却报
+  「register 返回异常」+「fallback 也不可用，演示无法继续」，
+  很容易误判成「mock 坏了」或「网络不通」
+- → 让 ui.sh 在解析 BASE 之前自己加载 `.env`
+- **修完后 8 步闭环实测全通**：基线 `ACTIVE` → 注故障 `VIOLATED`(3条)
+  → 诊断 `DIAGNOSING` → 自愈 **`APPROVED`** → 恢复 **`RECOVERED`**
+
+### 新增
+
+**📄 `docs/DB_ACCESS_HANDOFF.md` —— 数据库交接文档**
+
+起因：对方说「本轮不接入共享数据库」→ 需要一份文档把
+「库在哪、后续要接怎么接」讲清楚，别到时候重新查。
+
+- **库在哪**：完全在本地 Colima VM 的 PG 16.15，只监听 `127.0.0.1:5432`，
+  **外部机器连不上**，无任何云端成分（明说这是开发环境不是生产架构）
+- **对方权限**：`assurance_user` 在 `assurance` schema 内 80 条、全库 107 条授权，
+  逐表列出 + 三条关键隔离点
+- **后续接库三步**：① 对方开 SSH 隧道（`-L 15432:127.0.0.1:5432`）
+  ② 换掉明文硬编码的开发密码 ③ 四步验收 + 三条越权自检
+- **推荐隧道而不是直连**：不改 PG 配置、不开防火墙口子、断了立刻不可达
+- 排错表 8 条 + 可直接转给对方的「一句话总结」
+
+**本文每条命令都实测过**（文档开头有实测记录表）。
+
+### 变更
+
+- **接口形态确认走 ② 套** `/api/v1/assurance/...`（对方 2026-11-10 答复）
+  → 我方代码本来就用这套，**零改动**；契约文档 §5.4 的第三套写法是旧的
+- mock 的 `MOCK_VERSION` 0.4.0 → 0.4.1
+- 端口名 `s1:eth2` —— 我方本来就对，无改动
+- 连续 3 次 / 1 次 / 2 次的确认逻辑**归对方**（一致性判定不在我方职责内），
+  我方代码里本来就没有，也不该有
+- 文档同步：`PARTNER_COORDINATION`（新增 §2.6「本轮口径澄清」六条固化）、
+  `INTEGRATION_HANDBOOK` / `INTEGRATION_GUIDE` / `demo_scripts/README` /
+  `cross-module-api-contract` / `env.json` / `项目汇报` / `README`
+- 新增 5 例契约回归测试（`test_demo_scripts.py`）钉住这些口径，
+  防止又改回 `ALLOW` / `healing_verdict`
+
+### 踩过的坑（已写进 DEVELOPMENT_LOG §8.4）
+
+- **`.env` 里配的值可能根本没生效** —— 被 source 的公共文件里解析了配置，
+  加载时机必须在它之前；症状像「mock 坏了」
+- **同名字段在不同上下文里是不同含义** —— `action: ALLOW` ≠ 自愈结论 `verdict`；
+  批量替换前先逐处确认语境
+- **`consistency_checks` 有三个 NOT NULL 列**（`expected_state`/`actual_state`/`result`）
+  —— 漏了报 not-null violation，**看着像权限问题其实不是**
+
+---
+
 ## v3.23.0 - 2026-11-10 AgentExec 远端执行通道 + CI 加固
 
 **触发**：把「不依赖真实环境、不依赖伙伴配合」的事情做完 —— 逐项查代码后，
