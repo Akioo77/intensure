@@ -21,8 +21,8 @@ intensure 是意图驱动网络管理系统的**采集层**（Mininet + OVS + os
 | 代码版本 | v3.23.0 | `git describe --tags` |
 | 自营 REST 端点 | **24 个** | `grep -c "^@app.route" state_server.py` |
 | 其中跨模块契约端点 | 5 个 | `/api/intensure/v1/*`（v3.20.0 新增） |
-| 单元测试 | **338 例全绿** | VM 内 `pytest`（裸跑即可，见 §3.2）；Mac 本地同源测试文件，同样全绿（2026-11-10 实测） |
-| CI 跑的测试文件 | **20 个** | `.github/workflows/ci.yml`（含 1 个 docker build job） |
+| 单元测试 | **341 例全绿** | VM 内 `pytest`（裸跑即可，见 §3.2）；Mac 本地同源测试文件，同样全绿（2026-11-10 实测） |
+| CI 跑的测试文件 | **21 个** | `.github/workflows/ci.yml`（含 1 个 docker build job） |
 | 代码风格 | `ruff check .` 全过 | 规则 E/W/F，E402 豁免（见 §8） |
 | 环境配置 | `env.json` / `env.yaml`，`$INTENSURE_ENV_FILE` 覆盖 | v3.21.0 起环境差异在配置里，不在代码里 |
 | Python 代码量 | 18335 行（根目录 *.py） | `wc -l *.py` |
@@ -221,7 +221,7 @@ python3 env_doctor.py --json     # 机器可读（给脚本用）
 
 | 事项 | 工作量 | 说明 |
 |---|---|---|
-| Dashboard 单文件 SPA 拆分 | 3-5 天 | 1600+ 行 HTML/JS/CSS 混在一起。**演示是加分项，拆错会伤演示**，建议演示后再做 |
+| Dashboard 单文件 SPA 拆分 | ✅ 已完成 | **2026-11-10 落地**：927 行的 `dashboard.html` 拆成 `dashboard.css`（50 行）+ `dashboard.js`（702 行）+ `dashboard.html`（173 行，只剩结构）。**纯位置迁移** —— JS 逐字节一致、CSS 忽略缩进后一致、HTML 主体一致。⚠️ 踩坑：Flask 默认的 `/static` 路由指向 `<包目录>/static/`（我们的文件不在那儿）**且先注册、优先级更高** → 会截走请求，必须 `Flask(__name__, static_folder=None)` 关掉再挂自己的；静态路由**只放行白名单文件**，不暴露整个目录。浏览器实测页面完整渲染、控制台零错误、零失败请求 |
 | Docker 化 | ✅ 已完成 | **2026-11-07 落地**：`Dockerfile` + compose（intensure / postgres / dashboard 三服务）+ `docker/README.md`。<br>**2026-11-10 补上 CI 验证**：新增 `docker` job —— 构建镜像 → 起容器 → 等健康检查 → 验 4 个 API 端点 200（本地用同一套命令实测通过） |
 | **AgentExec 远端执行通道** | ✅ 已完成 | **2026-11-10 落地**：生产网禁 SSH 时的替代方案 —— 设备侧 `device_agent.py`（HTTP），采集层 `target.type=agent`。<br>**5 层安全边界**：无 token 不许启动 / token 认证 / 命令白名单 / 默认只读 / 路径白名单；不走 shell（无注入面）；读写**按子命令**细分。<br>跨机实测：只读查询放行，写操作 / 白名单外命令 / 错误 token / 敏感路径（`/etc/shadow`）全部拒绝。24 例测试。文档见 `INTEGRATION_GUIDE.md` §6.9 |
 | **CI 漏跑测试文件** | ✅ 已完成 | **2026-11-10 修复**：新增 `test_env_doctor.py` 时忘了加进 CI 的 pytest 列表 → CI 从没跑过它（本地 313 例全绿，CI 也绿，但绿的是另一批 —— 假绿）。<br>已补上，并加一道机械检查：仓库根目录每个 `test_*.py` 都必须在 CI 列表里，漏了直接失败（豁免 `test_recovery.py`：手动脚本，pytest 一收集就报错） |
@@ -541,6 +541,18 @@ python3 env_doctor.py --json     # 机器可读（给脚本用）
     CI 从没跑过它，本地 313 例全绿、CI 也绿，但绿的是另一批用例 —— **假绿**。
     → CI 已加机械检查：根目录每个 `test_*.py` 都必须在 CI 列表里，漏了直接失败。
     豁免名单只有 `test_recovery.py`（手动脚本，pytest 一收集就 import mininet 报错）。
+    💡 **这道检查当场抓到了我两次**：`test_env_doctor.py` 和 `test_device_agent.py`
+    都是新增后忘了加进 CI → 第一次是加检查那批发现，第二次是加检查后下批又犯。
+    说明这问题会反复发生，机械检查是必要的，不是多余的仪式。
+32. **Flask 默认的 `/static` 路由会截走你的同名路由**（2026-11-10）——
+    `Flask(__name__)` 默认注册 `/static/<path:filename>`，它指向 `<包目录>/static/`。
+    两个后果：
+    - 你的文件不在那个目录 → 默认路由**服务不到**，页面「样式全丢、JS 全不跑」
+      （**不报错**，只是看起来像数据不刷新，很难一眼看出是资源没加载）
+    - 默认路由**先注册、优先级更高** → 你自己挂的 `/static/<path>` 永远匹配不上
+    → `Flask(__name__, static_folder=None)` 关掉默认路由，再挂自己的；
+    并且静态路由**只放行白名单文件**，不要图省事把整个目录暴露出去
+    （否则 `/static/env.json` 就能被下走）。
 
 ---
 
