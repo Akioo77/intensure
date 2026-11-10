@@ -192,24 +192,26 @@ def run_checks(state, cfg, age_sec=None):
         + (f"（期望 {exp_sw}）" if exp_sw is not None else '')))
 
     exp_host = expect.get('hosts')
-    # ⚠️ 判定前提要改：**主机的 MAC 是被动学到的** —— 主机不发包，我们就看不到它。
-    #    所以"发现的主机数 >= 期望"这个假设在有 TTL 淘汰之后必然不稳：
-    #    2026-11-08 实测，闲置 15 分钟的主机被淘汰 → 3 台 < 期望 4 台 → 体检误报
-    #    "环境坏了"，其实只是那台主机没说话。
-    #    现在：少于期望但不为 0 → 提示级（说明白原因）；一台都没发现 → 才是真错。
+    # ⚠️ 判定前提：**主机的 MAC 是被动学到的** —— 主机不发包，我们就看不到它。
+    #    所以「发现的主机数」衡量的是「最近有谁在说话」，**不是环境好坏**。
+    #    2026-11-08 实测：闲置 15 分钟主机被 TTL 淘汰 → 0 台 < 期望 4 台 →
+    #    体检判成「环境坏了」，其实采集层一切正常（交换机连着、状态新鲜、链路正常）。
+    #
+    #    环境是否健康由**交换机已连接 / 状态新鲜度 / 链路发现方式**决定，
+    #    主机数只作提示，永远不判错。
     if exp_host is None:
-        checks.append(Check('主机已发现', True, '未配置期望值'))
+        checks.append(Check('主机已发现', True, '未配置期望值', level='info'))
     elif len(hosts) >= int(exp_host):
         checks.append(Check('主机已发现', True,
-                            f"发现 {len(hosts)} 台（期望 {exp_host}）"))
-    elif hosts:
-        checks.append(Check(
-            '主机已发现（部分静默）', True,
-            f"发现 {len(hosts)} 台 / 期望 {exp_host} —— 主机的 MAC 是被动学习的，"
-            f"主机不发包就看不到（不是环境坏了）", level='warn'))
+                            f"发现 {len(hosts)} 台（期望 {exp_host}）", level='info'))
     else:
-        checks.append(Check('主机已发现', False,
-                            f"一台都没发现（期望 {exp_host}）"))
+        # 一台都没有也是 warn 而不是 error：采集层是否健康，
+        # 由「交换机已连接 / 状态新鲜度 / 链路发现方式」判定（上面两项才是判据）。
+        # 主机全静默只说明「最近没人在说话」，不代表采集层坏了。
+        checks.append(Check(
+            '主机已发现（被动观测，非健康判据）', True,
+            f"发现 {len(hosts)} 台 / 期望 {exp_host} —— 主机的 MAC 是被动学习的，"
+            f"主机不发包就看不到；这不代表环境有问题", level='warn'))
 
     # state['links'] 只记「交换机之间」的链路（LLDP 发现的），
     # 主机连交换机的链路不在里面 —— 所以比对 inter_switch_links。

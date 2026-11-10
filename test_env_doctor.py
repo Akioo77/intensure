@@ -9,9 +9,15 @@
 体检误报「环境坏了」，其实只是那台主机没说话。
 
 判定应该是：
-- 发现数 >= 期望 → 通过
-- 少于期望但不为 0 → **提示级**（说明白原因），不是错误
-- 一台都没发现 → 才是真错
+- 发现数 >= 期望 → 通过（info 级）
+- 少于期望 → **提示级**（说明白原因），不是错误
+- 一台都没发现 → 同样**只是提示**，不是错误
+
+⚠️ 为什么「一台都没发现」也不判错：
+主机数衡量的是「最近有谁在说话」，不是环境好坏。采集层健不健康，
+由**交换机已连接 / 状态新鲜度 / 链路发现方式**判定 —— 那三项才是判据。
+如果主机全静默也判 error，那么一台真实园区网络在深夜（没人发包）就会被
+误报成「环境坏了」，而实际上交换机连着、状态新鲜、链路正常。
 
 运行: python3 -m pytest test_env_doctor.py -v
 """
@@ -72,7 +78,7 @@ def test_hosts_count_meets_expectation():
         c = _host_check(checks)
         check('找到主机检查项', c is not None)
         check('4 台 >= 期望 4 → 通过', c.ok is True, c.detail)
-        check('级别是 error（真通过）', c.level == 'error', c.level)
+        check('级别是 info（不参与失败判定）', c.level == 'info', c.level)
 
 
 def test_hosts_partially_silent_is_warning_not_error():
@@ -92,16 +98,38 @@ def test_hosts_partially_silent_is_warning_not_error():
         check('说明里讲清了原因', '被动学习' in c.detail or '不发包' in c.detail, c.detail)
 
 
-def test_no_host_found_is_error():
-    """一台都没发现 → 真错（采集层没学到东西）。"""
+def test_no_host_found_is_not_an_error():
+    """一台都没发现 → 只是提示，**不是错误**。
+
+    ⚠️ 曾经的 bug（v3.21.0 → v3.22.0 改）：这里判成 error，
+    于是「所有主机都静默」的夜晚，体检会说环境坏了 ——
+    而交换机连着、状态新鲜、链路都正常，其实好得很。
+    主机数不是健康判据，判据是交换机连接 / 状态新鲜度 / 链路发现。
+    """
     import tempfile
     with tempfile.TemporaryDirectory() as tmp:
         cfg = _cfg(tmp)
         checks = env_doctor.run_checks(_state(hosts=0), cfg)
         c = _host_check(checks)
         check('找到主机检查项', c is not None)
-        check('0 台 → 判为错误', c.ok is False, c.detail)
-        check('级别是 error', c.level == 'error', c.level)
+        check('0 台 → 不算错误', c.ok is True, c.detail)
+        check('级别是 warn', c.level == 'warn', c.level)
+        check('说明里讲清了原因', '被动学习' in c.detail or '不发包' in c.detail, c.detail)
+
+
+def test_host_count_never_enters_failed_list():
+    """无论发现几台主机，都不会出现在 failed 列表里。
+
+    这条是给 JSON 输出和退出码用的：failed 列表为空 → 退出码 0。
+    """
+    import tempfile
+    for n in (0, 1, 3):
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg = _cfg(tmp)
+            checks = env_doctor.run_checks(_state(hosts=n), cfg)
+            failed = [c.name for c in checks if not c.ok and c.level == 'error']
+            check(f'发现 {n} 台时 failed 列表不含主机项',
+                  not any('主机' in name for name in failed), failed)
 
 
 def test_no_expectation_configured():
