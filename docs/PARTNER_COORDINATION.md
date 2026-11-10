@@ -47,7 +47,7 @@ CI 在 GitHub 上全绿、故障注入 → 一致性判定 → 根因诊断 → 
 
 | 项 | 值 | 怎么核的 |
 |---|---|---|
-| 代码版本 | v3.23.0 | `git describe --tags`（截至 `4ad143b`）|
+| 代码版本 | v3.24.0 | `git describe --tags`（截至 `05e39ae`）|
 | 自营 REST API 端点 | **24 个** | `grep -c "^@app.route" state_server.py` = 25，扣掉 1 条 `/static/<path:filename>` 静态资源路由 |
 | 其中跨模块契约端点 | **5 个** | `/api/intensure/v1/*` |
 | 单元测试 | **346 例全绿** | VM 内 `pytest` / GitHub CI（2026-11-10 实测）|

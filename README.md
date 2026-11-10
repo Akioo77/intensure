@@ -18,7 +18,7 @@
 
 ## ✅ 完成状态
 
-### ✅ 已完成（v1.0 ~ v3.22.0, 2026-08-04 ~ 2026-11-06）
+### ✅ 已完成（v1.0 ~ v3.24.0, 2026-08-04 ~ 2026-11-10）
 
 | 任务 | 状态 |
 |---|---|
@@ -63,14 +63,16 @@
 | **端口事件落库修复**（之前模块级包装漏传 `metadata` → TypeError 被吞 → 表一直是空的）| ✅ v3.22.0 (2026-11-06) |
 | **跨机接入预检**（`cross_machine_check.py`：只读检查 / `--inject` 演练）| ✅ v3.22.0 (2026-11-06) |
 | **换机环境适配**（路径不写死账号 + `ensure_peer_role.sh` 幂等建 PG 角色）| ✅ v3.22.0 (2026-11-06) |
-| **Docker 化**（`Dockerfile` + compose：intensure / postgres / dashboard 三服务 + `docker/README.md`）| ✅ 2026-11-07 落地（CI 的 `docker build` 验证还没接）|
+| **Docker 化**（`Dockerfile` + compose：intensure / postgres / dashboard 三服务 + `docker/README.md`）| ✅ 2026-11-07 落地；CI 的 `docker build` 验证已接（2026-11-10）|
+| **AgentExec 远端执行通道**（`exec_target.py` 的 `agent` 目标 + `device_agent.py` 设备侧代理；生产网禁 SSH 时的替代方案，5 层安全边界）| ✅ v3.23.0 (2026-11-10) |
+| **Dashboard 单文件 SPA 拆分**（`dashboard.html` + `dashboard.css` + `dashboard.js`；免构建链不变）| ✅ v3.23.0 (2026-11-10) |
+| **联调口径对齐对方 0.4.1**（自愈结论 `APPROVED`/`BLOCKED`、恢复判据改看 `status=RECOVERED`、接口形态确认走 ② 套）+ **数据库交接文档**（`docs/DB_ACCESS_HANDOFF.md`：隧道 + 授权 + 验收 + 越权自检）| ✅ v3.24.0 (2026-11-10) |
 
 ### 🎯 下一步（我们主动要做）
 
 | 任务 | 优先级 | 备注 |
 |---|---|---|
 | 三方联调真实数据完整闭环（intensure → A 同学 service）| 🟡 P1 | assurance_bridge 已接，**当前卡在 A 同学 cloudflared 隧道不通（HTTP 000）** |
-| Dashboard 单文件 SPA 拆分（可维护性）| 🟢 P2 | 优化清单 P2-2 |
 | Dashboard 增强（历史回放 / 跳数对比）| 🟢 P2 | 演示后看反馈再加 |
 | IPv6 / BGP 支持（如项目要求）| 🔵 P3 | 长期 |
 
