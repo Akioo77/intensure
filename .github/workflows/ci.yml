@@ -98,8 +98,84 @@ jobs:
             test_fault_api.py \
             test_contract_api.py \
             test_env_config.py \
+            test_env_doctor.py \
             test_exec_target.py \
             test_probe_drivers.py \
             test_host_cache.py \
             test_demo_scripts.py \
             -v
+
+      - name: 检查测试文件没有漏进 CI
+        # ⚠️ 踩过的坑：新增 test_env_doctor.py 时忘了加进上面的 pytest 列表，
+        #    本地 313 例全绿，CI 却压根没跑这个文件 —— **假绿**。
+        #    这里做一道机械检查：仓库根目录每个 test_*.py 都必须在 CI 列表里。
+        #
+        # 豁免名单（EXCLUDE）：不是 pytest 用例的脚本。
+        #   test_recovery.py —— 手动脚本，import 时就建 Mininet 拓扑并连控制器，
+        #     pytest 一收集就报错（不是用例，是脚本）。
+        #     放这里而不是放进 pytest 列表，是有意的。
+        run: |
+          EXCLUDE="test_recovery.py"
+          missing=0
+          for f in test_*.py; do
+            case " $EXCLUDE " in
+              *" $f "*) echo "跳过（手动脚本，不在 CI 跑）: $f"; continue ;;
+            esac
+            if ! grep -q "$f" .github/workflows/ci.yml; then
+              echo "❌ 漏跑: $f —— 请把它加进 CI 的 pytest 列表"
+              missing=1
+            fi
+          done
+          [ "$missing" -eq 0 ] && echo "所有测试文件都在 CI 列表里"
+          exit $missing
+
+  docker:
+    name: Docker 镜像构建 + 容器起得来
+    runs-on: ubuntu-24.04
+    # 只在主干与 PR 上跑；构建耗时长，别每条分支都烧
+    timeout-minutes: 20
+
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 构建镜像
+        # ⚠️ PIP_INDEX_URL 要用官方源：GitHub runner 在美国，
+        #    清华镜像在境外慢且不稳（本地踩过 pip 传输截断）。
+        run: |
+          docker build \
+            --build-arg PIP_INDEX_URL=https://pypi.org/simple \
+            -t intensure:ci .
+          echo "镜像构建成功"
+
+      - name: 起容器并验证健康检查
+        # 只验证采集层 API（/api/health 不依赖数据库），
+        # 所以这里不需要 postgres —— 联调那套三服务栈另有 compose。
+        run: |
+          docker run -d --name intensure-ci -p 18080:8080 intensure:ci
+          for i in $(seq 1 30); do
+            if curl -fsS --noproxy '*' http://127.0.0.1:18080/api/health; then
+              echo ""
+              echo "健康检查通过（第 ${i} 次尝试）"
+              break
+            fi
+            if [ "$i" -eq 30 ]; then
+              echo "❌ 容器 30 次尝试都没健康"
+              docker logs intensure-ci
+              exit 1
+            fi
+            sleep 2
+          done
+
+      - name: 检查容器内 API 路由可用
+        run: |
+          for path in /api/state /api/switches /api/hosts /api/capabilities; do
+            code=$(curl -s -o /dev/null -w '%{http_code}' --noproxy '*' \
+                   "http://127.0.0.1:18080${path}")
+            echo "$path -> $code"
+            [ "$code" = "200" ] || { echo "❌ $path 返回 $code"; exit 1; }
+          done
+
+      - name: 清理容器
+        if: always()
+        run: docker rm -f intensure-ci || true
