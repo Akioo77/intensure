@@ -99,6 +99,14 @@ DEFAULT_CONFIG: Dict[str, Any] = {
         'port': 22,
         'key': '',
         'connect_timeout': 5,
+        # type=agent 时用（生产网禁 SSH → 设备侧跑 device_agent.py）
+        # ⚠️ 端口用 agent_port（9099），不是 ssh 的 port（22）——
+        #    target 段是深合并的，port 永远存在，不能拿它当 agent 端口。
+        # token 建议走环境变量 INTENSURE_AGENT_TOKEN，不写在文件里
+        'agent_port': 9099,
+        'token': '',
+        'scheme': 'http',
+        'verify_tls': True,
     },
 
     # 控制器写状态文件、REST API 读状态文件 —— 两者必须指向同一个路径。

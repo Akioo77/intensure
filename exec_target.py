@@ -23,7 +23,7 @@
 --------
   LocalExec  本机 subprocess（现状默认，行为完全不变）
   SshExec    通过 ssh 在目标主机上执行（联调对方起的 Mininet 用这个）
-  AgentExec  生产网禁 SSH 时用远端 agent（预留接口，本轮不实现）
+  AgentExec  生产网禁 SSH 时用远端 HTTP agent（device_agent.py）
 
 设计约束
 --------
@@ -33,12 +33,15 @@
 """
 from __future__ import annotations
 
+import json
 import logging
 import os
 import re
 import shlex
 import subprocess
 import time
+import urllib.error
+import urllib.parse
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Sequence, Tuple
 
@@ -306,6 +309,245 @@ class SshExec(ExecTarget):
 
 
 # ----------------------------------------------------------------------
+# AgentExec —— 生产网禁 SSH 时的执行通道
+# ----------------------------------------------------------------------
+
+class AgentExec(ExecTarget):
+    """通过设备侧 HTTP agent 在目标主机上执行命令。
+
+    什么时候用
+    ----------
+    园区生产网通常**禁 SSH**（设备不开放 SSH 登录，只有受限带外管理网），
+    而 SSH 一旦被禁，`SshExec` 就完全用不了。此时在设备上跑
+    `device_agent.py`，采集层改走 HTTP。
+
+    与 SshExec 的差别
+    -----------------
+    - 命令不是拼成 shell 串发过去，而是 **argv 数组**发过去 → 没有 shell 注入面
+    - 设备侧有**命令白名单 + 只读开关 + 路径白名单 + token 认证**
+      （详见 device_agent.py 顶部说明）→ 白名单外的命令由设备侧拒绝
+    - 本地侧不持有任何设备凭据，只有 agent 的 token
+
+    ⚠️ 本地端的 token 不做「回显」——出错信息里只说「认证失败」，
+       不把 token 拼进异常消息（异常可能进日志、进 API 响应）。
+    """
+
+    kind = 'agent'
+
+    def __init__(self, host: str, port: int = 9099, token: str = '',
+                 scheme: str = 'http', timeout: float = DEFAULT_TIMEOUT,
+                 verify_tls: bool = True):
+        if not host:
+            raise ValueError('AgentExec 需要 host')
+        self.host = host
+        self.port = int(port or 9099)
+        self.token = token or ''
+        self.scheme = (scheme or 'http').lower()
+        self.timeout = float(timeout or DEFAULT_TIMEOUT)
+        self.verify_tls = bool(verify_tls)
+
+    def describe(self) -> str:
+        return f'agent://{self.host}:{self.port}'
+
+    @property
+    def base_url(self) -> str:
+        return f'{self.scheme}://{self.host}:{self.port}'
+
+    def _request(self, path: str, payload: Optional[Dict[str, object]] = None,
+                 method: str = 'POST', timeout: float = DEFAULT_TIMEOUT,
+                 stream: bool = False):
+        """发一个请求给 agent。返回 urllib 的 response 对象。"""
+        import urllib.error
+        import urllib.request
+
+        url = f'{self.base_url}{path}'
+        data = None
+        headers = {'Accept': 'application/json'}
+        if self.token:
+            headers['X-Intensure-Token'] = self.token
+        if payload is not None:
+            data = json.dumps(payload, ensure_ascii=False).encode('utf-8')
+            headers['Content-Type'] = 'application/json; charset=utf-8'
+
+        req = urllib.request.Request(url, data=data, headers=headers, method=method)
+        # 本地地址不该走代理（VM 里常设 http_proxy 却没设 no_proxy → 劫持本机请求）
+        handlers: List = [urllib.request.ProxyHandler({})]
+        if self.scheme == 'https' and not self.verify_tls:
+            handlers.append(urllib.request.HTTPSHandler(context=_unverified_ctx()))
+        opener = urllib.request.build_opener(*handlers)
+        return opener.open(req, timeout=timeout)
+
+    def run(self, argv: Sequence[str], timeout: float = DEFAULT_TIMEOUT) -> CommandResult:
+        cmd = list(argv)
+        t0 = time.monotonic()
+        payload = {'argv': cmd, 'timeout': float(timeout)}
+        # ⚠️ HTTP 超时必须**大于**命令超时，否则客户端会先断开，
+        #    拿不到 agent 侧的结论（agent 正在超时处理中）——
+        #    结果是「客户端超时」盖掉了「命令超时」这个真实原因，
+        #    而且会打断 agent 的响应写入（BrokenPipe）。
+        #    宽限 5 秒：足够 agent 回收子进程并返回 124。
+        http_timeout = float(timeout) + 5.0
+        try:
+            with self._request('/agent/exec', payload, 'POST', http_timeout) as resp:
+                body = resp.read().decode('utf-8')
+            data = json.loads(body)
+        except urllib.error.HTTPError as e:
+            # 设备侧拒了（白名单 / 只读 / 认证）—— 把原因带回调用方，
+            # 但**不要**把 token 拼进来。
+            try:
+                detail = json.loads(e.read().decode('utf-8')).get('error', '')
+            except Exception:
+                detail = ''
+            msg = f'agent 拒绝执行（HTTP {e.code}）'
+            if detail:
+                msg += f': {detail}'
+            return CommandResult(returncode=126, stdout='', stderr=msg,
+                                 duration_ms=(time.monotonic() - t0) * 1000)
+        except urllib.error.URLError as e:
+            # URLError 包着 socket.timeout 时，说明是 HTTP 层超时，
+            # 而 agent 侧多半已经在收尾（命令超时）→ 按 124 报，别报「不可达」。
+            import socket
+            reason = getattr(e, 'reason', None)
+            if isinstance(reason, (socket.timeout, TimeoutError)):
+                return CommandResult(returncode=124, stdout='',
+                                     stderr=f'agent 请求超时（{http_timeout}s）',
+                                     duration_ms=(time.monotonic() - t0) * 1000)
+            logger.warning('[exec] agent 不可达 (%s): %s', self.describe(), reason)
+            return CommandResult(returncode=127, stdout='',
+                                 stderr=f'agent 不可达（{self.describe()}）: {reason}',
+                                 duration_ms=(time.monotonic() - t0) * 1000)
+        except subprocess.TimeoutExpired:
+            return CommandResult(returncode=124, stdout='',
+                                 stderr=f'agent 请求超时（{timeout}s）',
+                                 duration_ms=(time.monotonic() - t0) * 1000)
+        except Exception as e:
+            return CommandResult(returncode=1, stdout='',
+                                 stderr=f'{e.__class__.__name__}: {e}',
+                                 duration_ms=(time.monotonic() - t0) * 1000)
+        return CommandResult(
+            returncode=int(data.get('returncode', 1)),
+            stdout=data.get('stdout', '') or '',
+            stderr=data.get('stderr', '') or '',
+            duration_ms=float(data.get('duration_ms', 0) or 0),
+        )
+
+    def tail_file(self, path: str, sudo: bool = False) -> Optional[subprocess.Popen]:
+        """远端跟文件 —— agent 用 HTTP 长连接下发。
+
+        ⚠️ 与 SshExec/LocalExec 不同，这里返回的**不是 subprocess.Popen**，
+           而是一个 _AgentTail 适配器（暴露 .pid / .stdout / .terminate / .wait），
+           以满足 ovs_logger 对 tail 进程的接口要求。
+        """
+        if not path:
+            return None
+        try:
+            resp = self._request(
+                f'/agent/tail?path={urllib.parse.quote(path)}&follow=1',
+                None, 'GET', self.timeout, stream=True)
+        except Exception as e:
+            logger.warning('[exec] agent tail %s 失败: %s', path, e)
+            return None
+        return _AgentTail(resp, path)
+
+
+class _AgentTail:
+    """模拟 subprocess.Popen 的最小接口，供 ovs_logger 用。
+
+    ovs_logger 只需要四样东西：
+        .pid          → 一个假的（非 0 即可）
+        .stdout       → 有 readline() 的对象
+        .terminate()  → 停止
+        .wait(timeout)→ 等待结束
+    """
+
+    def __init__(self, resp, path: str):
+        self._resp = resp
+        self._path = path
+        self._buf = ''
+        self._eof = False
+        self.pid = -1                 # 不是真实 PID；agent 那边的进程在设备上
+
+    def _fill(self) -> bool:
+        """再读一批数据进缓冲。返回 False 表示流结束。"""
+        if self._eof:
+            return False
+        try:
+            chunk = self._resp.readline()
+        except Exception:
+            self._eof = True
+            return False
+        if not chunk:
+            self._eof = True
+            return False
+        try:
+            obj = json.loads(chunk.decode('utf-8'))
+            line = obj.get('line', '')
+        except Exception:
+            line = chunk.decode('utf-8', 'replace').rstrip('\n')
+        self._buf += line + '\n'
+        return True
+
+    class _Stdout:
+        def __init__(self, owner):
+            self._owner = owner
+
+        def readline(self) -> str:
+            owner = self._owner
+            while '\n' not in owner._buf:
+                if not owner._fill():
+                    # 流结束：把剩余内容作为最后一行返回（没有换行也算一行）
+                    rest = owner._buf
+                    owner._buf = ''
+                    return rest
+            line, owner._buf = owner._buf.split('\n', 1)
+            return line + '\n'
+
+        def read(self) -> str:
+            owner = self._owner
+            while owner._fill():
+                pass
+            rest = owner._buf
+            owner._buf = ''
+            return rest
+
+        def __iter__(self):
+            while True:
+                line = self.readline()
+                if not line:
+                    return
+                yield line
+
+    @property
+    def stdout(self):
+        if not hasattr(self, '_stdout'):
+            self._stdout = _AgentTail._Stdout(self)
+        return self._stdout
+
+    def terminate(self):
+        try:
+            self._resp.close()
+        except Exception:
+            pass
+        self._eof = True
+
+    def kill(self):
+        self.terminate()
+
+    def wait(self, timeout=None) -> int:
+        self.terminate()
+        return 0
+
+
+def _unverified_ctx():
+    """给 https + 不校验证书时用的 SSL context。"""
+    import ssl
+    ctx = ssl.create_default_context()
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl.CERT_NONE
+    return ctx
+
+
+# ----------------------------------------------------------------------
 # 工厂
 # ----------------------------------------------------------------------
 
@@ -314,12 +556,15 @@ def build_target(cfg: Optional[Dict[str, object]] = None) -> ExecTarget:
 
     配置格式（env.json 的 "target" 段）：
         {
-          "type": "local",            // local | ssh
-          "host": "",                 // ssh 目标
+          "type": "local",            // local | ssh | agent
+          "host": "",                 // ssh / agent 的目标
           "user": "",                 // ssh 用户
-          "port": 22,                 // ssh 端口
-          "key": "",                  // 私钥路径
-          "connect_timeout": 5        // ssh 连接超时（秒）
+          "port": 22,                 // ssh 端口（agent 默认 9099）
+          "key": "",                  // ssh 私钥路径
+          "connect_timeout": 5,       // ssh 连接超时（秒）
+          "token": "",                // agent 认证 token
+          "scheme": "http",           // agent 协议：http / https
+          "verify_tls": true          // agent https 时是否校验证书
         }
 
     读不出来 / type 未知 → 退回 LocalExec（保持改造前的行为）。
@@ -338,6 +583,22 @@ def build_target(cfg: Optional[Dict[str, object]] = None) -> ExecTarget:
                        port=int(cfg.get('port') or 22),
                        key=str(cfg.get('key') or '').strip(),
                        connect_timeout=int(cfg.get('connect_timeout') or 5))
+    if t == 'agent':
+        host = str(cfg.get('host') or '').strip()
+        if not host:
+            logger.warning('[exec] target.type=agent 但没配 host —— 退回 local')
+            return LocalExec()
+        # token 优先取配置，其次取环境变量（环境变量更安全：不落进配置文件）
+        token = str(cfg.get('token') or '').strip() \
+            or os.environ.get('INTENSURE_AGENT_TOKEN', '').strip()
+        # ⚠️ 端口用 agent_port（默认 9099），不是 ssh 的 port（默认 22）——
+        #    target 段是深合并的，port 永远存在，不能拿它当 agent 端口。
+        return AgentExec(host=host,
+                         port=int(cfg.get('agent_port') or 9099),
+                         token=token,
+                         scheme=str(cfg.get('scheme') or 'http').strip(),
+                         timeout=float(cfg.get('timeout') or DEFAULT_TIMEOUT),
+                         verify_tls=bool(cfg.get('verify_tls', True)))
     logger.warning('[exec] 未知 target.type=%s —— 退回 local', t)
     return LocalExec()
 
