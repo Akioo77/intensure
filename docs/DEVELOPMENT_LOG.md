@@ -19,14 +19,14 @@ intensure 是意图驱动网络管理系统的**采集层**（Mininet + OVS + os
 | 指标 | 数值 | 怎么核的 |
 |---|---|---|
 | 代码版本 | v3.23.0 | `git describe --tags` |
-| 自营 REST 端点 | **24 个** | `grep -c "^@app.route" state_server.py` |
+| 自营 REST API 端点 | **24 个** | `grep -c "^@app.route" state_server.py` = 25，扣掉 1 条 `/static/<path:filename>` 静态资源路由 |
 | 其中跨模块契约端点 | 5 个 | `/api/intensure/v1/*`（v3.20.0 新增） |
-| 单元测试 | **341 例全绿** | VM 内 `pytest`（裸跑即可，见 §3.2）；Mac 本地同源测试文件，同样全绿（2026-11-10 实测） |
-| CI 跑的测试文件 | **21 个** | `.github/workflows/ci.yml`（含 1 个 docker build job） |
+| 单元测试 | **346 例全绿** | VM 内 `pytest`（裸跑即可，见 §3.2）；Mac 本地同源测试文件，同样全绿（2026-11-10 实测） |
+| CI 跑的测试文件 | **20 个**（显式清单） | `.github/workflows/ci.yml`（含 1 个 docker build job）；仓库共 21 个 `test_*.py`，`test_recovery.py` 是手动脚本、CI 排除 |
 | 代码风格 | `ruff check .` 全过 | 规则 E/W/F，E402 豁免（见 §8） |
 | 环境配置 | `env.json` / `env.yaml`，`$INTENSURE_ENV_FILE` 覆盖 | v3.21.0 起环境差异在配置里，不在代码里 |
-| Python 代码量 | 18335 行（根目录 *.py） | `wc -l *.py` |
-| 提交总数 | 122 个（截至 `d1b9603`） | `git log --oneline \| wc -l` |
+| Python 代码量 | 18519 行（根目录 *.py） | `wc -l *.py` |
+| 提交总数 | 130 个（截至 `4ad143b`） | `git log --oneline \| wc -l` |
 | 数据库 | **6 schema / 26 张逻辑表**（物理表 47 张，其中 21 个是分区子表）| 实测口径见下方脚注 |
 | 对外接口方向 | **只 POST 不读 GET** | 见 §6 边界 |
 
@@ -81,6 +81,7 @@ intensure 是意图驱动网络管理系统的**采集层**（Mininet + OVS + os
 | **v3.21.0** | 10-31 | **环境配置化 + 能力自检 + 只读模式**（`env_config.py` / `capabilities.py` / `env_doctor.py` / `env.json`；`GET /api/capabilities`）。顺带修 2 个真 bug：状态文件写不进去被静默吞、Python 侧 urllib 也被代理劫持 |
 | **接入适配层**（v3.22.0） | 11-05~06 | **接入适配层 `exec_target.py`** —— 探测 / 注故障 / 读 OVS 日志这三类「本机特权动作」可以落到**远端设备**上（`target.type=ssh`），联调时 Mininet 是对方起的、接真实园区时采集机与设备不同机，都不再需要改代码。采集侧（OpenFlow/LLDP/契约 HTTP/DB）本来就跨机，一行没改。<br>顺带修 3 个真 bug：**端口事件从来没落过库**（包装函数漏传 metadata）、延迟解析取的是 min 不是 avg、`pgrep` 自匹配导致跨机 ping 永远 100% 丢包 |
 | **v3.23.0** | 11-10 | **AgentExec 远端执行通道** —— 生产网禁 SSH 时的替代方案：设备侧跑 `device_agent.py`，采集层用 `target.type=agent` 通过 HTTP 让它执行命令。**5 层安全边界**：无 token 不许启动 / 认证 / 命令白名单 / 只读默认 / 路径白名单，且不走 shell（无注入面）、读写**按子命令**细分（`ip link show` 读、`ip link set` 写）。跨机实测通过（只读查询放行、写操作/白名单外/错误 token/敏感路径全拒）。<br>同批还做了：`env_doctor` 主机数彻底不作健康判据（连「一台都没发现」也只 warn）、CI 补上漏跑的 `test_env_doctor.py` + 加一道「测试文件漏进 CI 就失败」的机械检查 + 接上 `docker build` 验证 job |
+| **联调口径对齐** | 11-10 | **对方首次给出技术答复**（2026-11-10），我方逐条核对代码后对齐 —— ① 接口形态确认走 **② 套** `/api/v1/assurance/...`（悬念关闭，代码零改动）② 自愈结论 `APPROVED`/`BLOCKED`（原 mock 与脚本误用 `ALLOW`）③ 恢复判据改为 **`status=RECOVERED`**（不再依赖对方不返回的 `healing_verdict`）④ 期望版本 `0.4.0`→`0.4.1`（补丁级差异本就不阻断）⑤ 端口名 `s1:eth2` 本就正确 ⑥ 连续 3 次/1 次/2 次的确认逻辑归对方，我方不实现。<br>另修一个**既有 bug**：`ui.sh` 在 `.env` 之前解析 `BASE` → 本地 mock 演示一直跑不通。8 步闭环已实测全通 |
 
 ---
 
@@ -267,6 +268,23 @@ python3 env_doctor.py --json     # 机器可读（给脚本用）
 
 3. **共享库权限** —— `assurance_user` 密码 + 5 张 `assurance.*` 表的读写授权
    （我们已经替他建好了，历史核对文档在 `docs/partner_schema_*.md`）
+   > 📌 **2026-11-10 对方答复：本轮不接入共享数据库** —— 保持 HTTP 对接 + 各自持久化，
+   > 指定表落库后续再推进。表结构与授权**已就位**（107 条授权实测通过），届时不用改代码。
+
+### 5.0 2026-11-10 对方答复后，已关闭的悬念 ✅
+
+对方给了第一份技术答复，以下三项**不再是未知**：
+
+| 悬念 | 结论 | 我方动作 |
+|---|---|---|
+| **接口形态用哪套** | **② 套** `/api/v1/assurance/...`（路径与请求格式不变） | 代码零改动（我们本来就用这套）|
+| **契约版本** | 对方服务 **0.4.1**，健康接口已带 `version` | 期望值 0.4.0 → 0.4.1（补丁级差异本就不阻断）|
+| **字段口径** | 自愈 `APPROVED`/`BLOCKED`；恢复看 `status=RECOVERED` | mock + 2 个演示脚本已对齐 |
+
+**仍未知的**：① 联调测试地址（等对方启动服务与隧道后给）② 最终环境地址
+③ `assurance_user` 密码 ④ 性能场景的阈值由对方配置（我方只提供事实）。
+
+详细口径见 `docs/PARTNER_COORDINATION.md` §2.6。
 
 ### 5.1 ⚠️ 命名口径提醒（沟通时别用字母）
 
@@ -388,7 +406,7 @@ python3 env_doctor.py --json     # 机器可读（给脚本用）
    但 PATH 里 `python3` 优先命中 `~/.local/bin/python3` = **3.13.18**。
    ⚠️ **环境迁移后 `/usr/local/bin/python3` 已不存在**（2026-11-06 实测），别再按老路径找。
    VM 里的 **3.12.3** 是权威环境；**Mac 上也能跑** —— 用 `~/tools/testenv/bin/pytest`（3.13.18）
-   实测 **309 例全绿**（2026-11-08）。
+   实测 **346 例全绿**（2026-11-10）。
    但 `pip install --user` 会被 PEP 668 拒（externally-managed-environment），**别在 Mac 上临时装包**
 5. `eventlet.monkey_patch()` 必须在 `import os_ken` 之前 → ruff 的 **E402 不能开**
 6. `rsync --delete` 会删掉 alembic 旧 revision → multiple heads
@@ -553,6 +571,25 @@ python3 env_doctor.py --json     # 机器可读（给脚本用）
     → `Flask(__name__, static_folder=None)` 关掉默认路由，再挂自己的；
     并且静态路由**只放行白名单文件**，不要图省事把整个目录暴露出去
     （否则 `/static/env.json` 就能被下走）。
+33. **`.env` 里配的值可能根本没生效 —— 加载顺序要自己查**（2026-11-10）——
+    `demo_scripts` 里 8 个脚本的顺序都是 `source lib/ui.sh` → `source .env`，
+    而 **BASE 是在 ui.sh 里解析的** → 等 ui.sh 跑完再加载 .env 就太晚了 →
+    `.env` 里写的 `BASE=http://127.0.0.1:8000` **从来没生效过**，
+    脚本一直去打那个已失效的 cloudflared 默认地址。
+    症状极具误导性：本地起了 mock，第一步却报
+    「register 返回异常」+「fallback 也不可用，演示无法继续」——
+    很容易误判成「mock 坏了」或「网络不通」，我这次先绕了半小时。
+    → 让 ui.sh 在解析 BASE **之前**自己加载 .env。
+    💡 **通则**：凡是被 source 的公共文件里**解析了配置**，配置文件的加载时机
+    必须在它之前 —— 别指望调用方在 source 之后再补。
+34. **同名字段在不同上下文里是不同含义**（2026-11-10）——
+    对方答复里说「自愈结论是 APPROVED/BLOCKED」，而我方脚本里本来就有 `ALLOW` ——
+    但那是**意图里的 `action` 字段**（意图的动作类型），跟自愈结论 `verdict`
+    完全是两个字段。我方数据库 schema 从一开始就是
+    `verdict IN ('APPROVED','BLOCKED','PENDING')` —— **是 mock 和脚本跑偏了**。
+    → 批量改之前先逐处确认语境，别看到字符串就替换
+    （本次 `action: "ALLOW"` 在 `assurance_bridge` / `seed_policies` /
+    `01_register_intent.sh` / `integration_demo.py` 里都**不该动**）。
 
 ---
 
