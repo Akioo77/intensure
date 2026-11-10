@@ -14,7 +14,7 @@
 > **不是本仓库当前已实现的接口清单**。
 >
 > 本仓库实际提供的 HTTP 服务只有 `state_server.py`（Flask，默认端口 8080），
-> 它用的是**不带版本前缀**的自营路径（`/api/state`、`/api/history` 等，共 24 个端点），
+> 它用的是**不带版本前缀**的自营路径（`/api/state`、`/api/history` 等，共 24 个 API 端点；另有 1 条 `/static/<path:filename>` 静态资源路由不计入），
 > **尚未实现**本文 §1 约定的 `/api/{module}/v{version}/{resource}` 形式。
 >
 > 逐条对照见 **§5.6 契约目标 vs 当前实现**。
@@ -563,5 +563,5 @@ _文档创建：2026-10-08 · v0.1 · Phase 0 交付_
 | §5.5 后 | 新增 **§5.6 契约目标 vs 当前实现** 映射表 | 明确列出本仓库实际提供的 24 个端点，及与契约路径的差距 |
 | 头部 | 标注 `docs/api/openapi.yaml` **不存在** | 正文引用了它但仓库里没有该文件 |
 
-> 核对方式：以 `state_server.py` 实际注册的路由为准（逐一 grep 确认，共 24 个端点）。
+> 核对方式：以 `state_server.py` 实际注册的路由为准（`grep -c "^@app.route" state_server.py` = 25，其中 `/static/<path:filename>` 是静态资源路由、不计入 API 端点 → **24 个 API 端点**）。
 > **未新增任何代码里还没实现的接口。**

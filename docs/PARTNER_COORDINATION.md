@@ -9,7 +9,7 @@
 
 ## 0. 一分钟版
 
-我们（采集模块）**已经可联调**：24 个 REST 端点、5 个跨模块契约端点、309 例单测全绿、
+我们（采集模块）**已经可联调**：24 个 REST API 端点、5 个跨模块契约端点、346 例单测全绿、
 CI 在 GitHub 上全绿、故障注入 → 一致性判定 → 根因诊断 → 恢复的**完整闭环在本地已跑通**
 （8 步脚本，实测注入故障 → 2 条 VIOLATED → 根因 `port_failure` 置信度 0.85 → 恢复 `pass=2`）。
 
@@ -47,10 +47,10 @@ CI 在 GitHub 上全绿、故障注入 → 一致性判定 → 根因诊断 → 
 
 | 项 | 值 | 怎么核的 |
 |---|---|---|
-| 代码版本 | v3.22.0 | `git describe --tags` |
-| 自营 REST 端点 | **24 个** | `grep -c "^@app.route" state_server.py` |
+| 代码版本 | v3.23.0 | `git describe --tags`（截至 `4ad143b`）|
+| 自营 REST API 端点 | **24 个** | `grep -c "^@app.route" state_server.py` = 25，扣掉 1 条 `/static/<path:filename>` 静态资源路由 |
 | 其中跨模块契约端点 | **5 个** | `/api/intensure/v1/*` |
-| 单元测试 | **309 例全绿** | VM 内 `pytest` / GitHub CI |
+| 单元测试 | **346 例全绿** | VM 内 `pytest` / GitHub CI（2026-11-10 实测）|
 | CI | GitHub Actions **success** | 每次 push 必跑 |
 | 契约路径版本 | 我方 `1.0` | `GET /api/capabilities` |
 | 期望对方契约版本 | `0.4.1` | `assurance_bridge.DEFAULT_EXPECTED_VERSION`（2026-11-10 对齐对方实际版本）|
@@ -188,7 +188,7 @@ postgresql://assurance_user:<密码>@<主机>:5432/intensure_dev
 
 **权限现状（实测，全部就位）**：
 
-- 对方 `assurance_user`：`assurance.*` 14 张逻辑表全套 DML（**107 条授权**）；
+- 对方 `assurance_user`：`assurance.*` 14 张逻辑表（12 普通表 + 2 张分区父表）全套 DML —— **该 schema 内 80 条授权**（`assurance_user` 全库授权共 107 条）；
   `shared.audit_log` 只有 INSERT+SELECT（**append-only 在权限层成立**）；
   `shared.module_health` INSERT/SELECT/UPDATE；`shared.schema_version` 只读
 - 我们 `intensure_user`：能读对方写的 `assurance.*`（联调时用来核对对方落库结果）
@@ -221,7 +221,7 @@ DELETE FROM assurance.diagnoses       WHERE intent_id LIKE 'live-AC-demo-%';
 > 📌 **2026-11-10 对方答复：本轮不接入共享数据库**。
 > 保持 **HTTP 对接 + 各自持久化**，指定表落库的事后续再推进。
 > → 上面这套 DB 通道的验证方式**本轮用不上**，联调时**只看 HTTP**；
-> 但表结构与权限**已经就位**（107 条授权实测通过），后续接入时不用再改代码。
+> 但表结构与权限**已经就位**（`assurance.*` 80 条授权实测通过），后续接入时不用再改代码。
 
 ---
 
