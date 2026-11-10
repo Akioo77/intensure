@@ -309,12 +309,22 @@ Step 11: ActualState 样例输出                            ✓ 字段格式符
 
 ### 5.2 测试文件
 
-| 文件 | 测试数 | 通过率 |
-|------|--------|--------|
-| **test_actual_state_builder.py** | 21 | 8/8 ✓ |
-| **test_reporter.py** | 24 | 9/9 ✓ |
-| **test_recovery.py** | 5 | 5/5 ✓ |
-| `test_osken.sh` | shell 测试 | ✓ |
+> ⚠️ 下表是 **v3.0 时期**的旧清单（当时只有 4 个文件），**已过时**。
+> 现在的实际测试文件有 **20 个**，全量 **338 例**全绿（2026-11-10 实测）。
+>
+> ```bash
+> # 权威环境是 VM（代码挂在宿主上，同源）：
+> cd /home/akioo.guest/intensure && pytest -q
+> ```
+>
+> 完整清单见仓库根目录 `test_*.py`（`ls test_*.py`），
+> CI 跑的列表在 `.github/workflows/ci.yml`。
+> CI 里有一道机械检查：**根目录每个 `test_*.py` 都必须在 CI 列表里**，
+> 漏了会直接失败（2026-11-10 加 —— 之前 `test_env_doctor.py` 漏跑过，
+> 本地全绿但 CI 绿的是另一批用例，属于假绿）。
+>
+> 唯一豁免：`test_recovery.py` —— 手动脚本，import 时就建 Mininet 拓扑，
+> pytest 一收集就报错，本来就不该在 CI 里。
 
 ### 5.3 文档
 
@@ -699,10 +709,109 @@ python3 demo_scripts/cross_machine_check.py --host 10.0.0.9 --user partner --inj
 
 #### 6.8.6 还没做的
 
-- **AgentExec**（生产网禁 SSH 时用的远端 agent 通道）—— 只留了接口，没实现
 - **SNMP / CLI 采集适配器** —— `probe.driver` 目前只有 `mininet` / `icmp` 两个值有意义
 - **真实设备适配**（端口名映射、dpid→设备名）—— 配置字段已预留（`port_label_map` / `dpid_to_switch`），
   但没在真实设备上验证过
+
+> ✅ **AgentExec 已实现**（2026-11-10）—— 生产网禁 SSH 时的远端执行通道，
+> 见下面 §6.9。
+
+---
+
+## 6.9 接入适配层（续）：生产网禁 SSH 时用 AgentExec
+
+### 6.9.1 为什么需要它
+
+园区生产网通常**禁 SSH**：设备不开放 SSH 登录，运维只有受限的带外管理网。
+而采集层的三类动作（探测 / 注故障 / 读 OVS 日志）都要**在目标设备上执行命令** ——
+`SshExec` 一被禁掉就完全用不了。
+
+`AgentExec` 的做法：在设备上跑一个小 HTTP 服务（`device_agent.py`），
+采集层通过 HTTP 让它执行命令。
+
+```
+采集机                                    设备（园区交换机 / 管理机）
+┌──────────┐   HTTP POST /agent/exec   ┌──────────────────┐
+│ 采集层    │ ────────────────────────► │ device_agent.py  │
+│ AgentExec │                           │  白名单 + 认证    │
+└──────────┘ ◄──────────────────────── └──────────────────┘
+              {"returncode":0,"stdout":"..."}
+```
+
+### 6.9.2 安全边界（重点）
+
+一个「HTTP 端点执行命令」的服务，如果做成**任意命令**，等于在网络上开了一个远程 shell。
+所以 `device_agent.py` 做了五层收敛：
+
+| 层 | 机制 | 挡掉什么 |
+|---|---|---|
+| ① 启动即拒绝 | 没 token **不允许启动** | 「默认无认证」的 agent 跑在网络上 |
+| ② 认证 | `X-Intensure-Token` 头 / Bearer | 未授权访问 |
+| ③ 命令白名单 | 只允许 `ovs-ofctl` / `ip` / `tc` / `ping` / `cat` … | `bash` / `curl` / `rm` / `python` 等 |
+| ④ 读写分离 | 默认只读，写命令要 `--allow-write` | 采集机被拿下就能改网络 |
+| ⑤ 路径白名单 | `cat` / `tail` 只能读 `/var/log` `/proc` `/sys/class/net` 等 | 读 `~/.ssh/id_rsa`、`/etc/shadow` |
+
+另外两条实现上的关键点：
+
+- **不走 shell** —— 命令以 argv 数组直接 `subprocess` 执行，不经 `/bin/sh` → 没有 shell 注入面。
+- **按子命令区分读写** —— `ip link show` 是读、`ip link set` 是写（同一个二进制）。
+  若按二进制整体分类，只读模式下连「查一下端口状态」都做不了，agent 就基本不可用了。
+
+### 6.9.3 怎么用
+
+**设备侧**：
+
+```bash
+# token 走环境变量，不写进命令行历史
+export INTENSURE_AGENT_TOKEN="$(openssl rand -hex 24)"
+python3 device_agent.py --host 0.0.0.0 --port 9099
+# 需要注故障时（生产环境不建议）：
+# python3 device_agent.py --host 0.0.0.0 --port 9099 --allow-write
+```
+
+**采集侧**（`env.json` 的 `target` 段）：
+
+```json
+{
+  "target": {
+    "type": "agent",
+    "host": "10.0.0.51",
+    "agent_port": 9099,
+    "token": "",
+    "scheme": "http",
+    "verify_tls": true
+  }
+}
+```
+
+- `token` 留空则读环境变量 `INTENSURE_AGENT_TOKEN`（**推荐**，不落配置文件）。
+- 端口用 `agent_port`（默认 9099），不是 ssh 的 `port`（默认 22）——
+  `target` 段是深合并的，`port` 永远存在，拿它当 agent 端口会连错端口。
+- `scheme: "https"` + `verify_tls: false` 只用于自签证书的内网；
+  生产建议用 `http` 走管理网隔离，或前面挂 TLS 终结。
+
+**调用方不用改** —— `fault_api` / `ovs_logger` / `probe_drivers` 都走 `exec_target` 抽象层，
+换 `target.type` 即可，代码零改动。
+
+### 6.9.4 实测结论（2026-11-10）
+
+跨机实测（采集机 → SSH 隧道 → 设备 agent，真实 TCP 链路）：
+
+| 检查项 | 结果 | 实测输出 |
+|---|---|---|
+| 只读查询（`ip link show`） | ✅ 放行 | `rc=0`，拿到完整接口列表 |
+| 写操作（`ip link set`） | ✅ 拒绝 | `HTTP 403: 写操作在只读模式下被拒绝：ip` |
+| 白名单外命令（`bash -c`） | ✅ 拒绝 | `HTTP 403: 命令不在白名单里：bash` |
+| 错误 token | ✅ 拒绝 | `HTTP 401: token 不匹配` |
+| 敏感路径（`cat /etc/shadow`） | ✅ 拒绝 | `HTTP 403: 路径不在白名单里：/etc/shadow` |
+| `fault_api` 走 agent 通道 | ✅ 正常 | `fault_api target = agent://...`，ping 通 |
+| 命令超时 | ✅ 返回 124 | agent 侧回收子进程后返回 |
+
+测试：`test_device_agent.py`（24 例），全量 338 例绿。
+
+> ⚠️ **一个踩过的坑**：客户端 HTTP 超时必须**大于**命令超时（代码里加了 5 秒宽限）。
+> 否则客户端会先断开，拿不到 agent 侧的结论 —— 「客户端超时」盖掉了「命令超时」这个真实原因，
+> 还会打断 agent 的响应写入（BrokenPipe）。
 
 ---
 
@@ -978,6 +1087,7 @@ while True:
 
 | 版本 | 日期 | 主要变更 |
 |------|------|----------|
+| **v3.23.0** | 2026-11-10 | **AgentExec 远端执行通道**（`device_agent.py`：生产网禁 SSH 时用）+ 5 层安全边界 + 24 例测试 |
 | **v3.22.0** | 2026-11-06 | **接入适配层 `exec_target.py`**（探测/注故障/OVS 日志可落到远端设备）+ 换机环境适配 + 4 个真 bug 修复 |
 | **v3.21.0** | 2026-10-31 | 环境配置化 + 能力自检 + 只读模式 |
 | **v3.0** | 2026-09-03 | Dashboard 清理 + 自愈前后对比重建 + 同学标签修正 |

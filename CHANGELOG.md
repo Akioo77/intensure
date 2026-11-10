@@ -5,9 +5,85 @@
 
 ---
 
+## v3.23.0 - 2026-11-10 AgentExec 远端执行通道 + CI 加固
+
+**触发**：把「不依赖真实环境、不依赖伙伴配合」的事情做完 —— 逐项查代码后，
+发现三处可以独立推进的缺口：**AgentExec 只有接口没实现**（待办里挂着）、
+**CI 从没跑过 `test_env_doctor.py`**（假绿）、**CI 没验证过镜像能构建**。
+
+### 新增
+
+**🔵 AgentExec —— 生产网禁 SSH 时的远端执行通道**
+
+园区生产网通常禁 SSH（设备不开放 SSH 登录，只有受限带外管理网）。
+而采集层的「探测 / 注故障 / 读 OVS 日志」三类动作都要**在设备上执行命令** ——
+`SshExec` 一被禁就完全用不了。
+
+- 设备侧新增 `device_agent.py`：小 HTTP 服务，执行命令并回传结果
+- 采集侧 `exec_target.py` 新增 `AgentExec`，`target.type=agent` 启用
+- `tail_file` 用 `_AgentTail` 适配器模拟 `subprocess.Popen` 的最小接口
+  （`.pid` / `.stdout.readline` / `.terminate` / `.wait`），`ovs_logger` 不用改一行
+
+**5 层安全边界**（这是本版最重要的部分 —— HTTP 执行命令做成任意命令等于开远程 shell）：
+
+| 层 | 机制 | 挡掉什么 |
+|---|---|---|
+| ① | 没 token **不允许启动** | 「默认无认证」的 agent 跑在网络上 |
+| ② | `X-Intensure-Token` / Bearer 认证 | 未授权访问 |
+| ③ | 命令白名单（`ovs-ofctl`/`ip`/`tc`/`ping`/`cat`…） | `bash`/`curl`/`rm`/`python` |
+| ④ | 默认只读，写命令要 `--allow-write` | 采集机被拿下就能改网络 |
+| ⑤ | `cat`/`tail` 路径白名单 | 读 `~/.ssh/id_rsa`、`/etc/shadow` |
+
+另外：**不走 shell**（argv 数组直接 subprocess → 无注入面）；
+**读写按子命令细分**（`ip link show` 读、`ip link set` 写 —— 同一二进制两种语义）。
+
+- **测试**：`test_device_agent.py`（24 例）
+- **实测**：跨机（宿主 → SSH 隧道 → 设备 agent）验证 —— 只读查询放行；
+  写操作 / 白名单外命令 / 错误 token / 敏感路径 **全部拒绝**；
+  `fault_api` 走 agent 通道正常
+- **文档**：`INTEGRATION_GUIDE.md` §6.9
+
+### 修复
+
+**🔴 CI 从没跑过 `test_env_doctor.py`（假绿）**
+
+上个版本新增 `test_env_doctor.py` 时只写进了 commit message，
+忘了加进 `.github/workflows/ci.yml` 的 pytest 列表 → CI 从来没跑过它。
+本地 313 例全绿、CI 也显示绿，但**绿的是另一批用例**。
+
+- 已补进 CI 列表
+- 并加一道**机械检查**：仓库根目录每个 `test_*.py` 都必须在 CI 列表里，
+  漏了直接失败（豁免 `test_recovery.py` —— 手动脚本，pytest 一收集就报错）
+- 这样下次新增测试再忘加，CI 会当场喊出来，而不是绿几个月后才被发现
+
+**🟡 `env_doctor` 的「主机已发现」连「一台都没发现」也判错**
+
+上一版把「少于期望」降级成 warn，但「0 台」还是 error。**这个尾巴本身就是误报源**：
+主机 MAC 是被动学到的，闲置主机被 TTL 淘汰干净就是 0 台 ——
+一晚上没人发包，体检就会说「环境坏了」，而交换机连着、状态新鲜、链路全正常。
+
+- 现在主机数**彻底不作健康判据**（连 0 台也只 warn）
+- 判据是那三项：**交换机已连接 / 状态新鲜度 / 链路发现方式**
+- 测试同步钉住（`test_env_doctor.py` 5 例，含「failed 列表不含主机项」）
+
+### 变更
+
+- **CI 新增 `docker` job**：构建镜像 → 起容器 → 等健康检查 → 验 4 个 API 端点 200。
+  补上待办 §4.2 里 Docker 化唯一标注的缺口（「CI 里的 docker build 验证还没接」）。
+  `PIP_INDEX_URL` 用官方源而非清华镜像 —— GitHub runner 在美国，境外镜像慢且不稳
+- `env_config` 的 `target` 段新增 `agent_port` / `token` / `scheme` / `verify_tls`
+- 新增 `tcp_to_unix.py`（本地开发用：TCP ↔ unix socket 桥）
+
+### 踩过的坑（已写进 DEVELOPMENT_LOG §8.4）
+
+- **Colima 的 VM 在宿主上没有网络接口** —— 宿主连不上 VM 的 `192.168.5.1`，
+  容易误以为是 agent 写错了；宿主进 VM 要走 Lima 的 ssh.config（unix socket 复用）
+- **客户端 HTTP 超时必须大于命令超时** —— 否则客户端先断开，
+  「客户端超时」盖掉「命令超时」这个真实原因，还会打断 agent 的响应写入
+- **按二进制分类读写会把只读 agent 变成废物** —— `ip`/`ovs-ofctl`/`tc` 同一二进制
+  有读/写子命令，按二进制整体分类的话只读模式下连查端口状态都做不了
 
 ---
-
 
 ## v3.22.0 - 2026-11-06 接入适配层 + 换机环境适配 + Dashboard 联调统计面板
 

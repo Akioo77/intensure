@@ -14,19 +14,19 @@ intensure 是意图驱动网络管理系统的**采集层**（Mininet + OVS + os
 
 ---
 
-## 1. 当前状态速览（2026-11-07 实测）
+## 1. 当前状态速览（2026-11-10 实测）
 
 | 指标 | 数值 | 怎么核的 |
 |---|---|---|
-| 代码版本 | v3.22.0 | `git describe --tags` |
+| 代码版本 | v3.23.0 | `git describe --tags` |
 | 自营 REST 端点 | **24 个** | `grep -c "^@app.route" state_server.py` |
 | 其中跨模块契约端点 | 5 个 | `/api/intensure/v1/*`（v3.20.0 新增） |
-| 单元测试 | **309 例全绿** | VM 内 `pytest`（裸跑即可，见 §3.2）；Mac 本地同源测试文件，同样 309 例（2026-11-08 实测） |
-| CI 跑的测试文件 | **18 个** | `.github/workflows/ci.yml` |
+| 单元测试 | **338 例全绿** | VM 内 `pytest`（裸跑即可，见 §3.2）；Mac 本地同源测试文件，同样全绿（2026-11-10 实测） |
+| CI 跑的测试文件 | **20 个** | `.github/workflows/ci.yml`（含 1 个 docker build job） |
 | 代码风格 | `ruff check .` 全过 | 规则 E/W/F，E402 豁免（见 §8） |
 | 环境配置 | `env.json` / `env.yaml`，`$INTENSURE_ENV_FILE` 覆盖 | v3.21.0 起环境差异在配置里，不在代码里 |
-| Python 代码量 | 16294 行（根目录 *.py） | `wc -l *.py` |
-| 提交总数 | 106 个（截至 `42cc863`） | `git log --oneline \| wc -l` |
+| Python 代码量 | 18335 行（根目录 *.py） | `wc -l *.py` |
+| 提交总数 | 122 个（截至 `d1b9603`） | `git log --oneline \| wc -l` |
 | 数据库 | **6 schema / 26 张逻辑表**（物理表 47 张，其中 21 个是分区子表）| 实测口径见下方脚注 |
 | 对外接口方向 | **只 POST 不读 GET** | 见 §6 边界 |
 
@@ -80,6 +80,7 @@ intensure 是意图驱动网络管理系统的**采集层**（Mininet + OVS + os
 | **v3.20.0** | 10-31 | **落地 `/api/intensure/v1/*` 跨模块契约端点**（5 个，旧路径全部保留不破坏现有联调） |
 | **v3.21.0** | 10-31 | **环境配置化 + 能力自检 + 只读模式**（`env_config.py` / `capabilities.py` / `env_doctor.py` / `env.json`；`GET /api/capabilities`）。顺带修 2 个真 bug：状态文件写不进去被静默吞、Python 侧 urllib 也被代理劫持 |
 | **接入适配层**（v3.22.0） | 11-05~06 | **接入适配层 `exec_target.py`** —— 探测 / 注故障 / 读 OVS 日志这三类「本机特权动作」可以落到**远端设备**上（`target.type=ssh`），联调时 Mininet 是对方起的、接真实园区时采集机与设备不同机，都不再需要改代码。采集侧（OpenFlow/LLDP/契约 HTTP/DB）本来就跨机，一行没改。<br>顺带修 3 个真 bug：**端口事件从来没落过库**（包装函数漏传 metadata）、延迟解析取的是 min 不是 avg、`pgrep` 自匹配导致跨机 ping 永远 100% 丢包 |
+| **v3.23.0** | 11-10 | **AgentExec 远端执行通道** —— 生产网禁 SSH 时的替代方案：设备侧跑 `device_agent.py`，采集层用 `target.type=agent` 通过 HTTP 让它执行命令。**5 层安全边界**：无 token 不许启动 / 认证 / 命令白名单 / 只读默认 / 路径白名单，且不走 shell（无注入面）、读写**按子命令**细分（`ip link show` 读、`ip link set` 写）。跨机实测通过（只读查询放行、写操作/白名单外/错误 token/敏感路径全拒）。<br>同批还做了：`env_doctor` 主机数彻底不作健康判据（连「一台都没发现」也只 warn）、CI 补上漏跑的 `test_env_doctor.py` + 加一道「测试文件漏进 CI 就失败」的机械检查 + 接上 `docker build` 验证 job |
 
 ---
 
@@ -221,7 +222,9 @@ python3 env_doctor.py --json     # 机器可读（给脚本用）
 | 事项 | 工作量 | 说明 |
 |---|---|---|
 | Dashboard 单文件 SPA 拆分 | 3-5 天 | 1600+ 行 HTML/JS/CSS 混在一起。**演示是加分项，拆错会伤演示**，建议演示后再做 |
-| Docker 化 | ✅ 已完成 | **2026-11-07 落地**：`Dockerfile` + compose（intensure / postgres / dashboard 三服务）+ `docker/README.md`。⚠️ **还差**：CI 里的 `docker build` 验证还没接 |
+| Docker 化 | ✅ 已完成 | **2026-11-07 落地**：`Dockerfile` + compose（intensure / postgres / dashboard 三服务）+ `docker/README.md`。<br>**2026-11-10 补上 CI 验证**：新增 `docker` job —— 构建镜像 → 起容器 → 等健康检查 → 验 4 个 API 端点 200（本地用同一套命令实测通过） |
+| **AgentExec 远端执行通道** | ✅ 已完成 | **2026-11-10 落地**：生产网禁 SSH 时的替代方案 —— 设备侧 `device_agent.py`（HTTP），采集层 `target.type=agent`。<br>**5 层安全边界**：无 token 不许启动 / token 认证 / 命令白名单 / 默认只读 / 路径白名单；不走 shell（无注入面）；读写**按子命令**细分。<br>跨机实测：只读查询放行，写操作 / 白名单外命令 / 错误 token / 敏感路径（`/etc/shadow`）全部拒绝。24 例测试。文档见 `INTEGRATION_GUIDE.md` §6.9 |
+| **CI 漏跑测试文件** | ✅ 已完成 | **2026-11-10 修复**：新增 `test_env_doctor.py` 时忘了加进 CI 的 pytest 列表 → CI 从没跑过它（本地 313 例全绿，CI 也绿，但绿的是另一批 —— 假绿）。<br>已补上，并加一道机械检查：仓库根目录每个 `test_*.py` 都必须在 CI 列表里，漏了直接失败（豁免 `test_recovery.py`：手动脚本，pytest 一收集就报错） |
 | 真实园区迁移路径文档 | ✅ 已完成 | 2026-11-03 并入 `INTEGRATION_GUIDE.md` §6.7：`env.json` 逐字段对照表、只读模式的真实含义、验证清单、回退方案、6 条风险。
   ⚠️ **同时查出当前最大的接入风险**（见 §7「控制器不受只读模式约束」）|
 | Dashboard 加联调统计面板 | ✅ 已完成 | **2026-11-05 由 OpenClaw 实现（v3.19.1）**：上报成功率 / 故障注入次数 / 环境能力等，数据源 `/metrics` + `/api/capabilities` |
@@ -512,6 +515,32 @@ python3 env_doctor.py --json     # 机器可读（给脚本用）
     而调用方普遍拿它跟字符串 `"true"` 比 → 永远判不出来
     （实测踩过：OVS 采集器的 `running` 是布尔，脚本判成"没在跑"）。
     → `json_get` 现在把布尔输出成 JSON 形式（`true` / `false`）。
+28. **Colima 的 VM 在宿主上没有网络接口 → 宿主连不上 VM 的 IP**（2026-11-10 踩过）——
+    Colima 跑在用户态网络（usernet）上，**宿主没有 vmnet 网卡**，
+    VM 的 `192.168.5.1` 在宿主上 ping 不通、nc 也不通 → 表现为「跨机测试连不上」，
+    很容易误以为是 agent 写错了。
+    → 宿主要进 VM 走 **Lima 的 SSH 配置**（`~/.colima/_lima/colima/ssh.config`），
+    它用 unix socket 复用连接（`ControlPath`），**不是 TCP**；
+    要把 VM 里的端口拉到宿主，用 `ssh -F <配置> -N -L <宿主端口>:<VM内端口> lima-colima`。
+    ⚠️ 注意 `colima ssh` 里 `timeout` 命令不存在（macOS），别照抄 Linux 写法。
+29. **agent 通道：客户端 HTTP 超时必须大于命令超时**（2026-11-10）——
+    客户端设 1 秒、agent 侧命令要 5 秒时，**客户端会先断开** →
+    拿不到 agent 侧的「命令超时(124)」结论，被「客户端超时」盖掉真实原因，
+    还会打断 agent 的响应写入（BrokenPipeError 刷屏）。
+    → `AgentExec.run` 里 HTTP 超时 = 命令超时 + 5 秒宽限；
+    agent 侧 `_send_json` 捕获 `BrokenPipeError` 不再打栈。
+30. **按二进制分类读写会把只读 agent 变成废物**（2026-11-10）——
+    `ip` / `ovs-ofctl` / `tc` 同一个二进制下有读子命令和写子命令
+    （`ip link show` 读、`ip link set` 写）。按二进制整体分类的话，
+    只读模式下连「查端口状态」都做不了 —— 而采集层就是要查状态。
+    → 改成**按子命令**分类：`READ_ONLY_SUBCOMMANDS` 列表 + 两段动词组合键
+    （`tc qdisc show`）+ `WRITE_VERBS`（`set`/`replace`/`add`/`del` …）保守兜底。
+    ⚠️ `ip` 不能单列 `link`（否则 `ip link set` 被当读放行）。
+31. **新增测试文件必须同时进 CI 列表**（2026-11-10）——
+    `test_env_doctor.py` 加进来时忘了加进 `.github/workflows/ci.yml` 的 pytest 列表 →
+    CI 从没跑过它，本地 313 例全绿、CI 也绿，但绿的是另一批用例 —— **假绿**。
+    → CI 已加机械检查：根目录每个 `test_*.py` 都必须在 CI 列表里，漏了直接失败。
+    豁免名单只有 `test_recovery.py`（手动脚本，pytest 一收集就 import mininet 报错）。
 
 ---
 
