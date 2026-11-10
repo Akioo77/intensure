@@ -341,7 +341,7 @@ export ASSURANCE_EXPECTED_VERSION=0.5.0
 ```bash
 ASSURANCE_BASE=https://对方地址 python3 assurance_bridge.py contract
 # 契约版本协商:
-#   期望版本: 0.4.0
+#   期望版本: 0.4.1
 #   对方版本: （未暴露）
 #   状态    : unknown
 #   说明    : ...

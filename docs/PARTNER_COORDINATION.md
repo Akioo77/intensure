@@ -53,7 +53,7 @@ CI 在 GitHub 上全绿、故障注入 → 一致性判定 → 根因诊断 → 
 | 单元测试 | **309 例全绿** | VM 内 `pytest` / GitHub CI |
 | CI | GitHub Actions **success** | 每次 push 必跑 |
 | 契约路径版本 | 我方 `1.0` | `GET /api/capabilities` |
-| 期望对方契约版本 | `0.4.0` | `assurance_bridge.DEFAULT_EXPECTED_VERSION` |
+| 期望对方契约版本 | `0.4.1` | `assurance_bridge.DEFAULT_EXPECTED_VERSION`（2026-11-10 对齐对方实际版本）|
 | 数据库 | 6 schema / 26 逻辑表 / 47 物理表（含 21 个分区子表） | `pg_class` 实测 |
 | 心跳与联调状态 | `shared.module_health` / `shared.schema_version` | 对方可查 |
 
@@ -149,18 +149,21 @@ postgresql://assurance_user:<密码>@<主机>:5432/intensure_dev
 
 请对方在调我们之前先确认两件事：
 
-1. 对方的契约版本是不是 `0.4.0`（我们的期望值）。不是的话告诉我们实际版本，
-   我们改 `ASSURANCE_BASE` 之外的那个期望值即可（不硬编码）。
+1. ~~对方的契约版本是不是 `0.4.0`~~ → **已确认：对方是 `0.4.1`**（2026-11-10），
+   我方期望值已对齐。对方再升版本时用 `ASSURANCE_EXPECTED_VERSION` 临时对齐即可（不硬编码）。
 2. 对方按 §1.3 的 5 个契约路径调我们，返回结构以
    `docs/cross-module-api-contract.md` 为准。
 
-### 2.4 ⚠️ 最容易在第一步就 404 的地方：**接口形态有三套并存**
+### 2.4 ✅ 接口形态已确认：走 **② 套** `/api/v1/assurance/...`（2026-11-10 对方答复）
+
+> **结论**：对方明确答复「保障侧继续使用 ② 套 `/api/v1/assurance/...` 接口，
+> 路径和请求格式不变」。**接口形态这个悬念到此关闭**，我们代码零改动。
 
 2026-11-07 对账时发现：仓库里关于"对方的接口"有**三种写法**，前缀和动词都不一样。
 我们脚本与 `assurance_bridge.py` 用的是**第二套**（2026-09-12 真实联调跑通过的那套），
 但契约文档 §5.4 写的是**第三套**，而我们自带的 mock 原本实现的是**第一套**。
 
-| 动作 | ② 我们脚本 / bridge 实调（09-12 真实联调验证过） | ③ 契约文档 §5.4 的写法 | ① mock 原实现 |
+| 动作 | ② 我们脚本 / bridge 实调（**已确认采用**） | ③ 契约文档 §5.4 的写法 | ① mock 原实现 |
 |---|---|---|---|
 | 注册意图 | `POST /api/v1/assurance/register`<br>body：`{"intent":{...},"deployment_id":...,"devices":[...]}` | `POST /api/assurance/v1/intents/register` | `POST /api/v1/assurance/register-request`<br>body：`{"request":{"child_intents":[...]}}`（注册一棵**意图树**） |
 | 激活 | `POST /api/v1/assurance/activate` | `POST /api/assurance/v1/intents/{id}/activate` | 同② |
@@ -169,14 +172,8 @@ postgresql://assurance_user:<密码>@<主机>:5432/intensure_dev
 | 自愈决策 | `POST /api/v1/assurance/heal?intent_id=` | `POST /api/assurance/v1/healings` | 原先没有（已补） |
 | 验证恢复 | `POST /api/v1/assurance/verify` | `POST /api/assurance/v1/healings/{id}/execute` | 同② |
 
-**请对方明确回答一句**：0.4.0 线上实际暴露的是哪一套？
-- 若是我们用的 **②**（扁平 `/api/v1/assurance/...`）→ 直接联调，无改动
-- 若是契约文档里的 **③**（RESTful `/api/assurance/v1/...`）→ 我们改 `assurance_bridge.py`
-  与 8 个演示脚本的路径（**是改我们，不是改对方**），半天工作量
-- 若注册接口其实是"注册意图树"那种形态（①）→ 我们要改注册请求体结构，
-  同时确认 `child_intent_id` 与 `intent_id` 的对应关系
-
-> 📌 这一条**建议在联调前就问清楚**，别等跑 `01_register_intent.sh` 才发现 404/400。
+> 📌 表格里的 ③ 是**契约文档里的旧写法**，实际联调按 ② 走。
+> 若对方后续改用 ③，那是**改我们**（`assurance_bridge.py` + 8 个演示脚本的路径），不是改对方。
 > mock 三套现在都能响应（2026-11-07 已补齐），所以**我们这边随时能自测**。
 
 ### 2.5 数据库也是联调通道 —— 而且联调前有一件事必须做
@@ -220,6 +217,71 @@ DELETE FROM assurance.diagnoses       WHERE intent_id LIKE 'live-AC-demo-%';
 **联调时怎么验 DB 通道**：对方 check 一次 → `assurance.consistency_checks` 应该多一行
 （`intent_id` = 联调用的那个 intent，不是 `live-AC-demo-*`）；
 我们这边 `GET /api/intensure/v1/state/current` 的 `down_ports` 在故障窗口内非空。
+
+> 📌 **2026-11-10 对方答复：本轮不接入共享数据库**。
+> 保持 **HTTP 对接 + 各自持久化**，指定表落库的事后续再推进。
+> → 上面这套 DB 通道的验证方式**本轮用不上**，联调时**只看 HTTP**；
+> 但表结构与权限**已经就位**（107 条授权实测通过），后续接入时不用再改代码。
+
+---
+
+## 2.6 本轮口径澄清（2026-11-10 对方答复，逐条已对齐）
+
+对方答复里的四条技术澄清，我们**逐条核对过代码并已对齐**。记在这里，
+免得以后再走偏 —— 这几条都是「我方原本理解偏了」的地方。
+
+### 2.6.1 契约版本：对方服务版本 **0.4.1**
+
+- 对方健康接口**已补充 `version` 字段**，当前值 `0.4.1`
+- 我方期望版本已从 `0.4.0` 改成 `0.4.1`（`assurance_bridge.DEFAULT_EXPECTED_VERSION`）
+- ⚠️ **版本字符串不同不会导致停止上报**：我方 `_version_key()` 只取 (major, minor)，
+  `0.4.1` 与 `0.4.0` 同为 `(0, 4)` → 判定 `compatible` → **继续推送**。
+  只有 major/minor 不同才会 `mismatch` 阻断。
+- 对方再升版本时用环境变量 `ASSURANCE_EXPECTED_VERSION` 对齐，**不用改代码**
+
+### 2.6.2 自愈结论：**APPROVED / BLOCKED**（不是 ALLOW）
+
+| | 字段 | 取值 |
+|---|---|---|
+| 自愈结论 | `verdict` | `APPROVED`（批准执行）/ `BLOCKED`（被闸门拦截）|
+| 恢复成功 | **`status`** | `RECOVERED` |
+
+- ⚠️ **`ALLOW` 是另一个字段**：意图里的 `action: "ALLOW"` 是**动作类型**，
+  和自愈结论 `verdict` 完全是两回事，别混。
+- 我方 mock 与演示脚本原本返回/判定 `ALLOW`，**已改成对方口径**（2026-11-10）。
+- 我们的数据库 schema 本来就是 `verdict IN ('APPROVED','BLOCKED','PENDING')`
+  —— 是 mock 和脚本跑偏了，现在一致了。
+
+### 2.6.3 恢复判定：看 **`status=RECOVERED`**，不是 `healing_verdict=SUCCESS`
+
+- 我方 `08_verify_recovered.sh` 原本两个都判、且把 `healing_verdict=SUCCESS` 当主要依据
+- 现在**以 `status` 为唯一判据**；`healing_verdict` 只作展示（对方返回才显示）
+- ⚠️ 对方接口**不返回** `healing_verdict` 时，脚本照样能正确判出恢复成功
+
+### 2.6.4 连续确认次数：由**对方**负责，我方不实现
+
+| 场景 | 确认条件 |
+|---|---|
+| 可达性 / 延迟 / 丢包 | **连续 3 次**异常才确认 |
+| 策略漂移 / 未授权可达 | **单次**即确认 |
+| 恢复 | **连续 2 次**健康 |
+| 性能场景 | **需先配置相应阈值** |
+
+这属于**一致性判定** —— 按 §3.1 的职责边界，那是**对方模块的职责**，
+我方只提供事实（ActualState），不做判定。所以我方代码里**没有也不应该有**这套计数逻辑。
+
+> 📌 我方提供的 ActualState 字段里带 `latency_ms` / `packet_loss` /
+> `expected_flow_present` 等，够对方做这些判定。性能场景要的阈值，
+> 需要对方先配置好 —— **我们这边不用改**，但联调前请确认对方已配。
+
+### 2.6.5 端口名格式：**`s1:eth2`** —— 我方本来就对
+
+我方 `down_ports` 产出 `["s1:eth2"]`、`down_links` 产出 `["s1:eth2-s2:eth3"]`，
+与要求一致，**无需改动**。
+
+### 2.6.6 联调时关掉我方保障 mock
+
+`bash start_all.sh --no-assurance`（对方也明确提了这一条，见 §2.5 ①）。
 
 ---
 
@@ -294,7 +356,7 @@ v3.21.0 起配置层、只读模式、`flow_rule_write` 开关、能力自检（
 | ⚠️ **② 最终环境地址**（正式部署后长期使用） | §2.1，形态（固定域名 / 内网 IP / 服务发现）请先告知，我们据此定接入方式 |
 | 🔴 **接口形态确认（哪一套？）** | §2.4 —— 仓库里有三套写法（路径前缀 + 动词都不一样）。**这是最容易在第一步就 404 的地方**，建议联调前就问清；确认是我们用的那套就不用改代码 |
 | ⚠️ **`assurance_user` 密码回传 + 连通性确认** | 授权已就位，只差密码 |
-| 契约版本号确认（期望 0.4.0） | 不一致我们改期望值，但请先告知 |
+| 契约版本号确认 | ✅ **已确认 0.4.1**（2026-11-10），我方期望值已对齐 |
 | 对方的 intent 语义 / `expected_state` 结构 | 我们构造 ActualState 时要用到 |
 | 对方的自愈 guard 规则（哪几项 evidence 是必需的） | 我们决定采集侧优先采什么 |
 
@@ -328,7 +390,7 @@ bash 04_inject_fault.sh       # 注入故障（link_down/high_latency/packet_los
 bash 05_check_violated.sh     # 推故障态 → 期望 VIOLATED, violations≥1
 bash 06_diagnose.sh           # 根因诊断 → root_causes + confidence
 bash 07_heal.sh               # 自愈 → verdict + guard_checks
-bash 08_verify_recovered.sh   # 验证恢复 → RECOVERED, healing_verdict=SUCCESS
+bash 08_verify_recovered.sh   # 验证恢复 → status=RECOVERED
 bash 99_reset.sh              # 清理
 ```
 
@@ -349,7 +411,7 @@ bash demo_scripts/ovs_attribution_demo.sh  # 证据链演示（故障 → 设备
 
 ```bash
 cd ~/projects/intensure
-python3 mock_assurance_server.py --port 8000 &     # 本地 mock 保障模块（version 0.4.0）
+python3 mock_assurance_server.py --port 8000 &     # 本地 mock 保障模块（version 0.4.1）
 export ASSURANCE_BASE=http://127.0.0.1:8000
 cd demo_scripts
 for s in 01_register_intent 02_collect_state 03_check_baseline 04_inject_fault \
@@ -367,7 +429,7 @@ done
 04 → 故障态已保存
 05 → 检测到违规！状态: VIOLATED（violations 3 条）
 06 → 诊断完成，状态: DIAGNOSING
-07 → 自愈决策: ALLOW
+07 → 自愈决策: APPROVED
 08 → 恢复成功！状态: RECOVERED  ✅ 端到端闭环演示完成！
 ```
 
@@ -381,8 +443,8 @@ done
 - [ ] `03` → `status=ACTIVE`，`violations=[]`
 - [ ] `04`+`05` → `status=VIOLATED`，`violations≥1`
 - [ ] `06` → 返回 `root_causes` + `confidence` + 候选原因 + 修复策略
-- [ ] `07` → 返回 `verdict` 与 `guard_checks`（被闸门拦截也是**预期结果**，不是失败）
-- [ ] `08` → `status=RECOVERED`，`healing_verdict=SUCCESS`
+- [ ] `07` → 返回 `verdict`（**APPROVED / BLOCKED**）与 `guard_checks`（被闸门拦截也是**预期结果**，不是失败）
+- [ ] `08` → `status=RECOVERED`（⚠️ 判据只看 status，不看 healing_verdict）
 - [ ] 我方侧：`intensure.port_events` 里有对应时间戳的 `link_down` / `link_up` 记录
 - [ ] 我方侧：`GET /api/intensure/v1/state/current` 的 `down_ports` 在故障窗口内非空
 

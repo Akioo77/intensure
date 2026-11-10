@@ -554,7 +554,7 @@ curl -s http://127.0.0.1:8080/api/capabilities | python3 -m json.tool
 | `probe.driver` | `"mininet"` | `"icmp"` | 两个分支代码里已有 |
 | `probe.source` / `destination` | `10.0.0.1` / `10.0.0.4` | 园区内可达的源/目的 IP | ⚠️ 源 IP 必须在园区网内，否则探测全失败 |
 | **`allow_fault_injection`** | `true` | **`false`** | 🔴 **接真网必须改**。注故障是 `sudo tc` 打本机网卡，**对着别人的设备发这类命令是事故** |
-| `assurance_expected_version` | `null` | 对方的实际契约版本 | null = 用 `assurance_bridge` 默认值（0.4.0） |
+| `assurance_expected_version` | `null` | 对方的实际契约版本 | null = 用 `assurance_bridge` 默认值（0.4.1） |
 
 **配置路径优先级**：`$INTENSURE_ENV_FILE` > `env.json` > `env.yaml`。
 **删掉 `env.json` 也能跑** —— 会用 `env_config.py` 的内置默认值（= 改造前的行为）。

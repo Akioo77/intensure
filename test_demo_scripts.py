@@ -231,7 +231,99 @@ def test_no_ansi_when_not_tty():
 
 
 # ====================================================================
-# 4. 语法
+# 4. 对方契约口径（2026-11-10 对方答复后钉住）
+# ====================================================================
+
+def _script_text(name):
+    path = os.path.join(DEMO_DIR, name)
+    if not os.path.isfile(path):
+        return None
+    with open(path, 'r', encoding='utf-8') as f:
+        return f.read()
+
+
+def test_heal_script_uses_approved_not_allow():
+    """自愈结论是 APPROVED / BLOCKED，不是 ALLOW。
+
+    ⚠️ ALLOW 是**意图里的 action 字段**的值（意图的动作类型），
+    跟自愈结论 verdict 完全是两个字段，别混。
+    之前 mock 和脚本都用 ALLOW —— 打到对方真实接口时判定会落空。
+    """
+    src = _script_text('07_heal.sh')
+    if src is None:
+        return
+    check('判 APPROVED', '"APPROVED"' in src, src[:200])
+    check('不再判 ALLOW', '"ALLOW"' not in src, '仍有 ALLOW 判定')
+    check('仍判 BLOCKED', '"BLOCKED"' in src, src[:200])
+
+
+def test_verify_script_uses_status_not_healing_verdict():
+    """恢复成功看 status=RECOVERED，不是 healing_verdict=SUCCESS。
+
+    ⚠️ 对方接口**不返回** healing_verdict —— 拿它当判据就永远判不出恢复。
+    """
+    src = _script_text('08_verify_recovered.sh')
+    if src is None:
+        return
+    check('判 RECOVERED', '"RECOVERED"' in src, src[:200])
+    check('不再判 SUCCESS', '"SUCCESS"' not in src, '仍有 SUCCESS 判定')
+    # healing_verdict 允许存在，但只能是展示（不能是 if 的判据）
+    check('healing_verdict 不是判据',
+          'if [[ "$HEALING_VERDICT"' not in src, 'healing_verdict 仍在参与判定')
+
+
+def test_mock_returns_approved_verdict():
+    """mock 的自愈决策返回 APPROVED（与对方真实接口一致）。"""
+    sys.path.insert(0, REPO)
+    try:
+        import mock_assurance_server as mas
+    except Exception:
+        return
+    check('mock 版本是 0.4.1', mas.MOCK_VERSION == '0.4.1', mas.MOCK_VERSION)
+    src = open(os.path.join(REPO, 'mock_assurance_server.py'),
+               encoding='utf-8').read()
+    check("mock 返回 APPROVED", "'APPROVED'" in src, '未找到 APPROVED')
+    check("mock 不再返回 ALLOW", "'ALLOW'" not in src, '仍有 ALLOW')
+
+
+def test_expected_version_is_0_4_1():
+    """期望版本对齐对方 0.4.1。
+
+    ⚠️ 补丁级差异（0.4.1 vs 0.4.0）**不会阻断上报** ——
+    版本判定只取 (major, minor)，同为 (0, 4) → compatible → 继续推送。
+    """
+    sys.path.insert(0, REPO)
+    try:
+        import assurance_bridge as ab
+    except Exception:
+        return
+    check('期望版本是 0.4.1', ab.DEFAULT_EXPECTED_VERSION == '0.4.1',
+          ab.DEFAULT_EXPECTED_VERSION)
+    check('0.4.1 与 0.4.0 同为 (0,4)',
+          ab._version_key('0.4.1') == ab._version_key('0.4.0') == (0, 4),
+          f"{ab._version_key('0.4.1')} {ab._version_key('0.4.0')}")
+
+
+def test_ui_sh_loads_env_before_resolving_base():
+    """ui.sh 必须在解析 BASE **之前**加载 .env。
+
+    ⚠️ 2026-11-10 实测踩过：加载顺序是 ui.sh → .env，
+    而 BASE 在 ui.sh 里解析 → .env 里的 BASE=http://127.0.0.1:8000
+    **从来没生效过**，本地 mock 演示第一步就失败，
+    很容易误判成「mock 坏了」。
+    """
+    src = _script_text(os.path.join('lib', 'ui.sh'))
+    if src is None:
+        return
+    env_at = src.find('.env')
+    base_at = src.find('BASE="${BASE:-')
+    check('ui.sh 里加载了 .env', env_at > 0, f'env_at={env_at}')
+    check('加载 .env 在解析 BASE 之前', 0 < env_at < base_at,
+          f'env_at={env_at} base_at={base_at}')
+
+
+# ====================================================================
+# 5. 语法
 # ====================================================================
 
 def test_all_demo_scripts_syntax_ok():

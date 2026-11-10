@@ -1,7 +1,7 @@
 # intensure + assurance-agent 端到端演示脚本集
 
 > **v2.0 · 2026-09-12**
-> 适配：A 同学的 assurance-agent（17 个接口，0.4.0 版本）
+> 适配：A 同学的 assurance-agent（17 个接口，0.4.1 版本）
 
 ## 🎯 演示目标
 
@@ -144,8 +144,8 @@ bash 05_check_violated.sh      # 单独检查违规
 | 04 | 故障注入 | 构造故障 ActualState | - | `.fault_state.json` |
 | 05 | 检测违规 | 推送故障状态 | `POST /check` → VIOLATED | violations[] |
 | 06 | 根因诊断 | - | `POST /diagnose` → DIAGNOSING | root_causes[] |
-| 07 | 自愈评估 | - | `POST /heal` → guard_checks | healing_intent + verdict |
-| 08 | 验证恢复 | 推送恢复状态 | `POST /verify` → RECOVERED | healing_verdict |
+| 07 | 自愈评估 | - | `POST /heal` → guard_checks | healing_intent + verdict（APPROVED/BLOCKED）|
+| 08 | 验证恢复 | 推送恢复状态 | `POST /verify` → RECOVERED | `status`（判据）|
 
 ### 状态机轨迹
 

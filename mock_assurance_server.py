@@ -20,7 +20,7 @@
   POST /activate            → 标记为 ACTIVE
   POST /check               → 一致性检查，返回 status + violations
   POST /diagnose?intent_id= → 根因诊断（status=DIAGNOSING + root_causes）
-  POST /heal?intent_id=     → 自愈决策（verdict=ALLOW/BLOCKED + guard_checks）
+  POST /heal?intent_id=     → 自愈决策（verdict=APPROVED/BLOCKED + guard_checks）
   POST /verify              → 复测，返回 RECOVERED/FAILED
   GET  /record/{id}         → 查询意图当前状态
   GET  /docs                → 提示（不是真的 Swagger）
@@ -40,8 +40,8 @@ INTENTS_LOCK = threading.Lock()
 # 路径前缀（让 mock 端点跟真实保障模块一致）
 PATH_PREFIXES = ['/api/v1/assurance', '/api/v1', '/api']
 
-# 模拟的对方版本（v3.18.0：用于演示契约版本协商）
-MOCK_VERSION = '0.4.0'
+# 模拟的对方版本（2026-11-10 对齐：对方真实服务版本是 0.4.1）
+MOCK_VERSION = '0.4.1'
 
 
 def strip_prefix(path: str) -> str:
@@ -327,7 +327,16 @@ class MockHandler(BaseHTTPRequestHandler):
             })
 
     def _handle_heal(self, body: dict):
-        """自愈决策（demo_scripts/07_heal.sh 期望 verdict=ALLOW / BLOCKED）。"""
+        """自愈决策。
+
+        ⚠️ 口径对齐（2026-11-10，对方明确）：
+        自愈结论字段是 **APPROVED / BLOCKED**，不是 ALLOW。
+        （注意：别跟意图里的 `action: "ALLOW"` 搞混 —— 那是意图的动作类型，
+          跟自愈结论是两个字段。）
+
+        之前这里返回 ALLOW，是我方 mock 跟对方真实接口对不上：
+        演示脚本对真接口跑时，判定会落到「未知决策」分支。
+        """
         intent_id = body.get('intent_id')
         with INTENTS_LOCK:
             rec = INTENTS_DB.get(intent_id)
@@ -336,7 +345,7 @@ class MockHandler(BaseHTTPRequestHandler):
                 return
             # 闸门：最近一次检查有违例才允许自愈（模拟对方的 guard 规则）
             violated = bool(rec.get('last_violations'))
-            verdict = 'ALLOW' if violated else 'BLOCKED'
+            verdict = 'APPROVED' if violated else 'BLOCKED'
             guard_checks = [
                 {'id': 'G1', 'name': '有未恢复的违例', 'passed': violated},
                 {'id': 'G2', 'name': '目标设备在采集侧可见', 'passed': True},

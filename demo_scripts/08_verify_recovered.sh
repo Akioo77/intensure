@@ -15,7 +15,7 @@ ui_title "Step 8: 验证恢复"
 ui_section "演示流"
 ui_step "POST $BASE/api/v1/assurance/verify"
 ui_step "（携带"已恢复"的 actual_after_heal）"
-ui_step "期望结果: status=RECOVERED, healing_verdict=SUCCESS"
+ui_step "期望结果: status=RECOVERED"
 echo ""
 
 NOW=$(python3 -c "from datetime import datetime, timezone, timedelta; print(datetime.now(timezone(timedelta(hours=8))).isoformat())")
@@ -59,20 +59,29 @@ RESP=$(curl -s -X POST "$BASE/api/v1/assurance/verify" \
 rm -f "$BODY_FILE"
 
 STATUS=$(echo "$RESP" | json_get "status")
+# healing_verdict 只作展示，**不作为恢复判据** ——
+# ⚠️ 口径对齐（2026-11-10，对方明确）：恢复成功看 status=RECOVERED，
+#    不是 healing_verdict=SUCCESS。之前这里两个都判，且把 SUCCESS 当主要依据，
+#    打到对方真实接口时（不返回 healing_verdict）会判不出来。
 HEALING_VERDICT=$(echo "$RESP" | json_get "healing_verdict")
 
 if [[ "$STATUS" == "RECOVERED" ]]; then
   ui_ok "恢复成功！状态: $(status_badge "$STATUS")"
-  ui_kv "healing_verdict" "$HEALING_VERDICT"
-elif [[ "$STATUS" == "VIOLATED" ]] && [[ "$HEALING_VERDICT" == "BLOCKED" ]]; then
-  ui_warn "自愈被闸门拦截（这是设计预期）"
-  ui_step "状态: $(status_badge "$STATUS")"
-  ui_step "healing_verdict: $HEALING_VERDICT"
-  ui_step "如果想看恢复，需要先在 04 注入的故障被实际修复"
+  if [[ -n "$HEALING_VERDICT" ]]; then
+    ui_kv "healing_verdict" "$HEALING_VERDICT"
+  fi
+elif [[ "$STATUS" == "VIOLATED" ]] || [[ "$STATUS" == "HEALING" ]]; then
+  ui_warn "尚未恢复（状态: $STATUS）"
+  ui_step "如果状态是 VIOLATED：需要先在 04 注入的故障被实际修复"
   ui_step "（演示时可以手动调 intensure 的故障恢复接口）"
+  if [[ -n "$HEALING_VERDICT" ]]; then
+    ui_step "healing_verdict: $HEALING_VERDICT"
+  fi
 else
   echo "  状态: $(status_badge "$STATUS")"
-  echo "  healing_verdict: $HEALING_VERDICT"
+  if [[ -n "$HEALING_VERDICT" ]]; then
+    echo "  healing_verdict: $HEALING_VERDICT"
+  fi
 fi
 
 echo "$RESP" > "$SCRIPT_DIR/.verify.json"

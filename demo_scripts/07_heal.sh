@@ -16,14 +16,17 @@ ui_section "演示流"
 ui_step "POST $BASE/api/v1/assurance/heal?intent_id=$INTENT_ID"
 ui_step "assurance-agent 生成 healing_intent（包含 goal + primitives + strategy）"
 ui_step "guard_checks 评估 14 项安全闸门"
-ui_step "返回: verdict=ALLOW 或 BLOCKED（被某闸门拦截）"
+ui_step "返回: verdict=APPROVED 或 BLOCKED（被某闸门拦截）"
 echo ""
 
 RESP=$(curl -s -X POST "$BASE/api/v1/assurance/heal?intent_id=$INTENT_ID" 2>&1)
 
 VERDICT=$(echo "$RESP" | json_get "verdict")
-if [[ "$VERDICT" == "ALLOW" ]]; then
-  ui_ok "自愈决策: ALLOW"
+# ⚠️ 口径对齐（2026-11-10，对方明确）：自愈结论是 APPROVED / BLOCKED。
+#    之前这里判 ALLOW —— 那是**意图里的 action 字段**的值，跟自愈结论不是一回事，
+#    打到对方真实接口时会落到「未知决策」分支。
+if [[ "$VERDICT" == "APPROVED" ]]; then
+  ui_ok "自愈决策: APPROVED"
 elif [[ "$VERDICT" == "BLOCKED" ]]; then
   ui_warn "自愈决策: BLOCKED（被闸门拦截，这是设计预期 — 安全第一）"
 else
@@ -85,6 +88,6 @@ echo "$RESP" > "$SCRIPT_DIR/.heal.json"
 
 echo ""
 echo "${C_BOLD}${C_YELLOW}  🩹 自愈评估完成${C_RESET}"
-echo "${C_DIM}  下一步: 跑 08_verify_recovered.sh 验证（如果 ALLOW）${C_RESET}"
+echo "${C_DIM}  下一步: 跑 08_verify_recovered.sh 验证（如果 APPROVED）${C_RESET}"
 
 ui_pause

@@ -99,7 +99,7 @@
    ▼
 ⑦ heal ──────────────► POST /api/v1/assurance/heal?intent_id=...
                        生成 healing_intent + 14 项 guard_checks
-                       verdict: ALLOW / BLOCKED
+                       verdict: APPROVED / BLOCKED
    │
    ▼
 [自愈意图下发 → 网络修复]
@@ -339,7 +339,7 @@ ASSURANCE_BASE=https://对方地址 python3 assurance_bridge.py contract
 
 ```
 契约版本协商:
-  期望版本: 0.4.0
+  期望版本: 0.4.1
   对方版本: （未暴露）
   状态    : unknown
   说明    : 对方未暴露版本字段，按兼容模式处理（不阻断上报）
@@ -357,11 +357,14 @@ ASSURANCE_BASE=https://对方地址 python3 assurance_bridge.py contract
 | 变量 | 作用 | 默认 | 什么时候用 |
 |---|---|---|---|
 | `ASSURANCE_STRICT_VERSION=1` | **严格模式**：对方没暴露版本字段时也拒绝推送 | 关闭（不阻断）| 对方补上版本字段之后，想收紧 |
-| `ASSURANCE_EXPECTED_VERSION` | 临时对齐对方版本，**不用改代码** | `0.4.0` | 对方升级了版本（见 4.3）|
+| `ASSURANCE_EXPECTED_VERSION` | 临时对齐对方版本，**不用改代码** | `0.4.1` | 对方升级了版本（见 4.3）|
 
 ### 4.3 对方升级版本时怎么办
 
-场景：对方把契约升到了 `0.5.0`，我们这边期望值还停在 `0.4.0` → 状态变 `mismatch` → **阻断上报**。
+场景：对方把契约升到了 `0.5.0`，我们这边期望值还停在 `0.4.1` → 状态变 `mismatch` → **阻断上报**。
+
+> 📌 补丁级差异（如 `0.4.1` vs `0.4.0`）**不会阻断** —— 版本判定只取 (major, minor)，
+> 同为 `(0, 4)` → `compatible` → 继续推送。
 
 **处理办法（不用改代码）**：
 

@@ -177,7 +177,7 @@ curl -s --noproxy '*' http://127.0.0.1:8080/metrics | head   # 看指标
 | 7 | `bash demo_scripts/05_check_violated.sh` | 推送故障状态 → 触发 `VIOLATED` | `violations[]` |
 | 8 | `bash demo_scripts/06_diagnose.sh` | 根因诊断 | `root_causes[]` |
 | 9 | `bash demo_scripts/07_heal.sh` | 自愈（生成 healing_intent + guard_checks 评估）| healing_intent |
-| 10 | `bash demo_scripts/08_verify_recovered.sh` | 验证恢复 → `RECOVERED` | healing_verdict |
+| 10 | `bash demo_scripts/08_verify_recovered.sh` | 验证恢复 → `RECOVERED` | `status` |
 | 11 | `bash demo_scripts/99_reset.sh` | 演示后清理（清环境状态 + 删临时文件）| — |
 
 **两个一键版**（省事，但正式演示别用 —— 看不出每步在干什么）：

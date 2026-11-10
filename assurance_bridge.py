@@ -51,9 +51,12 @@ PROXY_PROBE_TIMEOUT = 3
 # ============================================================
 
 # 我方实现所针对的保障模块版本（契约版本）。
-# 对方升级到 0.5.0 之类时，可用环境变量 ASSURANCE_EXPECTED_VERSION 临时对齐，
-# 不必改代码。
-DEFAULT_EXPECTED_VERSION = '0.4.0'
+# 2026-11-10 对齐：对方真实服务版本是 0.4.1（健康接口已带 version 字段）。
+# ⚠️ 版本号不同**不会**阻断上报 —— _version_key 只取 (major, minor)，
+#    0.4.1 与 0.4.0 同为 (0, 4) → compatible → 继续推送。
+#    这里改成 0.4.1 只是让日志显示「契约版本一致」而不是「补丁级差异」。
+# 对方再升级时，可用环境变量 ASSURANCE_EXPECTED_VERSION 临时对齐，不必改代码。
+DEFAULT_EXPECTED_VERSION = '0.4.1'
 
 # 对方契约里 request 的 schema 版本（翻译模块确认稿 v0.1）
 CONTRACT_SCHEMA_VERSION = '0.1.0'
