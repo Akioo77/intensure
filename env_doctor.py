@@ -192,11 +192,24 @@ def run_checks(state, cfg, age_sec=None):
         + (f"（期望 {exp_sw}）" if exp_sw is not None else '')))
 
     exp_host = expect.get('hosts')
-    checks.append(Check(
-        '主机已发现',
-        exp_host is None or len(hosts) >= int(exp_host),
-        f"发现 {len(hosts)} 台"
-        + (f"（期望 {exp_host}）" if exp_host is not None else '')))
+    # ⚠️ 判定前提要改：**主机的 MAC 是被动学到的** —— 主机不发包，我们就看不到它。
+    #    所以"发现的主机数 >= 期望"这个假设在有 TTL 淘汰之后必然不稳：
+    #    2026-11-08 实测，闲置 15 分钟的主机被淘汰 → 3 台 < 期望 4 台 → 体检误报
+    #    "环境坏了"，其实只是那台主机没说话。
+    #    现在：少于期望但不为 0 → 提示级（说明白原因）；一台都没发现 → 才是真错。
+    if exp_host is None:
+        checks.append(Check('主机已发现', True, '未配置期望值'))
+    elif len(hosts) >= int(exp_host):
+        checks.append(Check('主机已发现', True,
+                            f"发现 {len(hosts)} 台（期望 {exp_host}）"))
+    elif hosts:
+        checks.append(Check(
+            '主机已发现（部分静默）', True,
+            f"发现 {len(hosts)} 台 / 期望 {exp_host} —— 主机的 MAC 是被动学习的，"
+            f"主机不发包就看不到（不是环境坏了）", level='warn'))
+    else:
+        checks.append(Check('主机已发现', False,
+                            f"一台都没发现（期望 {exp_host}）"))
 
     # state['links'] 只记「交换机之间」的链路（LLDP 发现的），
     # 主机连交换机的链路不在里面 —— 所以比对 inter_switch_links。
