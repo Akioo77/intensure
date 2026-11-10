@@ -39,6 +39,22 @@ SCRIPT_DIR="${SCRIPT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 PROJECT_DIR="${PROJECT_DIR:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 export SCRIPT_DIR PROJECT_DIR
 
+# ⚠️ 必须**在解析 BASE 之前**加载 .env（2026-11-10 修复）
+#
+#    之前的加载顺序是：source lib/ui.sh → source .env。
+#    但 BASE 是在 ui.sh 里解析的，等 ui.sh 跑完再加载 .env 就**太晚了** ——
+#    .env 里写的 `BASE=http://127.0.0.1:8000`（本地 mock）**从来没生效过**，
+#    脚本一直去打那个已失效的 cloudflared 默认地址（HTTP 000）。
+#    症状：本地起 mock 后跑 01_register_intent.sh，第一步就报
+#    "register 返回异常" + "fallback 也不可用，演示无法继续"，
+#    很容易误判成「mock 坏了」或「网络不通」。
+#
+#    现在 ui.sh 自己先加载 .env，各脚本后面再 source 一次也无妨（幂等）。
+if [ -f "$SCRIPT_DIR/.env" ]; then
+    # shellcheck disable=SC1091
+    . "$SCRIPT_DIR/.env"
+fi
+
 # 对方保障模块地址。
 #
 # ⚠️ 默认值是**联调测试期的临时隧道地址**（cloudflared 起的临时域名，重启就换），
