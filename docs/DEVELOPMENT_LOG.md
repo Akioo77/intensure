@@ -1,6 +1,6 @@
 # 开发进度与交接文档（intensure 采集模块）
 
-> 最后更新：**2026-11-10**（对应代码版本 v3.24.0）
+> 最后更新：**2026-11-21**（对应代码版本 v3.24.0 之后，HEAD `f571519`）
 > 维护方式：每次做完一轮开发就更新「开发进度」与「待办清单」两节，**以代码实际状态为准**，不写没实现的东西。
 > 本文回答三个问题：现在做到哪了 / 接下来做什么 / 别人怎么接手。
 
@@ -14,19 +14,19 @@ intensure 是意图驱动网络管理系统的**采集层**（Mininet + OVS + os
 
 ---
 
-## 1. 当前状态速览（2026-11-10 实测）
+## 1. 当前状态速览（2026-11-21 实测）
 
 | 指标 | 数值 | 怎么核的 |
 |---|---|---|
 | 代码版本 | v3.24.0 | `git describe --tags` |
-| 自营 REST API 端点 | **24 个** | `grep -c "^@app.route" state_server.py` = 25，扣掉 1 条 `/static/<path:filename>` 静态资源路由 |
+| REST API 端点 | **24 个**（19 自营 + 5 契约） | `grep -c "^@app.route" state_server.py` = 25，扣掉 1 条 `/static/<path:filename>` 静态资源路由 |
 | 其中跨模块契约端点 | 5 个 | `/api/intensure/v1/*`（v3.20.0 新增） |
-| 单元测试 | **346 例全绿** | VM 内 `pytest`（裸跑即可，见 §3.2）；Mac 本地同源测试文件，同样全绿（2026-11-10 实测） |
+| 单元测试 | **346 例** | Linux（VM 内 `pytest` 裸跑即可，见 §3.2 / GitHub CI）**346 全绿**；macOS 本地 **344 通过 + 2 跳过**（2 例是 Linux-only 用例：macOS 无 `ip`、`sudo` 需密码，**跳过带原因**）。2026-11-21 实测 |
 | CI 跑的测试文件 | **20 个**（显式清单） | `.github/workflows/ci.yml`（含 1 个 docker build job）；仓库共 21 个 `test_*.py`，`test_recovery.py` 是手动脚本、CI 排除 |
 | 代码风格 | `ruff check .` 全过 | 规则 E/W/F，E402 豁免（见 §8） |
 | 环境配置 | `env.json` / `env.yaml`，`$INTENSURE_ENV_FILE` 覆盖 | v3.21.0 起环境差异在配置里，不在代码里 |
-| Python 代码量 | 18519 行（根目录 *.py） | `wc -l *.py` |
-| 提交总数 | 135 个（截至 `05e39ae`） | `git log --oneline \| wc -l` |
+| Python 代码量 | 18588 行（根目录 *.py） | `wc -l *.py` |
+| 提交总数 | 137 个（截至 `f571519`） | `git log --oneline \| wc -l` |
 | 数据库 | **6 schema / 26 张逻辑表**（物理表 47 张，其中 21 个是分区子表）| 实测口径见下方脚注 |
 | 对外接口方向 | **只 POST 不读 GET** | 见 §6 边界 |
 
@@ -407,7 +407,7 @@ python3 env_doctor.py --json     # 机器可读（给脚本用）
    但 PATH 里 `python3` 优先命中 `~/.local/bin/python3` = **3.13.18**。
    ⚠️ **环境迁移后 `/usr/local/bin/python3` 已不存在**（2026-11-06 实测），别再按老路径找。
    VM 里的 **3.12.3** 是权威环境；**Mac 上也能跑** —— 用 `~/tools/testenv/bin/pytest`（3.13.18）
-   实测 **346 例全绿**（2026-11-10）。
+   实测 **344 通过 + 2 跳过**（2026-11-21；Mac 上有 2 例 Linux-only 用例按原因跳过，Linux 侧 346 全绿）。
    但 `pip install --user` 会被 PEP 668 拒（externally-managed-environment），**别在 Mac 上临时装包**
 5. `eventlet.monkey_patch()` 必须在 `import os_ken` 之前 → ruff 的 **E402 不能开**
 6. `rsync --delete` 会删掉 alembic 旧 revision → multiple heads
@@ -591,6 +591,16 @@ python3 env_doctor.py --json     # 机器可读（给脚本用）
     → 批量改之前先逐处确认语境，别看到字符串就替换
     （本次 `action: "ALLOW"` 在 `assurance_bridge` / `seed_policies` /
     `01_register_intent.sh` / `integration_demo.py` 里都**不该动**）。
+35. **单测里写死 Linux 专有的路径/命令 → Mac 本地跑出「假失败」**（2026-11-21）——
+    `test_device_agent.py` 里 5 处硬写 `cat /proc/version`，另有 `ip link show` 与 `sudo -n`
+    —— **macOS 没有 `/proc`、没有 `ip`（用 ifconfig）、`sudo` 要密码**，
+    于是 Mac 本地是 **6 failed**，而 CI（ubuntu）全绿。症状极具误导性：
+    看着像「agent 有 bug」，其实只是探针路径不存在。
+    → 改法：**运行时挑探针**（Linux 用 `/proc/version`，macOS 退到 `/var/log` 下的
+    可读非空普通文件，仍落在 agent 的读路径白名单前缀内，安全语义不变）；
+    缺 `ip` / 无免密 sudo → `pytest.skip` **带原因**。
+    💡 **通则**：跨平台仓库里，单测的「探针」必须能换。
+    **静默 `return` 就是假绿** —— 仓库自己的 `check()` 注释里就写过这句话。
 
 ---
 

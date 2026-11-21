@@ -5,6 +5,32 @@
 
 ---
 
+## 未发布（v3.24.0 之后）
+
+### 修复
+
+**🔴 单测里写死 Linux 专有探针 → macOS 本地跑出 6 个假失败**
+
+- `test_device_agent.py` 里 5 处硬写 `cat /proc/version`，另有 `ip link show` 与 `sudo -n`
+- **macOS 没有 `/proc`、没有 `ip`（用 ifconfig）、`sudo` 要密码** → Mac 本地 **6 failed**，CI 全绿
+- 改法：运行时挑探针（Linux `/proc/version`，macOS 退到 `/var/log` 下可读非空普通文件，
+  仍在 agent 读路径白名单前缀内，安全语义不变）；缺 `ip` / 无免密 sudo → `pytest.skip` **带原因**
+- 实测（macOS 本地）：改前 `6 failed, 340 passed` → 改后 `344 passed, 2 skipped`；
+  Linux（VM / GitHub CI）**346 全绿**。agent 的白名单策略与密钥均未改动。
+
+### 文档
+
+- `项目汇报.md` §五 模块清单：**补齐漏列的 9 个模块**（`demo.py` / `demo_full.py` /
+  `verify_live.py` / `tcp_to_unix.py` / `live_env_multi.py` / `live_env_mesh.py` /
+  `topo_simple.py` / `topo_multi.py` / `topo_mesh.py`）→ 共 **42 个条目** =
+  根目录 39 个非测试 `.py` + dashboard 静态三件套，行数绑定 `f571519`
+- 修正「24 自营端点」口径 → **24 个 API 端点 = 19 自营 + 5 契约**（此前 5 个契约端点被重复算进「自营」）；
+  dashboard 行数 927 → **925 行**（HTML 173 + CSS 50 + JS 702）
+- `docs/DEVELOPMENT_LOG.md` §1 / `docs/PARTNER_COORDINATION.md` §1 / `INTEGRATION_GUIDE.md` §5.2
+  的测试数字与日期同步到 2026-11-21 实测
+
+---
+
 ## v3.24.0 - 2026-11-10 联调口径对齐 + 数据库交接文档
 
 **触发**：对方第一次给出**实质性技术答复**（此前一直卡在"契约版本 / 接口形态 /

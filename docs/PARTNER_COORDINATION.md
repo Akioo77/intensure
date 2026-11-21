@@ -9,7 +9,7 @@
 
 ## 0. 一分钟版
 
-我们（采集模块）**已经可联调**：24 个 REST API 端点、5 个跨模块契约端点、346 例单测全绿、
+我们（采集模块）**已经可联调**：24 个 REST API 端点（19 自营 + 5 跨模块契约）、346 例单测（Linux 全绿；macOS 本地 344 通过 + 2 跳过）、
 CI 在 GitHub 上全绿、故障注入 → 一致性判定 → 根因诊断 → 恢复的**完整闭环在本地已跑通**
 （8 步脚本，实测注入故障 → 2 条 VIOLATED → 根因 `port_failure` 置信度 0.85 → 恢复 `pass=2`）。
 
@@ -47,10 +47,10 @@ CI 在 GitHub 上全绿、故障注入 → 一致性判定 → 根因诊断 → 
 
 | 项 | 值 | 怎么核的 |
 |---|---|---|
-| 代码版本 | v3.24.0 | `git describe --tags`（截至 `05e39ae`）|
-| 自营 REST API 端点 | **24 个** | `grep -c "^@app.route" state_server.py` = 25，扣掉 1 条 `/static/<path:filename>` 静态资源路由 |
+| 代码版本 | v3.24.0（+2 提交） | `git describe --tags` = `v3.24.0-2-gf571519` |
+| REST API 端点 | **24 个**（19 自营 + 5 契约） | `grep -c "^@app.route" state_server.py` = 25，扣掉 1 条 `/static/<path:filename>` 静态资源路由 |
 | 其中跨模块契约端点 | **5 个** | `/api/intensure/v1/*` |
-| 单元测试 | **346 例全绿** | VM 内 `pytest` / GitHub CI（2026-11-10 实测）|
+| 单元测试 | **346 例** | VM 内 `pytest` / GitHub CI **346 全绿**；macOS 本地 **344 通过 + 2 跳过**（Linux-only 用例，带原因跳过）。2026-11-21 实测 |
 | CI | GitHub Actions **success** | 每次 push 必跑 |
 | 契约路径版本 | 我方 `1.0` | `GET /api/capabilities` |
 | 期望对方契约版本 | `0.4.1` | `assurance_bridge.DEFAULT_EXPECTED_VERSION`（2026-11-10 对齐对方实际版本）|
@@ -555,7 +555,7 @@ done
 
 ## 8. 联系方式与下一步
 
-- 采集模块代码：`github.com/Akioo77/intensure`（v3.22.0，CI 全绿）
+- 采集模块代码：`github.com/Akioo77/intensure`（v3.24.0，CI 全绿）
 - 契约文档：`docs/cross-module-api-contract.md`（跨模块契约，§4.1/§5.1 端点定义、§5.7 版本协商）
 - 接入手册：`INTEGRATION_GUIDE.md` §6.7（真实园区迁移）、§6.8（接入适配层）
 - 演示讲稿 + Q&A：`docs/speaker_notes.md`
