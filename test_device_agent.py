@@ -12,8 +12,11 @@
 
 运行: python3 -m pytest test_device_agent.py -v
 """
+import glob
 import json
 import os
+import shutil
+import subprocess
 import sys
 import threading
 import time
@@ -23,12 +26,71 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import device_agent          # noqa: E402
 import exec_target           # noqa: E402
 import env_config             # noqa: E402
+import pytest                # noqa: E402
 
 
 def check(name, condition, detail=""):
     """断言。必须真的 raise, 否则 pytest 会把失败当通过（假绿）。"""
     if not condition:
         raise AssertionError(f'FAIL: {name} {detail}')
+
+
+# ====================================================================
+# 平台差异适配（Linux 设备 / macOS 本地）
+# ====================================================================
+# device_agent 的读路径白名单里含 '/proc'（Linux 设备事实），
+# 但 macOS 根本没有 /proc —— 这几用例硬写 `cat /proc/version`
+# 在 Mac 上会因「文件不存在」而假失败（不是 agent 有问题）。
+# 同样：`ip` 命令在 macOS 上不存在（macOS 用 ifconfig），
+# `sudo -n` 在非交互环境下要密码。
+#
+# 处理原则：**跳过要带原因**，不静默 return —— 静默通过就是假绿。
+def _find_probe_file():
+    """找一个「落在读路径白名单前缀下、本机可读、且非空」的普通文件。
+
+    Linux 设备 → /proc/version
+    macOS 本地 → /var/log 下的普通文件（/proc 不存在）
+    都找不到 → None（相关用例 skip）
+    """
+    if os.path.isfile('/proc/version'):
+        return '/proc/version'
+    for prefix in ('/var/log', '/etc/openvswitch', '/etc/ovs', '/run/openvswitch'):
+        for cand in sorted(glob.glob(os.path.join(prefix, '*'))):
+            try:
+                if (os.path.isfile(cand) and os.access(cand, os.R_OK)
+                        and os.path.getsize(cand) > 0):
+                    return cand
+            except OSError:
+                continue
+    return None
+
+
+PROBE_FILE = _find_probe_file()
+
+
+def require_probe_file():
+    """没有可读探针文件 → skip（带原因）。"""
+    if not PROBE_FILE:
+        pytest.skip('本机没有落在读路径白名单内的可读文件（/proc 与 /var/log 都不行）')
+
+
+def require_ip_command():
+    """没有 `ip` 命令 → skip（macOS 没有 iproute2）。"""
+    if shutil.which('ip') is None:
+        pytest.skip('本机没有 ip 命令（macOS 无 iproute2），跳过只读查询端到端用例')
+
+
+def require_passwordless_sudo():
+    """`sudo -n` 不可用 → skip（非交互环境要密码）。"""
+    if shutil.which('sudo') is None:
+        pytest.skip('本机没有 sudo')
+    try:
+        rc = subprocess.run(['sudo', '-n', 'true'],
+                            capture_output=True, timeout=10).returncode
+    except Exception:
+        rc = -1
+    if rc != 0:
+        pytest.skip('sudo 需要密码（非交互环境），跳过 sudo 前缀用例')
 
 
 # ====================================================================
@@ -80,7 +142,7 @@ def test_agent_rejects_wrong_token():
     fx = AgentFixture()
     try:
         c = fx.client(token='wrong-token')
-        r = c.run(['cat', '/proc/version'])
+        r = c.run(['cat', PROBE_FILE or '/proc/version'])
         check('token 不匹配 → 执行失败', not r.ok, str(r.returncode))
         check('失败码是 126（设备侧拒绝）', r.returncode == 126, str(r.returncode))
         check('错误信息里没有泄漏 token', 'wrong-token' not in r.stderr, r.stderr)
@@ -89,10 +151,11 @@ def test_agent_rejects_wrong_token():
 
 
 def test_agent_accepts_correct_token():
+    require_probe_file()
     fx = AgentFixture()
     try:
         c = fx.client()
-        r = c.run(['cat', '/proc/version'])
+        r = c.run(['cat', PROBE_FILE])
         check('正确 token → 成功', r.ok, f'{r.returncode} {r.stderr}')
         check('stdout 正确', len(r.stdout) > 0, r.stdout)
     finally:
@@ -104,10 +167,11 @@ def test_agent_accepts_correct_token():
 # ====================================================================
 
 def test_agent_allows_whitelisted_command():
+    require_probe_file()
     fx = AgentFixture()
     try:
         c = fx.client()
-        r = c.run(['cat', '/proc/version'])
+        r = c.run(['cat', PROBE_FILE])
         check('白名单命令放行', r.ok, r.stderr)
     finally:
         fx.stop()
@@ -131,10 +195,12 @@ def test_agent_rejects_non_whitelisted_command():
 def test_agent_allows_sudo_prefix_for_whitelisted_command():
     """`sudo -n ovs-ofctl ...` 应该放行 —— sudo 本身不在白名单，
     但真正的命令在白名单里。设备侧 agent 通常直接以 root 跑。"""
+    require_probe_file()
+    require_passwordless_sudo()
     fx = AgentFixture()
     try:
         c = fx.client()
-        r = c.run(['sudo', '-n', 'cat', '/proc/version'])
+        r = c.run(['sudo', '-n', 'cat', PROBE_FILE])
         check('sudo 前缀不阻断白名单命令', r.ok, f'{r.returncode} {r.stderr}')
     finally:
         fx.stop()
@@ -210,6 +276,7 @@ def test_write_subcommands_classified_as_write():
 
 def test_read_only_mode_allows_query_but_blocks_mutation():
     """端到端：只读 agent 能查 `ip link show`，但不能 `ip link set`。"""
+    require_ip_command()
     fx = AgentFixture(read_only=True)
     try:
         c = fx.client()
@@ -245,9 +312,10 @@ def test_path_white_list_blocks_sensitive_files():
         for p in ('/etc/shadow', '/root/.ssh/id_rsa', '/home/user/.ssh/id_ed25519'):
             r = c.run(['cat', p])
             check(f'cat {p} 被拒', not r.ok, f'rc={r.returncode}')
-        # 白名单内的路径放行（用一个一定存在的文件）
-        r = c.run(['cat', '/proc/version'])
-        check('cat /proc/version 放行', r.ok, f'{r.returncode} {r.stderr}')
+        # 白名单内的路径放行（用一个本机一定存在、且可读的文件）
+        require_probe_file()
+        r = c.run(['cat', PROBE_FILE])
+        check(f'cat {PROBE_FILE} 放行', r.ok, f'{r.returncode} {r.stderr}')
         check('内容读到了', len(r.stdout) > 0, r.stdout[:80])
     finally:
         fx.stop()
@@ -272,7 +340,7 @@ def test_agent_exec_failure_is_visible_not_silent():
 def test_agent_exec_unreachable():
     """agent 没起来 → 明确报「不可达」，不是假装成功。"""
     c = exec_target.AgentExec(host='127.0.0.1', port=59999, token='x')
-    r = c.run(['cat', '/proc/version'])
+    r = c.run(['cat', PROBE_FILE or '/proc/version'])
     check('不可达 → 失败', not r.ok, str(r.returncode))
     check('错误码 127（命令找不到/连不上）', r.returncode == 127, str(r.returncode))
     check('stderr 讲清了不可达', '不可达' in r.stderr, r.stderr)
@@ -376,10 +444,11 @@ def test_agent_and_ssh_share_same_interface():
 
 def test_end_to_end_exec_via_agent():
     """端到端：起 agent → 客户端执行 → 结果与本地一致。"""
+    require_probe_file()
     fx = AgentFixture(read_only=False)
     try:
         c = fx.client()
-        r = c.run(['cat', '/proc/version'])
+        r = c.run(['cat', PROBE_FILE])
         check('端到端执行成功', r.ok, f'{r.returncode} {r.stderr}')
         check('输出正确', len(r.stdout) > 0, r.stdout)
         check('有耗时统计', r.duration_ms >= 0, str(r.duration_ms))
